@@ -134,6 +134,18 @@ function createToolRouter(db) {
           };
         }
 
+        case 'get_person_summary': {
+          const pid = Number(args.person_id);
+          if (!Number.isFinite(pid) || pid <= 0) {
+            return { error: 'person_id ไม่ถูกต้อง' };
+          }
+          const result = persons.getPersonSummary(currentUser, pid);
+          if (!result.ok) {
+            return { error: 'ไม่พบข้อมูลบุคคลนี้ในพื้นที่ที่รับผิดชอบ' };
+          }
+          return { data: result.data };
+        }
+
         case 'get_overdue_followups': {
           const result = followups.listOverdue(currentUser, { limit: 20, offset: 0 });
           return {
@@ -157,7 +169,11 @@ function createToolRouter(db) {
     }
   }
 
-  return { execute, ALLOWED_TOOLS };
+  return {
+    execute,
+    ALLOWED_TOOLS,
+    getPersonSummary: (user, personId) => persons.getPersonSummary(user, personId),
+  };
 }
 
 module.exports = { createToolRouter, ALLOWED_TOOLS };

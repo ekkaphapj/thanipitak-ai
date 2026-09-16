@@ -10,6 +10,7 @@
     aiAvailable: null,
     aiModel: 'qwen3.5:9b',
     sending: false,
+    selectedPerson: null,
   };
 
   const SUGGESTIONS = [
@@ -184,6 +185,49 @@
     $('#send-btn').disabled = busy;
   }
 
+  // -- Selected-person context (STEP 2.5) -----------------------------
+  // Selection is only an identifier hint. Only context.personId is sent;
+  // the backend re-authorizes every request.
+
+  function renderSelectedPersonBar() {
+    const bar = $('#selected-person-bar');
+    const label = $('#selected-person-label');
+    const text = window.ChatContext.indicatorText(state.selectedPerson);
+    if (text) {
+      bar.classList.remove('hidden');
+      label.textContent = text;
+    } else {
+      bar.classList.add('hidden');
+      label.textContent = '';
+    }
+  }
+
+  function selectPerson(raw) {
+    const sel = window.ChatContext.normalizeSelectedPerson(raw);
+    state.selectedPerson = sel;
+    highlightSelectedRow();
+    renderSelectedPersonBar();
+  }
+
+  function clearSelectedPerson() {
+    state.selectedPerson = window.ChatContext.clearSelection();
+    highlightSelectedRow();
+    renderSelectedPersonBar();
+  }
+
+  function isSelectedRow(item) {
+    if (!state.selectedPerson || !item) return false;
+    return item.person_id === state.selectedPerson.personId;
+  }
+
+  function highlightSelectedRow() {
+    document.querySelectorAll('#chat-messages tr.pl-row').forEach((tr) => {
+      const id = Number(tr.getAttribute('data-person-id'));
+      const on = state.selectedPerson && id === state.selectedPerson.personId;
+      tr.classList.toggle('pl-selected', on);
+    });
+  }
+
   function renderPersonList(wrap, presentation) {
     const ctx = {
       page: presentation.page || 1,
@@ -233,6 +277,14 @@
       (items || []).forEach((raw, i) => {
         const item = normalizeItem(raw);
         const tr = document.createElement('tr');
+        tr.className = 'pl-row';
+        tr.setAttribute('data-person-id', String(item.person_id));
+        tr.setAttribute('data-person-name', item.full_name);
+        tr.title = 'เลือก ' + item.full_name + ' เพื่อสอบถามข้อมูล';
+        if (isSelectedRow(item)) tr.classList.add('pl-selected');
+        tr.addEventListener('click', () => {
+          selectPerson({ personId: item.person_id, displayName: item.full_name });
+        });
         const cells = [
           String((ctx.page - 1) * ctx.pageSize + i + 1),
           item.full_name,
@@ -313,11 +365,69 @@
     return box;
   }
 
+  const VISIT_RESULT_LABEL = {
+    normal: 'ปกติ',
+    progress: 'มีพัฒนาการ',
+    warning: 'น่าห่วง',
+    recovered: 'หายดีแล้ว',
+  };
+  const URINE_RESULT_LABEL = {
+    negative: 'ปกติ (ไม่ม่วง)',
+    positive: 'ม่วง (positive)',
+  };
+
+  function renderPersonSummary(wrap, presentation) {
+    const p = presentation.person || {};
+    const visit = presentation.visitSummary || {};
+    const urine = presentation.urineSummary || {};
+    const followup = presentation.followup || {};
+
+    const name = p.first_name ? p.first_name + ' ' + (p.last_name || '') : '-';
+    const latestVisit = visit.latest_visit;
+    const latestTest = urine.latest_test;
+
+    const rows = [
+      ['ชื่อ', name + (p.synthetic_code ? ' (' + p.synthetic_code + ')' : '')],
+      ['ประเภท', TYPE_AI_LABEL[p.person_type] || p.person_type || '-'],
+      ['สถานะ', STATUS_AI_LABEL[p.status] || p.status || '-'],
+      ['จำนวนครั้งที่เยี่ยม', String(visit.visit_count || 0) + ' ครั้ง'],
+      ['เยี่ยมล่าสุด', latestVisit ? latestVisit.date + ' (ผล: ' + (VISIT_RESULT_LABEL[latestVisit.result] || latestVisit.result) + ')' : 'ยังไม่เคยเยี่ยม'],
+      ['จำนวนครั้งตรวจปัสสาวะ', String(urine.test_count || 0) + ' ครั้ง'],
+      ['ผลบวก (ม่วง)', String(urine.positive_count || 0) + ' ครั้ง'],
+      ['ตรวจล่าสุด', latestTest ? latestTest.date + ' (ผล: ' + (URINE_RESULT_LABEL[latestTest.result] || latestTest.result) + ')' : 'ยังไม่เคยตรวจ'],
+      ['สถานะการติดตาม', followup.overdue ? 'เลยกำหนดติดตาม' : 'ยังไม่เลยกำหนดติดตาม'],
+      ['หมายเหตุล่าสุด', (latestVisit && latestVisit.note) || '-'],
+    ];
+
+    const box = document.createElement('div');
+    box.className = 'person-summary';
+    const title = document.createElement('div');
+    title.className = 'ps-title';
+    title.textContent = 'สรุปข้อมูลบุคคล';
+    box.appendChild(title);
+    for (const [k, v] of rows) {
+      const row = document.createElement('div');
+      row.className = 'ps-row';
+      const kd = document.createElement('span');
+      kd.className = 'ps-key';
+      kd.textContent = k;
+      const vd = document.createElement('span');
+      vd.className = 'ps-val';
+      vd.textContent = v;
+      row.appendChild(kd);
+      row.appendChild(vd);
+      box.appendChild(row);
+    }
+    wrap.appendChild(box);
+    return box;
+  }
+
   async function messageForError(err) {
     const status = err && err.status;
     if (status === 401) {
       state.token = null;
       localStorage.removeItem(TOKEN_KEY);
+      clearSelectedPerson();
       showLogin();
       return 'กรุณาเข้าสู่ระบบใหม่';
     }
@@ -357,7 +467,7 @@
 
     api('/api/ai/chat', {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify(window.ChatContext.buildChatBody(message, state.selectedPerson)),
     })
       .then((json) => {
         if (settled) return;
@@ -378,6 +488,9 @@
 
         if (json.presentation && json.presentation.type === 'person_list') {
           renderPersonList(wrap, json.presentation);
+        }
+        if (json.presentation && json.presentation.type === 'person_summary') {
+          renderPersonSummary(wrap, json.presentation);
         }
 
         const rt = json.meta && json.meta.responseTimeMs;
@@ -444,6 +557,7 @@
       state.token = null;
       state.user = null;
       localStorage.removeItem(TOKEN_KEY);
+      clearSelectedPerson();
       showLogin();
     });
 
@@ -455,7 +569,14 @@
       }
     });
     $('#chat-input').addEventListener('input', autoResizeInput);
-    $('#clear-btn').addEventListener('click', () => renderEmptyState());
+    $('#clear-btn').addEventListener('click', () => {
+      clearSelectedPerson();
+      renderEmptyState();
+    });
+
+    $('#clear-selection-btn').addEventListener('click', () => {
+      clearSelectedPerson();
+    });
 
     if (state.token) {
       try {

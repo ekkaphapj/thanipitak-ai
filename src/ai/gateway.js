@@ -3,6 +3,11 @@ const { AI_TOOLS } = require('./tools');
 const { SYSTEM_PROMPT } = require('./systemPrompt');
 const { hasDBIntent } = require('./intentDetector');
 const { detectFastPathIntent, runFastPath } = require('./fastPath');
+const {
+  detectPersonFactualIntent,
+  validPersonId,
+  runPersonFastPath,
+} = require('./personFastPath');
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3.5:9b';
@@ -172,6 +177,36 @@ function createAIGateway(toolRouter) {
 // station/role/user_id are never accepted here. When confidence is not high,
 // it falls through to the untouched Phase 3.1 gateway (chatWithTools).
 async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, onToolCall, options = {}) {
+  // ── Tier 2: selected-person factual fast path (deterministic, zero Ollama) ──
+  const personId = validPersonId((options.context || {}).personId);
+  const personIntent = personId !== null ? detectPersonFactualIntent(userMessage) : null;
+
+  if (personIntent && !options.forceQwen) {
+    const tier2 = await runPersonFastPath(personIntent, personId, toolRouter, currentUser);
+    if (tier2.ok) {
+      if (onToolCall) {
+        onToolCall({
+          toolName: tier2.toolsUsed[0],
+          toolArgs: tier2.toolArgs,
+          userId: currentUser.id,
+          username: currentUser.username,
+        });
+      }
+      return {
+        answer: tier2.answer,
+        toolsUsed: tier2.toolsUsed,
+        grounded: tier2.grounded,
+        databaseIntent: true,
+        retryCount: 0,
+        fastPath: true,
+        intent: tier2.intent,
+        executionTier: 2,
+        presentation: tier2.presentation || undefined,
+      };
+    }
+  }
+
+  // ── Tier 1: conservative count/list fast path ──
   const fastIntent = detectFastPathIntent(userMessage);
   if (fastIntent && !options.forceQwen) {
     const fastResult = await runFastPath(fastIntent.intent, currentUser, toolRouter, { page: fastIntent.page });
@@ -192,6 +227,7 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
         retryCount: 0,
         fastPath: true,
         intent: fastIntent.intent,
+        executionTier: 1,
         presentation: fastResult.presentation,
       };
     }
@@ -199,6 +235,7 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
 
   const result = await chatWithTools(userMessage, toolRouter, currentUser, onToolCall, options);
   result.fastPath = false;
+  result.executionTier = 3;
   result.presentation = result.presentation || undefined;
   return result;
 }

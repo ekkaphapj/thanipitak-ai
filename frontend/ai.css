@@ -272,6 +272,66 @@ body {
   .pl-table th, .pl-table td { font-size: 11px; padding: 5px 4px; }
 }
 
+/* ---------- SELECTED PERSON CONTEXT (STEP 2.5) ---------- */
+.pl-table tbody tr.pl-row { cursor: pointer; }
+.pl-table tbody tr.pl-row:hover { background: #eff6ff; }
+.pl-table tbody tr.pl-row.pl-selected { background: #dbeafe; }
+.pl-table tbody tr.pl-row.pl-selected td { font-weight: 600; color: var(--primary-dark); }
+
+.selected-person-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 20px 10px;
+  padding: 8px 14px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.selected-person-label { color: var(--primary-dark); font-weight: 600; }
+.clear-selection-btn {
+  padding: 5px 12px;
+  border: 1px solid #bfdbfe;
+  background: var(--card);
+  color: var(--primary-dark);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.clear-selection-btn:hover { background: #fee2e2; color: var(--danger); border-color: var(--danger); }
+
+/* ---------- COMPACT PERSON SUMMARY (rendered by browser, not AI) ---------- */
+.person-summary {
+  margin-top: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 10px;
+  padding: 12px 14px;
+  width: 100%;
+  max-width: 460px;
+}
+.ps-title { font-size: 14px; font-weight: 700; color: var(--primary-dark); margin-bottom: 8px; }
+.ps-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 13px;
+}
+.ps-row:last-child { border-bottom: none; }
+.ps-key { color: var(--muted); flex-shrink: 0; }
+.ps-val { color: var(--text); text-align: right; word-break: break-word; }
+
+@media (max-width: 520px) {
+  .selected-person-bar { margin: 0 12px 8px; flex-direction: column; align-items: flex-start; }
+  .person-summary { max-width: 100%; }
+}
+
 /* typing / busy */
 .typing-row { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; padding: 6px 2px; }
 .spinner {

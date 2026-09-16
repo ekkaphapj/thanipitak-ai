@@ -60,6 +60,11 @@
 
     <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
 
+    <div id="selected-person-bar" class="selected-person-bar hidden">
+      <span id="selected-person-label" class="selected-person-label"></span>
+      <button id="clear-selection-btn" type="button" class="clear-selection-btn">ยกเลิกการเลือก</button>
+    </div>
+
     <footer class="chat-input-area">
       <div class="input-row">
         <textarea id="chat-input" rows="1" placeholder="ถามข้อมูลธานีพิทักษ์..." maxlength="2000"></textarea>
@@ -73,6 +78,7 @@
 
 </div>
 
+<script src="chatContext.js"></script>
 <script src="ai.js"></script>
 </body>
 </html>

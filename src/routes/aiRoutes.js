@@ -3,11 +3,12 @@ const http = require('http');
 const { createToolRouter } = require('../ai/toolRouter');
 const { createAIGateway, OLLAMA_MODEL } = require('../ai/gateway');
 const { createAIAuditor } = require('../repositories/aiAuditRepo');
+const { sanitizePersonContext } = require('../ai/personFastPath');
 
 const MAX_MESSAGE_LENGTH = 2000;
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 
-const FORBIDDEN_BODY_FIELDS = ['station_id', 'allowedStationIds', 'role', 'user_id', 'tool', 'system_prompt', 'sql'];
+const FORBIDDEN_BODY_FIELDS = ['station_id', 'allowedStationIds', 'role', 'user_id', 'province_id', 'permissions', 'tool', 'system_prompt', 'sql'];
 
 function checkOllamaAvailable() {
   return new Promise((resolve) => {
@@ -64,6 +65,7 @@ function createAIRoutes(db, authRequired, options = {}) {
     }
 
     const user = req.user;
+    const context = sanitizePersonContext(req.body.context);
     aiAudit.logChat(user);
 
     const onToolCall = ({ toolName, toolArgs, userId }) => {
@@ -72,7 +74,7 @@ function createAIRoutes(db, authRequired, options = {}) {
 
     const startMs = Date.now();
     try {
-      const result = await gateway.chatWithTools(message.trim(), user, onToolCall);
+      const result = await gateway.chatWithTools(message.trim(), user, onToolCall, { context });
 
       if (!result.answer) {
         return res.status(502).json({
@@ -101,12 +103,14 @@ function createAIRoutes(db, authRequired, options = {}) {
         toolsUsed: (result.toolsUsed || []).map((name) => ({ name })),
         model: OLLAMA_MODEL,
         grounded: result.grounded,
+        executionTier: result.executionTier || null,
         presentation: result.presentation || undefined,
         meta: {
           responseTimeMs: Date.now() - startMs,
           fastPath: !!result.fastPath,
           grounded: result.grounded,
           retryCount: result.retryCount || 0,
+          executionTier: result.executionTier || null,
         },
       });
     } catch (err) {

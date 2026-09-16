@@ -72,25 +72,41 @@ function createAIRoutes(db, authRequired, options = {}) {
 
     const startMs = Date.now();
     try {
-      const { answer, toolsUsed, grounded, retryCount } = await gateway.chatWithTools(message.trim(), user, onToolCall);
+      const result = await gateway.chatWithTools(message.trim(), user, onToolCall);
 
-      if (!answer) {
+      if (!result.answer) {
         return res.status(502).json({
           error: 'AI ไม่สามารถตอบได้ในขณะนี้ เนื่องจากถึงขีดจำกัดการเรียก tool',
           code: 'AI_MAX_TOOL_ITERATIONS',
         });
       }
 
-      aiAudit.logReliability(user, { grounded, retryCount, toolsUsed });
+      aiAudit.logReliability(user, {
+        grounded: result.grounded,
+        retryCount: result.retryCount,
+        toolsUsed: result.toolsUsed,
+      });
+
+      if (result.fastPath) {
+        aiAudit.logFastPath(user, {
+          intent: result.intent,
+          tool: result.toolsUsed[0],
+          grounded: result.grounded,
+          success: true,
+        });
+      }
 
       return res.json({
-        answer,
-        toolsUsed: toolsUsed.map((name) => ({ name })),
+        answer: result.answer,
+        toolsUsed: (result.toolsUsed || []).map((name) => ({ name })),
         model: OLLAMA_MODEL,
+        grounded: result.grounded,
+        presentation: result.presentation || undefined,
         meta: {
           responseTimeMs: Date.now() - startMs,
-          grounded,
-          retryCount: retryCount || 0,
+          fastPath: !!result.fastPath,
+          grounded: result.grounded,
+          retryCount: result.retryCount || 0,
         },
       });
     } catch (err) {

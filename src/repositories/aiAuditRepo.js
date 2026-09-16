@@ -38,6 +38,21 @@ function createAIAuditor(db) {
         new Date().toISOString()
       );
     },
+    logFastPath(user, meta) {
+      stmt.run(
+        user && user.id ? user.id : null,
+        'AI_FAST_PATH',
+        meta.tool || null,
+        JSON.stringify({
+          fastPath: true,
+          intent: meta.intent || null,
+          tool: meta.tool || null,
+          grounded: meta.grounded,
+          success: meta.success,
+        }),
+        new Date().toISOString()
+      );
+    },
   };
 }
 

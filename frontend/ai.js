@@ -21,6 +21,13 @@
   ];
 
   const TYPE_LABEL = { admin: 'ผู้ดูแลระบบ', officer: 'เจ้าหน้าที่', viewer: 'ผู้ตรวจสอบ' };
+  const TYPE_AI_LABEL = { psychiatric: 'จิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า' };
+  const STATUS_AI_LABEL = {
+    registered: 'ขึ้นทะเบียน',
+    active: 'กำลังติดตาม',
+    followup: 'ต้องติดตาม',
+    completed: 'เสร็จสิ้น',
+  };
 
   const $ = (sel) => document.querySelector(sel);
 
@@ -177,6 +184,135 @@
     $('#send-btn').disabled = busy;
   }
 
+  function renderPersonList(wrap, presentation) {
+    const ctx = {
+      page: presentation.page || 1,
+      pageSize: presentation.pageSize || 20,
+      total: presentation.total || 0,
+      filter: presentation.filters || {},
+    };
+
+    const box = document.createElement('div');
+    box.className = 'person-list';
+
+    const header = document.createElement('div');
+    header.className = 'pl-header';
+    const rangeText = document.createElement('div');
+    rangeText.className = 'pl-range';
+    header.appendChild(rangeText);
+    box.appendChild(header);
+
+    const table = document.createElement('table');
+    table.className = 'pl-table';
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    for (const col of ['ลำดับ', 'ชื่อ', 'ประเภท', 'สถานะ', 'ตำบล']) {
+      const th = document.createElement('th');
+      th.textContent = col;
+      hr.appendChild(th);
+    }
+    thead.appendChild(hr);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    table.appendChild(tbody);
+    box.appendChild(table);
+
+    function normalizeItem(u) {
+      return {
+        person_id: u.person_id != null ? u.person_id : u.id,
+        full_name: u.full_name || (u.first_name + ' ' + (u.last_name || '')),
+        person_type: u.person_type,
+        status: u.status,
+        district: u.district,
+        subdistrict: u.subdistrict,
+      };
+    }
+
+    function renderRows(items) {
+      tbody.innerHTML = '';
+      (items || []).forEach((raw, i) => {
+        const item = normalizeItem(raw);
+        const tr = document.createElement('tr');
+        const cells = [
+          String((ctx.page - 1) * ctx.pageSize + i + 1),
+          item.full_name,
+          TYPE_AI_LABEL[item.person_type] || item.person_type || '-',
+          STATUS_AI_LABEL[item.status] || item.status || '-',
+          item.subdistrict || item.district || '-',
+        ];
+        for (const c of cells) {
+          const td = document.createElement('td');
+          td.textContent = c;
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      });
+      if (!items || items.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 5;
+        td.textContent = 'ไม่มีข้อมูล';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+    }
+
+    function updateRange() {
+      const from = (ctx.page - 1) * ctx.pageSize + 1;
+      const to = Math.min(ctx.page * ctx.pageSize, ctx.total);
+      rangeText.textContent = 'แสดง ' + from + '-' + to + ' จาก ' + ctx.total + ' คน';
+      prev.disabled = ctx.page <= 1;
+      next.disabled = ctx.page * ctx.pageSize >= ctx.total;
+    }
+
+    const pager = document.createElement('div');
+    pager.className = 'pl-pager';
+    const prev = document.createElement('button');
+    prev.type = 'button';
+    prev.className = 'pl-btn';
+    prev.textContent = 'ก่อนหน้า';
+    const next = document.createElement('button');
+    next.type = 'button';
+    next.className = 'pl-btn';
+    next.textContent = 'หน้าถัดไป';
+
+    async function fetchPage(page) {
+      ctx.page = page;
+      const qp = new URLSearchParams();
+      qp.set('limit', String(ctx.pageSize));
+      qp.set('offset', String((page - 1) * ctx.pageSize));
+      if (ctx.filter.person_type) qp.set('person_type', ctx.filter.person_type);
+      if (ctx.filter.status) qp.set('status', ctx.filter.status);
+      try {
+        const json = await api('/api/persons?' + qp.toString());
+        if (json.meta && typeof json.meta.total === 'number') ctx.total = json.meta.total;
+        renderRows(json.data || []);
+        updateRange();
+      } catch (_) {
+        ctx.page = page;
+        renderRows([]);
+        updateRange();
+      }
+    }
+
+    prev.addEventListener('click', () => {
+      if (ctx.page > 1) fetchPage(ctx.page - 1);
+    });
+    next.addEventListener('click', () => {
+      if (ctx.page * ctx.pageSize < ctx.total) fetchPage(ctx.page + 1);
+    });
+
+    pager.appendChild(prev);
+    pager.appendChild(next);
+    box.appendChild(pager);
+
+    if (Array.isArray(presentation.items)) renderRows(presentation.items);
+    updateRange();
+
+    wrap.appendChild(box);
+    return box;
+  }
+
   async function messageForError(err) {
     const status = err && err.status;
     if (status === 401) {
@@ -240,12 +376,19 @@
           wrap.insertBefore(tools, wrap.querySelector('.msg-time'));
         }
 
+        if (json.presentation && json.presentation.type === 'person_list') {
+          renderPersonList(wrap, json.presentation);
+        }
+
         const rt = json.meta && json.meta.responseTimeMs;
         if (typeof rt === 'number' && rt >= 0) {
           const seconds = (rt / 1000).toFixed(1);
           const perf = document.createElement('div');
           perf.className = 'msg-tools';
-          perf.textContent = 'ประมวลผลด้วย Local AI • ' + seconds + ' วินาที';
+          const isFast = !!(json.meta && json.meta.fastPath);
+          perf.textContent = isFast
+            ? 'ตรวจสอบข้อมูลจากระบบ • ' + seconds + ' วินาที'
+            : 'ประมวลผลด้วย Local AI • ' + seconds + ' วินาที';
           wrap.appendChild(perf);
         }
         scrollToBottom();

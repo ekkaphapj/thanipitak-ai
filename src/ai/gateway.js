@@ -2,6 +2,7 @@ const http = require('http');
 const { AI_TOOLS } = require('./tools');
 const { SYSTEM_PROMPT } = require('./systemPrompt');
 const { hasDBIntent } = require('./intentDetector');
+const { detectFastPathIntent, runFastPath } = require('./fastPath');
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3.5:9b';
@@ -161,8 +162,53 @@ async function chatWithTools(userMessage, toolRouter, currentUser, onToolCall, o
 function createAIGateway(toolRouter) {
   return {
     chatWithTools: (userMessage, currentUser, onToolCall, options) =>
-      chatWithTools(userMessage, toolRouter, currentUser, onToolCall, options),
+      chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, onToolCall, options),
   };
 }
 
-module.exports = { createAIGateway, chatWithTools, OLLAMA_MODEL, MAX_TOOL_ITERATIONS, DB_RETRY_INSTRUCTION, SAFE_DB_FAILURE };
+// Phase 3.2: conservative deterministic fast path for high-confidence intents.
+// This is a performance shortcut (routing), NOT an authorization layer.
+// Scope always comes from the authenticated backend user; user-supplied
+// station/role/user_id are never accepted here. When confidence is not high,
+// it falls through to the untouched Phase 3.1 gateway (chatWithTools).
+async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, onToolCall, options = {}) {
+  const fastIntent = detectFastPathIntent(userMessage);
+  if (fastIntent && !options.forceQwen) {
+    const fastResult = await runFastPath(fastIntent.intent, currentUser, toolRouter, { page: fastIntent.page });
+    if (fastResult.ok) {
+      if (onToolCall) {
+        onToolCall({
+          toolName: fastResult.toolsUsed[0],
+          toolArgs: fastResult.toolArgs,
+          userId: currentUser.id,
+          username: currentUser.username,
+        });
+      }
+      return {
+        answer: fastResult.answer,
+        toolsUsed: fastResult.toolsUsed,
+        grounded: true,
+        databaseIntent: true,
+        retryCount: 0,
+        fastPath: true,
+        intent: fastIntent.intent,
+        presentation: fastResult.presentation,
+      };
+    }
+  }
+
+  const result = await chatWithTools(userMessage, toolRouter, currentUser, onToolCall, options);
+  result.fastPath = false;
+  result.presentation = result.presentation || undefined;
+  return result;
+}
+
+module.exports = {
+  createAIGateway,
+  chatWithTools,
+  chatWithToolsWithFastPath,
+  OLLAMA_MODEL,
+  MAX_TOOL_ITERATIONS,
+  DB_RETRY_INSTRUCTION,
+  SAFE_DB_FAILURE,
+};

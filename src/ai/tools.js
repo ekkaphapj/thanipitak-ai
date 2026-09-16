@@ -33,6 +33,14 @@ const AI_TOOLS = [
             enum: ['registered', 'active', 'followup', 'completed'],
             description: 'สถานะ: registered (ขึ้นทะเบียน), active (กำลังติดตาม), followup (ต้องติดตาม), completed (เสร็จสิ้น)',
           },
+          limit: {
+            type: 'integer',
+            description: 'จำนวนรายการที่ต้องการต่อหน้า (มากสุด 50 ค่าเริ่มต้น 20)',
+          },
+          offset: {
+            type: 'integer',
+            description: 'จำนวนรายการที่ข้ามไปก่อนหน้า (ใช้แบ่งหน้า เช่น หน้า 2 = offset 20)',
+          },
         },
         required: [],
       },

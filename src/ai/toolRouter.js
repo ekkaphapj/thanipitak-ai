@@ -12,6 +12,9 @@ const ALLOWED_TOOLS = new Set([
   'get_overdue_followups',
 ]);
 
+const SEARCH_PAGE_DEFAULT = 20;
+const SEARCH_PAGE_MAX = 50;
+
 function createToolRouter(db) {
   const persons = createPersonService(db);
   const statistics = createStatisticsService(db);
@@ -34,10 +37,17 @@ function createToolRouter(db) {
           if (args.query) query.search = args.query;
           if (args.person_type) query.person_type = args.person_type;
           if (args.status) query.status = args.status;
-          const result = persons.listPersonsWithSummary(currentUser, { ...query, limit: 20, offset: 0 });
+          const rawLimit = Number.parseInt(args.limit, 10);
+          const rawOffset = Number.parseInt(args.offset, 10);
+          const limit =
+            Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, SEARCH_PAGE_MAX) : SEARCH_PAGE_DEFAULT;
+          const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0;
+          const result = persons.listPersonsWithSummary(currentUser, { ...query, limit, offset });
           return {
             total: result.total,
             returned: result.rows.length,
+            page: Math.floor(offset / limit) + 1,
+            pageSize: limit,
             summary: result.summary,
             persons: result.rows.map((p) => ({
               id: p.id,

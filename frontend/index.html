@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ธานีพิทักษ์ AI Sandbox</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="login-screen" class="screen active">
+  <div class="login-box">
+    <h1>ธานีพิทักษ์ AI Sandbox</h1>
+    <p class="subtitle">ระบบจำลองข้อมูลสำหรับทดสอบเท่านั้น</p>
+    <div id="login-error" class="error-msg hidden"></div>
+    <form id="login-form">
+      <label for="username">ชื่อผู้ใช้</label>
+      <input id="username" type="text" required autocomplete="username">
+      <label for="password">รหัสผ่าน</label>
+      <input id="password" type="password" required autocomplete="current-password">
+      <button type="submit">เข้าสู่ระบบ</button>
+    </form>
+  </div>
+</div>
+
+<div id="app-screen" class="screen hidden">
+  <header>
+    <div class="header-left">
+      <h1 class="header-title">ธานีพิทักษ์ AI Sandbox</h1>
+      <span id="user-info" class="user-info"></span>
+    </div>
+    <div class="header-right">
+      <span id="station-display" class="station-badge"></span>
+      <button id="logout-btn" class="btn-outline" title="ออกจากระบบ">ออกจากระบบ</button>
+    </div>
+  </header>
+
+  <nav id="main-nav">
+    <button class="nav-btn active" data-view="dashboard">แดชบอร์ด</button>
+    <button class="nav-btn" data-view="followups">ต้องติดตาม</button>
+  </nav>
+
+  <main>
+    <!-- DASHBOARD VIEW -->
+    <section id="view-dashboard" class="view active">
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="search-section">
+        <div class="search-row">
+          <input type="text" id="search-input" placeholder="ค้นหาด้วย ชื่อ, นามสกุล, หรือรหัส..." />
+          <select id="filter-type">
+            <option value="">ทุกประเภท</option>
+            <option value="psychiatric">จิตเวช</option>
+            <option value="drug_user">ผู้เสพ</option>
+            <option value="dealer">ผู้ค้า</option>
+          </select>
+          <select id="filter-status">
+            <option value="">ทุกสถานะ</option>
+            <option value="registered">ลงทะเบียนแล้ว</option>
+            <option value="active">อยู่ระหว่างดูแล</option>
+            <option value="followup">ต้องติดตาม</option>
+            <option value="completed">เสร็จสิ้น</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table id="persons-table">
+          <thead>
+            <tr>
+              <th>รหัส</th>
+              <th>ชื่อ-นามสกุล</th>
+              <th>ประเภท</th>
+              <th>สถานะ</th>
+              <th>อำเภอ</th>
+              <th>ตำบล</th>
+              <th>การเยี่ยมล่าสุด</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="persons-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="pagination"></div>
+    </section>
+
+    <!-- FOLLOWUPS VIEW -->
+    <section id="view-followups" class="view hidden">
+      <h2>บุคคลที่ต้องติดตาม (เกินกำหนด)</h2>
+      <div class="table-wrapper">
+        <table id="followups-table">
+          <thead>
+            <tr>
+              <th>รหัส</th>
+              <th>ชื่อ-นามสกุล</th>
+              <th>ประเภท</th>
+              <th>สถานะ</th>
+              <th>กำหนดติดตามทุก (วัน)</th>
+              <th>เข้าเยี่ยมล่าสุด</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="followups-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="followups-pagination"></div>
+    </section>
+  </main>
+
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h2 id="modal-title">รายละเอียดบุคคล</h2>
+        <button id="modal-close" class="btn-close" aria-label="ปิด">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="person-info-section"></div>
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="visits">ประวัติการเยี่ยม</button>
+          <button class="tab-btn" data-tab="urine-tests">ประวัติการตรวจปัสสาวะ</button>
+        </div>
+        <div id="tab-content-visits" class="tab-content active"></div>
+        <div id="tab-content-urine-tests" class="tab-content hidden"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

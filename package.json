@@ -1,0 +1,27 @@
+{
+  "name": "thanipitak-ai-sandbox",
+  "version": "1.0.0",
+  "description": "Thanipithak AI Sandbox - TEST ONLY system with station-scoped API, JWT auth, audit log and dashboard",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.js",
+    "seed": "node --disable-warning=ExperimentalWarning src/db/seed.js",
+    "init-db": "node --disable-warning=ExperimentalWarning scripts/init-db.js",
+    "test": "node --disable-warning=ExperimentalWarning --test"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0"
+  }
+}

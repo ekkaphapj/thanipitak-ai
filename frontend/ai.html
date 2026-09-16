@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ผู้ช่วย AI ธานีพิทักษ์</title>
+  <link rel="stylesheet" href="ai.css">
+</head>
+<body>
+
+<div id="login-screen" class="screen active">
+  <div class="login-box">
+    <h1>ผู้ช่วย AI ธานีพิทักษ์</h1>
+    <p class="subtitle">วิเคราะห์และค้นหาข้อมูลด้วย Local AI</p>
+    <div id="login-error" class="error-msg hidden"></div>
+    <form id="login-form">
+      <label for="username">ชื่อผู้ใช้</label>
+      <input id="username" type="text" required autocomplete="username">
+      <label for="password">รหัสผ่าน</label>
+      <input id="password" type="password" required autocomplete="current-password">
+      <button type="submit">เข้าสู่ระบบ</button>
+    </form>
+  </div>
+</div>
+
+<div id="app-screen" class="app-screen hidden">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-name">ธานีพิทักษ์</div>
+      <div class="brand-sub">AI Assistant</div>
+    </div>
+
+    <nav class="side-nav">
+      <a href="/ai.html" class="side-link active">ผู้ช่วย AI</a>
+      <a href="/" class="side-link">Dashboard</a>
+      <a href="/#persons" class="side-link">บุคคลเฝ้าระวัง</a>
+      <a href="/#followups" class="side-link">ติดตามการเยี่ยม</a>
+      <a href="/#statistics" class="side-link">สถิติ</a>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div id="ai-status" class="ai-status status-unknown">กำลังตรวจสอบ Local AI…</div>
+      <div class="user-box">
+        <div id="user-name" class="user-name">-</div>
+        <div id="user-meta" class="user-meta"></div>
+      </div>
+      <button id="logout-btn" class="logout-btn">ออกจากระบบ</button>
+    </div>
+  </aside>
+
+  <main class="chat-main">
+    <header class="chat-header">
+      <div>
+        <h1 class="chat-title">ผู้ช่วย AI ธานีพิทักษ์</h1>
+        <p class="chat-subtitle">วิเคราะห์และค้นหาข้อมูลด้วย Local AI</p>
+      </div>
+      <div class="model-badge" id="model-badge">qwen3.5:9b</div>
+    </header>
+
+    <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+
+    <footer class="chat-input-area">
+      <div class="input-row">
+        <textarea id="chat-input" rows="1" placeholder="ถามข้อมูลธานีพิทักษ์..." maxlength="2000"></textarea>
+        <button id="send-btn" class="send-btn">ส่ง</button>
+      </div>
+      <div class="input-actions">
+        <button id="clear-btn" class="clear-btn" type="button">ล้างการสนทนา</button>
+      </div>
+    </footer>
+  </main>
+
+</div>
+
+<script src="ai.js"></script>
+</body>
+</html>

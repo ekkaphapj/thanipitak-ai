@@ -20,6 +20,12 @@ function describeRealFilters(filters){
  if(filters.query||filters.search)labels.push(`ชื่อ ${filters.query||filters.search}`);
  return labels;
 }
+function formatRealTypeBreakdown(user,stats){
+ const scope=describeRealScope(user);
+ let answer=`ข้อมูลจริง • ${scope}\nสรุปจำนวนบุคคลแยกตามประเภท: ทั้งหมด ${stats.total} คน • จิตเวช ${stats.psychiatric} คน • ผู้เสพ ${stats.drug_user} คน • ผู้ค้า ${stats.dealer} คน`;
+ if(stats.released)answer+=` • ผู้พ้นโทษ ${stats.released} คน`;
+ return answer;
+}
 function formatRealRegistryAnswer(user,filters,result,{countOnly,page}){
  const scope=describeRealScope(user);
  const filterLabels=describeRealFilters(filters);
@@ -77,6 +83,13 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }while(all.length<total);
   return {data:all,total};
  }
+ async function typeStatistics(req,filters={}){
+  const base={...filters};delete base.person_type;
+  const total=await search(req,base,1);
+  const counts={};
+  for(const type of ['psychiatric','drug_user','dealer','released'])counts[type]=(await search(req,{...base,person_type:type},1)).total;
+  return {total:total.total,psychiatric:counts.psychiatric,drug_user:counts.drug_user,dealer:counts.dealer,released:counts.released};
+ }
  router.get('/ai/status',(req,res)=>res.json({available:true,model:'ข้อมูลจริง • อ่านจาก Supabase'}));
  router.post('/ai/chat',async(req,res)=>{
   const start=Date.now();const message=req.body?.message;
@@ -103,6 +116,10 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    else if(/ผู้เสพ/.test(message))filters.person_type='drug_user';
    else if(/ผู้ค้า/.test(message))filters.person_type='dealer';
    else if(/พ้นโทษ/.test(message))filters.person_type='released';
+   if(intent?.intent==='statistics_summary'){
+    const stats=await typeStatistics(req,filters);
+    return res.json({answer:formatRealTypeBreakdown(req.user,stats),grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_type_count'}],meta:{fastPath:true,ollamaCalls,responseTimeMs:Date.now()-start}});
+   }
    if(ranking){
     const result=await search(req,filters,1,true);
     const column={ตำบล:'tambon',อำเภอ:'amphoe',จังหวัด:'province'}[ranking[1]];

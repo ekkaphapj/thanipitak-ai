@@ -186,8 +186,15 @@ function matchCountIntent(text) {
   return null;
 }
 
+function isTypeBreakdownRequest(text) {
+  if (/แยกตาม(?:ตำบล|อำเภอ|จังหวัด)/u.test(text)) return false;
+  if (/แยกตาม(?:ประเภท|ประเภทบุคคล)/u.test(text)) return true;
+  if (/สรุปจำนวน/u.test(text) && /แยกตาม/u.test(text)) return true;
+  return false;
+}
+
 function matchStatisticsIntent(text) {
-  if (/สรุปจำนวน/.test(text) && /แยกตาม/.test(text)) return 'statistics_summary';
+  if (isTypeBreakdownRequest(text)) return 'statistics_summary';
   return null;
 }
 
@@ -281,4 +288,4 @@ async function runFastPath(intent, currentUser, toolRouter, options = {}) {
   };
 }
 
-module.exports = { detectFastPathIntent, detectSpokenPersonSearch, runFastPath, PAGE_SIZE, MAX_PAGE_SIZE };
+module.exports = { detectFastPathIntent, detectSpokenPersonSearch, isTypeBreakdownRequest, runFastPath, PAGE_SIZE, MAX_PAGE_SIZE };

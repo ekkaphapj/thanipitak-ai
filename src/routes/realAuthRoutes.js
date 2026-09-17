@@ -16,7 +16,18 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
     const rows = await result.json();
     if (!Array.isArray(rows) || rows.length !== 1) return null;
     const p = rows[0];
+    let station = null;
+    if (Number.isSafeInteger(p.station_id)) {
+      const params = new URLSearchParams({ select: 'station_id,station_name,division,province', station_id: `eq.${p.station_id}` });
+      const response = await request(`${url}/rest/v1/stations?${params}`, { headers, signal: AbortSignal.timeout(10000) });
+      if (response.ok) {
+        const stations = await response.json();
+        if (Array.isArray(stations) && stations.length === 1 && stations[0].station_id === p.station_id) station = stations[0];
+      }
+    }
     return { id: p.user_id, username: p.username, name: p.name, stationId: p.station_id,
+      stationName: station?.station_name || null, division: station?.division || null, province: station?.province || null,
+      roleLabel: { Admin: 'ผู้ดูแลระบบ', User: 'เจ้าหน้าที่', External: 'หน่วยงานภายนอก' }[p.user_type] || 'ผู้ใช้งาน',
       role: p.user_type === 'Admin' ? 'admin' : p.user_type === 'User' ? 'officer' : 'viewer', dataSource: 'real' };
   }
   router.post('/login', async (req, res) => {

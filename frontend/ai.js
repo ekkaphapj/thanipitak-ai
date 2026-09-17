@@ -81,6 +81,9 @@
   }
 
   function stationLabel(u) {
+    if (u?.dataSource === 'real') {
+      return [u.stationName || (u.stationId ? 'ไม่พบชื่อสังกัด' : 'ยังไม่ระบุสังกัด'), u.division, u.province && !u.division ? `จังหวัด${u.province}` : null].filter(Boolean).join(' • ');
+    }
     return u && u.stationId ? 'สถานี ' + u.stationId : 'ส่วนกลาง';
   }
 
@@ -88,7 +91,7 @@
     const u = state.user;
     if (!u) return;
     $('#user-name').textContent = u.name || u.username;
-    $('#user-meta').textContent = roleLabel(u.role) + ' • ' + stationLabel(u);
+    $('#user-meta').textContent = (u.roleLabel || roleLabel(u.role)) + ' • ' + stationLabel(u);
     $('#model-badge').textContent = state.aiModel;
   }
 

@@ -22,6 +22,7 @@ temp/
 
 # Test coverage
 coverage/
+output/pdf/*.pdf
 
 # Editor / OS
 .vscode/

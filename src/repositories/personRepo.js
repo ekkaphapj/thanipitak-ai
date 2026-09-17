@@ -1,7 +1,9 @@
 function buildFilter(opts) {
-  const { stationIds, personType, status, district, subdistrict, search } = opts;
+  const { stationIds, personType, status, province, station, district, subdistrict, search } = opts;
   const where = [];
   const params = [];
+
+  if (Array.isArray(stationIds) && stationIds.length === 0) where.push('1=0');
 
   if (stationIds && stationIds.length > 0) {
     const ph = stationIds.map(() => '?').join(',');
@@ -17,13 +19,21 @@ function buildFilter(opts) {
     where.push('p.status = ?');
     params.push(status);
   }
+  if (province) {
+    where.push('s.province LIKE ?');
+    params.push(`%${province}%`);
+  }
+  if (station) {
+    where.push('s.name LIKE ?');
+    params.push(`%${station}%`);
+  }
   if (district) {
-    where.push('p.district = ?');
-    params.push(district);
+    where.push('p.district LIKE ?');
+    params.push(`%${district}%`);
   }
   if (subdistrict) {
-    where.push('p.subdistrict = ?');
-    params.push(subdistrict);
+    where.push('p.subdistrict LIKE ?');
+    params.push(`%${subdistrict}%`);
   }
   if (search) {
     const like = `%${search}%`;
@@ -52,10 +62,10 @@ function listPersons(db, opts) {
   const { whereSql, params } = buildFilter(opts);
 
   const total = db
-    .prepare(`SELECT COUNT(*) AS c FROM persons p ${whereSql}`)
+    .prepare(`SELECT COUNT(*) AS c FROM persons p JOIN stations s ON s.id=p.station_id ${whereSql}`)
     .get(...params).c;
   const rows = db
-    .prepare(`SELECT p.* FROM persons p ${whereSql} ORDER BY p.id DESC LIMIT ? OFFSET ?`)
+    .prepare(`SELECT p.*,r.status AS registry_status,r.custody_status,t.type_name FROM persons p JOIN stations s ON s.id=p.station_id LEFT JOIN people r ON r.id=p.id LEFT JOIN people_type t ON t.type_id=r.type_id ${whereSql} ORDER BY p.id DESC LIMIT ? OFFSET ?`)
     .all(...params, limit, offset);
 
   return { rows, total };
@@ -64,23 +74,33 @@ function listPersons(db, opts) {
 function statusSummary(db, opts) {
   const { whereSql, params } = buildFilter(opts);
   const rows = db
-    .prepare(`SELECT p.status, COUNT(*) AS c FROM persons p ${whereSql} GROUP BY p.status`)
+    .prepare(`SELECT p.status, COUNT(*) AS c FROM persons p JOIN stations s ON s.id=p.station_id ${whereSql} GROUP BY p.status`)
     .all(...params);
   const summary = {};
   for (const row of rows) summary[row.status] = row.c;
   return summary;
 }
 
+function typeSummary(db, opts) {
+  const { whereSql, params } = buildFilter(opts);
+  const rows = db
+    .prepare(`SELECT p.person_type, COUNT(*) AS c FROM persons p JOIN stations s ON s.id=p.station_id ${whereSql} GROUP BY p.person_type`)
+    .all(...params);
+  const summary = {};
+  for (const row of rows) summary[row.person_type] = row.c;
+  return summary;
+}
+
 function getPersonById(db, id) {
-  return db.prepare('SELECT * FROM persons WHERE id = ?').get(id);
+  return db.prepare('SELECT p.*,r.status AS registry_status,r.custody_status,t.type_name FROM persons p LEFT JOIN people r ON r.id=p.id LEFT JOIN people_type t ON t.type_id=r.type_id WHERE p.id = ?').get(id);
 }
 
 function getVisitsForPerson(db, personId) {
   return db
     .prepare(
-      `SELECT v.*, u.name AS officer_name FROM visits v
+      `SELECT v.*, COALESCE(v.visit_status,v.status_condition,v.result) AS result, u.name AS officer_name FROM visits v
        LEFT JOIN users u ON u.id = v.officer_user_id
-       WHERE v.person_id = ? ORDER BY v.visit_date DESC`
+       WHERE v.person_id = ? ORDER BY v.visit_date DESC,COALESCE(v.visit_time,'') DESC,v.id DESC`
     )
     .all(personId);
 }
@@ -117,11 +137,11 @@ function getVisitStatsForPerson(db, personId) {
 
   const latest = db
     .prepare(
-      `SELECT v.visit_date, v.result, v.note, u.name AS officer_name
+      `SELECT v.visit_date, COALESCE(v.visit_status,v.status_condition,v.result) AS result, v.note, u.name AS officer_name
        FROM visits v
        LEFT JOIN users u ON u.id = v.officer_user_id
        WHERE v.person_id = ?
-       ORDER BY v.visit_date DESC, v.id DESC
+       ORDER BY v.visit_date DESC, COALESCE(v.visit_time,'') DESC,v.id DESC
        LIMIT 1`
     )
     .get(personId);
@@ -143,4 +163,4 @@ function getStationPersonIds(db, stationIds) {
     .map((r) => r.id);
 }
 
-module.exports = { buildFilter, listPersons, statusSummary, getPersonById, getVisitsForPerson, getUrineTestsForPerson, getVisitStatsForPerson, getStationPersonIds };
+module.exports = { buildFilter, listPersons, statusSummary, typeSummary, getPersonById, getVisitsForPerson, getUrineTestsForPerson, getVisitStatsForPerson, getStationPersonIds };

@@ -486,6 +486,8 @@ test('list fast path: Thai modifier variants → search_persons + NO Ollama + <1
     const { app, ollamaCalls } = makeSpyApp(ctx);
     const token = await login(app);
     const mustFast = [
+      ['ขอรายชื่อ', 'list_all', 100],
+      ['รายชื่อ', 'list_all', 100],
       ['ขอรายชื่อผู้ค้า', 'list_dealer', 27],
       ['ขอรายชื่อเฉพาะผู้ค้า', 'list_dealer', 27],
       ['ขอรายชื่อผู้ค้าทั้งหมด', 'list_dealer', 27],
@@ -519,6 +521,60 @@ test('list fast path: Thai modifier variants → search_persons + NO Ollama + <1
       assert.ok(res.body.meta.responseTimeMs < 1000, `<1s: ${q} (${res.body.meta.responseTimeMs}ms)`);
     }
     assert.strictEqual(ollamaCalls(), 0, 'NO Ollama call for any list variant');
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test('spoken conditional person search uses authorized filters and rejects incomplete requests', async () => {
+  const ctx = make();
+  try {
+    const { app, ollamaCalls } = makeSpyApp(ctx);
+    const token = await login(app);
+    const sample = ctx.db.prepare(`
+      SELECT p.first_name,p.last_name,p.district,p.subdistrict,s.province,s.name AS station_name
+      FROM persons p JOIN stations s ON s.id=p.station_id
+      WHERE p.station_id=1 AND p.person_type='drug_user' LIMIT 1
+    `).get();
+
+    const cases = [
+      [`ช่วยค้นหาผู้เสพ ในจังหวัด${sample.province} อำเภอ${sample.district}`, 'drug_user'],
+      [`หาคนชื่อ ${sample.first_name} ${sample.last_name}`, null],
+      [`ค้นหาบุคคลในเขต${sample.district} ตำบล${sample.subdistrict}`, null],
+      [`ช่วยหาบุคคลใน สภ.${sample.station_name.replace(/^สภ\.?/u, '')}`, null],
+      [`ช่วยหาผู้เสพที่ต้องติดตาม`, 'drug_user'],
+    ];
+    for (const [message, expectedType] of cases) {
+      const detected = detectFastPathIntent(message);
+      assert.strictEqual(detected && detected.intent, 'search_persons', message);
+      const res = await request(app)
+        .post('/api/ai/chat')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ message })
+        .timeout(5000);
+      assert.strictEqual(res.status, 200, message);
+      assert.strictEqual(res.body.meta.fastPath, true, message);
+      assert.deepStrictEqual(res.body.toolsUsed, [{ name: 'search_persons' }], message);
+      if (expectedType) assert.ok(res.body.presentation.items.every((p) => p.person_type === expectedType), message);
+      // The spy rejects every Ollama call. Allow contention from parallel
+      // integration tests while still proving this never waits for a model.
+      assert.ok(res.body.meta.responseTimeMs < 10000, message);
+    }
+
+    for (const message of ['ค้นหา', 'ช่วยหา', 'หาบุคคล', 'ค้นหาคนชื่อ']) {
+      const detected = detectFastPathIntent(message);
+      assert.strictEqual(detected && detected.intent, 'search_incomplete', message);
+      const res = await request(app)
+        .post('/api/ai/chat')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ message })
+        .timeout(5000);
+      assert.strictEqual(res.status, 200, message);
+      assert.strictEqual(res.body.meta.fastPath, true, message);
+      assert.deepStrictEqual(res.body.toolsUsed, [], message);
+      assert.match(res.body.answer, /^เงื่อนไขค้นหาไม่สมบูรณ์ กรุณาลองใหม่/, message);
+    }
+    assert.strictEqual(ollamaCalls(), 0, 'spoken searches must not call Ollama');
   } finally {
     ctx.cleanup();
   }

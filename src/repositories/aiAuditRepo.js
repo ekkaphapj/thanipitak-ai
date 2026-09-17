@@ -1,6 +1,6 @@
 function sanitizeToolArgs(args = {}) {
   const safe = {};
-  for (const key of ['person_id', 'person_type', 'status']) {
+  for (const key of ['person_id', 'person_type', 'status', 'person_types', 'level', 'page']) {
     if (args[key] !== undefined && args[key] !== null) {
       safe[key] = args[key];
     }

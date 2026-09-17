@@ -2,18 +2,25 @@
   'use strict';
 
   const TOKEN_KEY = 'tp_token';
+  const SOURCE_KEY = 'tp_data_source';
   const CLIENT_TIMEOUT_MS = 180000;
 
   const state = {
     token: localStorage.getItem(TOKEN_KEY) || null,
+    dataSource: localStorage.getItem(SOURCE_KEY) === 'real' ? 'real' : 'test',
     user: null,
     aiAvailable: null,
     aiModel: 'qwen3.5:9b',
     sending: false,
     selectedPerson: null,
+    pendingSummaryReport: null,
   };
 
   const SUGGESTIONS = [
+    'มีใครบ้างที่ต้องเฝ้าระวัง พร้อมเหตุผล',
+    'ผู้ป่วยจิตเวชที่เสี่ยงสูงมีใครบ้าง เพราะอะไร',
+    'ผู้เสพคนไหนต้องจับตา',
+    'ผู้พ้นโทษที่เสี่ยงสูงมีใครบ้าง',
     'ในพื้นที่ของฉันมีบุคคลทั้งหมดกี่คน',
     'มีผู้ป่วยจิตเวชกี่คน',
     'หาผู้เสพในพื้นที่ของฉัน',
@@ -22,7 +29,7 @@
   ];
 
   const TYPE_LABEL = { admin: 'ผู้ดูแลระบบ', officer: 'เจ้าหน้าที่', viewer: 'ผู้ตรวจสอบ' };
-  const TYPE_AI_LABEL = { psychiatric: 'จิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า' };
+  const TYPE_AI_LABEL = { psychiatric: 'จิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'ผู้พ้นโทษ' };
   const STATUS_AI_LABEL = {
     registered: 'ขึ้นทะเบียน',
     active: 'กำลังติดตาม',
@@ -39,6 +46,9 @@
   }
 
   function showApp() {
+    $('#source-test').setAttribute('aria-pressed', String(state.dataSource === 'test'));
+    $('#source-real').setAttribute('aria-pressed', String(state.dataSource === 'real'));
+    $('#source-status').textContent = state.dataSource === 'real' ? 'ข้อมูลจริง • อ่านทะเบียนตามสิทธิ์ผู้ใช้ • รายงานและเฝ้าระวังยังไม่เปิดใช้' : 'ข้อมูลสังเคราะห์สำหรับทดลองใช้งาน';
     $('#login-screen').classList.remove('active');
     $('#login-screen').classList.add('hidden');
     $('#app-screen').classList.remove('hidden');
@@ -47,6 +57,7 @@
 
   async function api(path, opts = {}) {
     const headers = { ...(opts.headers || {}) };
+    headers['X-Data-Source'] = state.dataSource;
     if (state.token) headers.Authorization = 'Bearer ' + state.token;
     if (opts.body) headers['Content-Type'] = 'application/json';
     const res = await fetch(path, { ...opts, headers });
@@ -118,9 +129,9 @@
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     const h2 = document.createElement('h2');
-    h2.textContent = 'ถามอะไรก็ได้เกี่ยวกับข้อมูลธานีพิทักษ์';
+    h2.textContent = 'วันนี้ต้องการทราบข้อมูลอะไร?';
     const p = document.createElement('p');
-    p.textContent = 'ตัวอย่างคำถามที่ถามได้';
+    p.textContent = 'พิมพ์ภาษาพูดได้เลย หรือเลือกตัวอย่างด้านล่างเพื่อเริ่มต้น';
     const list = document.createElement('div');
     list.className = 'suggest-list';
     for (const q of SUGGESTIONS) {
@@ -183,6 +194,26 @@
   function setBusy(busy) {
     state.sending = busy;
     $('#send-btn').disabled = busy;
+  }
+
+  function isStartOverCommand(message) {
+    const text = String(message == null ? '' : message)
+      .replace(/[?？!！.。]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ)$/g, '')
+      .trim();
+    return text === 'เริ่มใหม่';
+  }
+
+  function resetConversation() {
+    clearSelectedPerson();
+    state.pendingSummaryReport = null;
+    removeTypingIndicator();
+    $('#chat-input').value = '';
+    autoResizeInput();
+    renderEmptyState();
+    $('#chat-input').focus();
   }
 
   // -- Selected-person context (STEP 2.5) -----------------------------
@@ -365,6 +396,175 @@
     return box;
   }
 
+  function renderPersonCandidates(wrap, presentation) {
+    const box = document.createElement('div');
+    box.className = 'person-candidates';
+    const title = document.createElement('div');
+    title.className = 'pc-title';
+    title.textContent = 'เลือกบุคคลที่ต้องการ (พบหลายคนชื่อตรงกัน)';
+    box.appendChild(title);
+    const list = document.createElement('div');
+    list.className = 'pc-list';
+    const candidates = (presentation && presentation.candidates) || [];
+    for (const c of candidates) {
+      const row = document.createElement('div');
+      row.className = 'pc-row';
+      const info = document.createElement('div');
+      info.className = 'pc-info';
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'pc-name';
+      nameSpan.textContent = c.displayName || '';
+      const tagSpan = document.createElement('span');
+      tagSpan.className = 'pc-tag';
+      const pType = TYPE_AI_LABEL[c.personType] || c.personType || '';
+      const sType = STATUS_AI_LABEL[c.status] || c.status || '';
+      tagSpan.textContent = pType + (pType && sType ? ' • ' : '') + sType;
+      info.appendChild(nameSpan);
+      info.appendChild(tagSpan);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pc-btn';
+      btn.textContent = 'เลือก';
+      btn.addEventListener('click', () => {
+        selectPerson({ personId: c.personId, displayName: c.displayName });
+        appendMessage('assistant', 'เลือกแล้ว: ' + c.displayName + ' — พิมพ์คำถามต่อ เช่น "คนนี้มีประวัติอย่างไร"');
+      });
+      row.appendChild(info);
+      row.appendChild(btn);
+      list.appendChild(row);
+    }
+    if (candidates.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'pc-empty';
+      empty.textContent = 'ไม่พบผู้ที่ตรงกัน';
+      list.appendChild(empty);
+    }
+    box.appendChild(list);
+    wrap.appendChild(box);
+    return box;
+  }
+
+  function renderMonitoring(wrap, presentation) {
+    const box=document.createElement('div');box.className='person-candidates';
+    const items=presentation.items||[];
+    for(const person of items) {
+      const row=document.createElement('div');row.className='pc-row';
+      const label=document.createElement('span');label.textContent=`${person.displayName} • ${person.level}`;
+      const btn=document.createElement('button');btn.type='button';btn.className='pc-btn';btn.textContent='เลือกบุคคล';
+      btn.addEventListener('click',()=>selectPerson({personId:person.personId,displayName:person.displayName}));
+      row.append(label,btn);box.appendChild(row);
+    }
+    // A one-person result is unambiguous. Keep it as the chat context so a
+    // natural follow-up such as “เพราะอะไร” answers that person directly.
+    if (items.length === 1) {
+      const person = items[0];
+      selectPerson({ personId: person.personId, displayName: person.displayName });
+    }
+    if(presentation.total>presentation.page* presentation.pageSize){
+      const next=document.createElement('button');next.type='button';next.className='suggest-btn';next.textContent='ถามหน้าถัดไป';
+      next.addEventListener('click',()=>{
+        const f=presentation.filters||{};
+        const types=(f.person_types||[]).map(t=>t==='psychiatric'&&f.psychiatric_subtype?(f.psychiatric_subtype==='drug'?'จิตเวชยาเสพติด':'จิตเวชอื่นๆ'):TYPE_AI_LABEL[t]||t).join(' และ ')+(f.most_wanted?' Most Wanted':'');
+        $('#chat-input').value=`${types} ${f.level==='high'?'เสี่ยงสูง':f.level==='watch'?'เฉพาะเฝ้าระวัง':'เฝ้าระวังหรือเสี่ยงสูง'} มีใครบ้าง หน้า ${presentation.page+1}`;
+        $('#chat-input').focus();
+      });box.appendChild(next);
+    }
+    wrap.appendChild(box);
+  }
+
+  function renderMonitoringLocationSummary(wrap, presentation) {
+    const groupBy = (presentation.filters || {}).group_by;
+    const label = { province: 'จังหวัด', station: 'สภ.', district: 'อำเภอ', subdistrict: 'ตำบล' }[groupBy] || 'พื้นที่';
+    const box = document.createElement('div'); box.className = 'person-candidates';
+    for (const item of (presentation.locationSummary || [])) {
+      const row = document.createElement('div'); row.className = 'pc-row';
+      const locationName = String(item.name || '').startsWith(label) ? item.name : label + item.name;
+      const info = document.createElement('span'); info.textContent = `${locationName} • ${item.count} คน`;
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'pc-btn'; button.textContent = 'ดูรายชื่อ';
+      button.addEventListener('click', () => sendMessage(`${TYPE_AI_LABEL[(presentation.filters || {}).person_types?.[0]] || 'บุคคล'} ใน${locationName} ที่${(presentation.filters || {}).level === 'high' ? 'เสี่ยงสูง' : 'ต้องเฝ้าระวัง'}มีใครบ้าง`));
+      row.append(info, button); box.appendChild(row);
+    }
+    wrap.appendChild(box);
+  }
+
+  function renderSummaryChoices(wrap, presentation) {
+    const box = document.createElement('div');
+    box.className = 'person-candidates';
+    const title = document.createElement('div');
+    title.className = 'pc-title';
+    title.textContent = 'เลือกสิ่งที่ต้องการสรุป';
+    box.appendChild(title);
+    for (const choice of (presentation.choices || [])) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'suggest-btn'; button.textContent = choice.label;
+      button.addEventListener('click', () => sendMessage(choice.message));
+      box.appendChild(button);
+    }
+    const locations = presentation.locations || {};
+    const groups = [
+      ['สภ.', 'stations', (value) => `สรุปจำนวนบุคคลใน สภ.${value}`],
+      ['อำเภอ', 'districts', (value) => `สรุปจำนวนบุคคลในอำเภอ${value}`],
+      ['ตำบล', 'subdistricts', (value) => `สรุปจำนวนบุคคลในตำบล${value}`],
+    ];
+    for (const [label, key, messageFor] of groups) {
+      const values = locations[key] || [];
+      if (!values.length) continue;
+      const select = document.createElement('select');
+      const placeholder = document.createElement('option');
+      placeholder.value = ''; placeholder.textContent = `เลือก${label}`; select.appendChild(placeholder);
+      for (const value of values) {
+        const option = document.createElement('option'); option.value = value; option.textContent = value; select.appendChild(option);
+      }
+      select.addEventListener('change', () => { if (select.value) sendMessage(messageFor(select.value)); });
+      box.appendChild(select);
+    }
+    wrap.appendChild(box);
+  }
+
+  function renderSummaryResult(wrap, presentation) {
+    state.pendingSummaryReport = presentation.reportRequest || null;
+    const box = document.createElement('div');
+    box.className = 'person-candidates';
+    const create = document.createElement('button');
+    create.type = 'button'; create.className = 'suggest-btn'; create.textContent = 'สร้างรายงาน PDF';
+    create.addEventListener('click', () => createSummaryPdf());
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button'; dismiss.className = 'suggest-btn'; dismiss.textContent = 'ไม่ต้องการรายงาน';
+    dismiss.addEventListener('click', () => { state.pendingSummaryReport = null; appendMessage('assistant', 'รับทราบ จะไม่สร้างรายงาน PDF'); });
+    box.append(create, dismiss); wrap.appendChild(box);
+  }
+
+  function isPdfAffirmative(message) {
+    return /^(?:ได้|ได้ครับ|ได้ค่ะ|ใช่|ใช่ครับ|ใช่ค่ะ|เอา|เอาเลย|สร้างเลย|ทำเลย)$/u.test(String(message || '').trim());
+  }
+  function isPdfNegative(message) {
+    return /^(?:ไม่|ไม่เอา|ไม่ต้อง|ไม่ต้องการ|ยังไม่)$/u.test(String(message || '').trim());
+  }
+  async function createSummaryPdf() {
+    const reportRequest = state.pendingSummaryReport;
+    if (!reportRequest || state.sending) return;
+    setBusy(true);
+    try {
+      const response = await fetch('/api/reports/summary.pdf', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + state.token, 'Content-Type': 'application/json', 'X-Data-Source': state.dataSource },
+        body: JSON.stringify({ reportRequest }),
+      });
+      if (!response.ok) throw new Error('สร้างรายงานไม่สำเร็จ');
+      const url = URL.createObjectURL(await response.blob());
+      const wrap = appendMessage('assistant', 'สร้างรายงาน PDF แล้ว');
+      const link = document.createElement('a');
+      link.href = url; link.download = 'thanipitak-summary.pdf'; link.textContent = 'ดาวน์โหลดรายงาน PDF';
+      link.className = 'suggest-btn'; wrap.querySelector('.bubble').appendChild(document.createElement('br')); wrap.querySelector('.bubble').appendChild(link);
+      state.pendingSummaryReport = null;
+    } catch (_) {
+      appendMessage('assistant', 'สร้างรายงาน PDF ไม่สำเร็จ กรุณาลองใหม่', { error: true });
+    } finally {
+      setBusy(false);
+      $('#chat-input').focus();
+    }
+  }
+
   const VISIT_RESULT_LABEL = {
     normal: 'ปกติ',
     progress: 'มีพัฒนาการ',
@@ -388,8 +588,8 @@
 
     const rows = [
       ['ชื่อ', name + (p.synthetic_code ? ' (' + p.synthetic_code + ')' : '')],
-      ['ประเภท', TYPE_AI_LABEL[p.person_type] || p.person_type || '-'],
-      ['สถานะ', STATUS_AI_LABEL[p.status] || p.status || '-'],
+      ['ประเภท', p.type_name || TYPE_AI_LABEL[p.person_type] || p.person_type || '-'],
+      ['สถานะ', p.registry_status ? `สีทะเบียน ${p.registry_status}${p.custody_status?' / '+p.custody_status:''}` : p.custody_status || STATUS_AI_LABEL[p.status] || p.status || '-'],
       ['จำนวนครั้งที่เยี่ยม', String(visit.visit_count || 0) + ' ครั้ง'],
       ['เยี่ยมล่าสุด', latestVisit ? latestVisit.date + ' (ผล: ' + (VISIT_RESULT_LABEL[latestVisit.result] || latestVisit.result) + ')' : 'ยังไม่เคยเยี่ยม'],
       ['จำนวนครั้งตรวจปัสสาวะ', String(urine.test_count || 0) + ' ครั้ง'],
@@ -445,6 +645,26 @@
     const message = (overrideText !== undefined ? overrideText : $('#chat-input').value || '').trim();
     if (!message || state.sending) return;
 
+    if (isStartOverCommand(message)) {
+      resetConversation();
+      return;
+    }
+
+    if (state.pendingSummaryReport && isPdfAffirmative(message)) {
+      appendMessage('user', message);
+      $('#chat-input').value = '';
+      createSummaryPdf();
+      return;
+    }
+    if (state.pendingSummaryReport && isPdfNegative(message)) {
+      appendMessage('user', message);
+      $('#chat-input').value = '';
+      state.pendingSummaryReport = null;
+      appendMessage('assistant', 'รับทราบ จะไม่สร้างรายงาน PDF');
+      return;
+    }
+    state.pendingSummaryReport = null;
+
     const box = $('#chat-messages');
     if (box.querySelector('.empty-state')) {
       box.innerHTML = '';
@@ -492,6 +712,13 @@
         if (json.presentation && json.presentation.type === 'person_summary') {
           renderPersonSummary(wrap, json.presentation);
         }
+        if (json.presentation && json.presentation.type === 'person_candidates') {
+          renderPersonCandidates(wrap, json.presentation);
+        }
+        if (json.presentation && json.presentation.type === 'monitoring_list') renderMonitoring(wrap,json.presentation);
+        if (json.presentation && json.presentation.type === 'monitoring_location_summary') renderMonitoringLocationSummary(wrap,json.presentation);
+        if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);
+        if (json.presentation && json.presentation.type === 'summary_result') renderSummaryResult(wrap, json.presentation);
 
         const rt = json.meta && json.meta.responseTimeMs;
         if (typeof rt === 'number' && rt >= 0) {
@@ -528,6 +755,27 @@
   }
 
   async function bootstrap() {
+    $('#login-source').value = state.dataSource;
+    const updateLoginHint = () => {
+      $('#login-source-hint').textContent = $('#login-source').value === 'real' ? 'ใช้ชื่อผู้ใช้และรหัส PIN ของระบบธานีพิทักษ์จริง' : 'ใช้บัญชีในฐานข้อมูลทดสอบ เช่น station1_off';
+    };
+    updateLoginHint();
+    $('#login-source').addEventListener('change', () => {
+      state.dataSource = $('#login-source').value;
+      state.token = null; state.user = null;
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.setItem(SOURCE_KEY, state.dataSource);
+      $('#password').value = '';
+      $('#login-error').classList.add('hidden');
+      resetConversation(); updateLoginHint();
+    });
+    $('#mobile-logout').addEventListener('click', () => $('#logout-btn').click());
+    $('#source-real').addEventListener('click', () => {
+      $('#logout-btn').click(); $('#login-source').value = 'real'; $('#login-source').dispatchEvent(new Event('change'));
+    });
+    $('#source-test').addEventListener('click', () => {
+      $('#logout-btn').click(); $('#login-source').value = 'test'; $('#login-source').dispatchEvent(new Event('change'));
+    });
     $('#login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       $('#login-error').classList.add('hidden');
@@ -570,8 +818,7 @@
     });
     $('#chat-input').addEventListener('input', autoResizeInput);
     $('#clear-btn').addEventListener('click', () => {
-      clearSelectedPerson();
-      renderEmptyState();
+      resetConversation();
     });
 
     $('#clear-selection-btn').addEventListener('click', () => {

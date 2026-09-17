@@ -17,6 +17,25 @@ function createApp(db, options = {}) {
 
   app.use(cors());
   app.use(express.json());
+  const realAuth = require('./routes/realAuthRoutes').createRealAuthRoutes(options.realAuth);
+  app.use('/api/auth', (req, res, next) => req.get('X-Data-Source') === 'real' ? realAuth(req, res, next) : next());
+  const realData = require('./routes/realDataRoutes').createRealDataRoutes(realAuth.authenticate,options.realAuth);
+  app.use('/api', (req,res,next) => req.get('X-Data-Source') === 'real' ? realData(req,res,next) : next());
+
+  app.get('/api/data-sources', (req, res) => res.json({
+    current: 'test',
+    sources: [{ id: 'test', label: 'ข้อมูลทดสอบ', available: true },
+      { id: 'real', label: 'ข้อมูลจริง', available: true,
+        reason: 'รองรับเข้าสู่ระบบและอ่านทะเบียน รายงานและเฝ้าระวังยังไม่เปิดใช้' }],
+  }));
+  // Never silently serve fixtures when a client requested real records.
+  app.use('/api', (req, res, next) => {
+    const source = req.get('X-Data-Source') || 'test';
+    if (source !== 'test') return res.status(409).json({
+      code: 'DATA_SOURCE_UNAVAILABLE', error: 'ยังไม่พร้อมใช้ข้อมูลจริง กรุณาเลือกข้อมูลทดสอบ',
+    });
+    next();
+  });
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', service: 'thanipitak-ai-sandbox' });
@@ -27,6 +46,8 @@ function createApp(db, options = {}) {
   app.use('/api/statistics', createStatisticRoutes(db, audit, authRequired));
   app.use('/api/followups', createFollowupRoutes(db, audit, authRequired));
   app.use('/api/ai', createAIRoutes(db, authRequired, options));
+  app.use('/api/monitoring', require('./routes/monitoringRoutes').createMonitoringRoutes(db,authRequired,audit));
+  app.use('/api/reports', require('./routes/reportRoutes').createReportRoutes(db,authRequired,audit));
   app.use('/api/admin', createAdminRoutes(db, audit, authRequired, adminOnly));
 
   app.use(express.static(path.join(__dirname, '..', 'frontend')));

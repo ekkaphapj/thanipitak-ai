@@ -34,6 +34,7 @@ function createStatisticsService(db) {
       psychiatric: byType.psychiatric || 0,
       drug_user: byType.drug_user || 0,
       dealer: byType.dealer || 0,
+      released: byType.released || 0,
       byStatus,
       followupOverdue: overdueTotal,
     };

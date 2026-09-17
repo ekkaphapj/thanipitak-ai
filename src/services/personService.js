@@ -1,7 +1,7 @@
 const personRepo = require('../repositories/personRepo');
 const config = require('../config');
 
-const VALID_TYPES = ['psychiatric', 'drug_user', 'dealer'];
+const VALID_TYPES = ['psychiatric', 'drug_user', 'dealer', 'released'];
 const VALID_STATUSES = ['registered', 'active', 'followup', 'completed'];
 
 function allowedStationIds(user) {
@@ -35,6 +35,8 @@ function normalizeQuery(query) {
       ? (query.person_type || query.type)
       : undefined,
     status: VALID_STATUSES.includes(query.status) ? query.status : undefined,
+    province: query.province ? String(query.province).trim().slice(0, 100) : undefined,
+    station: query.station ? String(query.station).trim().slice(0, 100) : undefined,
     district: query.district ? String(query.district).slice(0, 100) : undefined,
     subdistrict: query.subdistrict ? String(query.subdistrict).slice(0, 100) : undefined,
     search: query.search ? String(query.search).trim().slice(0, 100) : undefined,
@@ -144,6 +146,17 @@ function createPersonService(db) {
     };
   }
 
+  function summarizePersons(user, query = {}) {
+    const opts = normalizeQuery(query);
+    const stationIds = allowedStationIds(user);
+    const { rows, total } = personRepo.listPersons(db, { stationIds, ...opts });
+    return {
+      rows,
+      total,
+      byType: personRepo.typeSummary(db, { stationIds, ...opts }),
+    };
+  }
+
   function getPerson(user, id) {
     const person = personRepo.getPersonById(db, parseInt(id, 10));
     if (!person || !hasAccessToPerson(user, person)) {
@@ -186,6 +199,7 @@ function createPersonService(db) {
   return {
     listPersons,
     listPersonsWithSummary,
+    summarizePersons,
     getPerson,
     getVisits,
     getUrineTests,

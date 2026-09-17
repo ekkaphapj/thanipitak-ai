@@ -12,7 +12,7 @@
     activeTab: 'visits',
   };
 
-  const TYPE_LABEL = { psychiatric: 'จิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า' };
+  const TYPE_LABEL = { psychiatric: 'จิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'ผู้พ้นโทษ' };
   const STATUS_LABEL = {
     registered: 'ลงทะเบียนแล้ว',
     active: 'อยู่ระหว่างดูแล',
@@ -80,6 +80,7 @@
       { label: 'ผู้ป่วยจิตเวช', value: d.psychiatric, cls: 'type-psychiatric' },
       { label: 'ผู้เสพ', value: d.drug_user, cls: 'type-drug' },
       { label: 'ผู้ค้า', value: d.dealer, cls: 'type-dealer' },
+      { label: 'ผู้พ้นโทษ', value: d.released || 0, cls: 'type-dealer' },
       { label: 'ต้องติดตาม', value: d.followupOverdue, cls: 'type-overdue' },
     ];
     $('#stats-grid').innerHTML = cards

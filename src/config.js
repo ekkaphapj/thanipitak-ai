@@ -3,7 +3,7 @@ require('dotenv').config();
 
 const dbPath = process.env.DB_PATH
   ? path.resolve(process.env.DB_PATH)
-  : path.join(__dirname, '..', 'data', 'thanipitak.db');
+  : path.join(__dirname, '..', 'data', 'thanipitak-realistic.db');
 
 module.exports = {
   port: Number(process.env.PORT) || 3100,

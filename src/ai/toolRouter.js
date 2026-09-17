@@ -2,6 +2,8 @@ const { createPersonService } = require('../services/personService');
 const { createStatisticsService } = require('../services/statisticService');
 const { createFollowupService } = require('../services/followupService');
 const personRepo = require('../repositories/personRepo');
+const {createMonitoringService}=require('../services/monitoringService');
+const {createSummaryService}=require('../services/summaryService');
 
 const ALLOWED_TOOLS = new Set([
   'get_statistics',
@@ -10,6 +12,8 @@ const ALLOWED_TOOLS = new Set([
   'get_visit_history',
   'get_urine_history',
   'get_overdue_followups',
+  'get_monitoring_persons',
+  'summarize_persons',
 ]);
 
 const SEARCH_PAGE_DEFAULT = 20;
@@ -19,6 +23,7 @@ function createToolRouter(db) {
   const persons = createPersonService(db);
   const statistics = createStatisticsService(db);
   const followups = createFollowupService(db);
+  const summaries = createSummaryService(db);
 
   async function execute(toolName, args, currentUser) {
     if (!ALLOWED_TOOLS.has(toolName)) {
@@ -27,6 +32,8 @@ function createToolRouter(db) {
 
     try {
       switch (toolName) {
+        case 'summarize_persons': return summaries.summarize(currentUser, args);
+        case 'get_monitoring_persons': return createMonitoringService(db).list(currentUser,args);
         case 'get_statistics': {
           const result = statistics.getStatistics(currentUser);
           return { data: result };
@@ -37,6 +44,10 @@ function createToolRouter(db) {
           if (args.query) query.search = args.query;
           if (args.person_type) query.person_type = args.person_type;
           if (args.status) query.status = args.status;
+          if (args.province) query.province = args.province;
+          if (args.station) query.station = args.station;
+          if (args.district) query.district = args.district;
+          if (args.subdistrict) query.subdistrict = args.subdistrict;
           const rawLimit = Number.parseInt(args.limit, 10);
           const rawOffset = Number.parseInt(args.offset, 10);
           const limit =
@@ -173,6 +184,16 @@ function createToolRouter(db) {
     execute,
     ALLOWED_TOOLS,
     getPersonSummary: (user, personId) => persons.getPersonSummary(user, personId),
+    // Authorized search used by the deterministic name resolver (STEP 3).
+    // Scope always comes from the backend user, never from the frontend/prompt.
+    searchPersons: (user, search, limit) =>
+      persons.listPersons(user, {
+        search: String(search == null ? '' : search).slice(0, 100),
+        limit: Number.isInteger(limit) && limit > 0 ? limit : 100,
+        offset: 0,
+      }),
+    summarizePersons: (user, request) => summaries.summarize(user, request),
+    summaryChoices: (user, prompt) => summaries.choices(user, prompt),
   };
 }
 

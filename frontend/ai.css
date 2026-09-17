@@ -327,9 +327,52 @@ body {
 .ps-key { color: var(--muted); flex-shrink: 0; }
 .ps-val { color: var(--text); text-align: right; word-break: break-word; }
 
+/* ---------- PERSON CANDIDATES (ambiguous name, STEP 3) ---------- */
+.person-candidates {
+  margin-top: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 4px solid #b45309;
+  border-radius: 10px;
+  padding: 12px 14px;
+  width: 100%;
+  max-width: 460px;
+}
+.pc-title { font-size: 14px; font-weight: 700; color: #92400e; margin-bottom: 8px; }
+.pc-list { display: flex; flex-direction: column; gap: 6px; }
+.pc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.pc-row:hover { background: #fffbeb; }
+.pc-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pc-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.pc-tag { font-size: 11px; color: var(--muted); }
+.pc-btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid #d6a85c;
+  background: var(--card);
+  color: #92400e;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pc-btn:hover { background: #fef3c7; border-color: #b45309; }
+.pc-empty { font-size: 13px; color: var(--muted); padding: 6px 2px; }
+
 @media (max-width: 520px) {
   .selected-person-bar { margin: 0 12px 8px; flex-direction: column; align-items: flex-start; }
   .person-summary { max-width: 100%; }
+  .person-candidates { max-width: 100%; }
 }
 
 /* typing / busy */

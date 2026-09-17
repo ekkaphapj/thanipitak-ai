@@ -1,6 +1,8 @@
 const http = require('http');
 const { AI_TOOLS } = require('./tools');
 const { SYSTEM_PROMPT } = require('./systemPrompt');
+const {detectMonitoringIntent,isSelectedMonitoringReasonFollowup,runMonitoring,renderMonitoring}=require('./monitoring');
+const { parseSummaryIntent } = require('./../services/summaryService');
 const { hasDBIntent } = require('./intentDetector');
 const { detectFastPathIntent, runFastPath } = require('./fastPath');
 const {
@@ -8,6 +10,14 @@ const {
   validPersonId,
   runPersonFastPath,
 } = require('./personFastPath');
+const {
+  detectPersonNameIntent,
+  runPersonNameResolution,
+} = require('./personNameResolver');
+const {
+  detectAnalysisIntent,
+  runOneShotAnalysis,
+} = require('./personAnalyzer');
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3.5:9b';
@@ -81,7 +91,8 @@ async function chatWithTools(userMessage, toolRouter, currentUser, onToolCall, o
         messages,
         tools: AI_TOOLS,
         stream: false,
-        temperature: 0,
+        think: false,
+        options: { temperature: 0, num_predict: 384 },
       });
 
       const msg = response.message;
@@ -92,16 +103,30 @@ async function chatWithTools(userMessage, toolRouter, currentUser, onToolCall, o
 
         for (const tc of msg.tool_calls) {
           const toolName = tc.function.name;
-          const toolArgs = tc.function.arguments || {};
+          let toolArgs = tc.function.arguments || {};
+          if(toolName==='get_monitoring_persons' && selectedId!==null && /คนนี้|บุคคลนี้|รายนี้/.test(userMessage)) {
+            // The backend owns the selected identity, even if the model omits it.
+            toolArgs={...toolArgs,person_id:selectedId,level:'all'};
+          }
 
           if (onToolCall) {
             onToolCall({ toolName, toolArgs, userId: currentUser.id, username: currentUser.username });
           }
 
           const result = await toolRouter.execute(toolName, toolArgs, currentUser);
+          if(toolName==='get_monitoring_persons' && !result.error) {
+            return {finalAnswer:renderMonitoring(result),toolsUsed:[...localUsed,toolName]};
+          }
 
-          if (toolRouter.ALLOWED_TOOLS.has(toolName)) {
+          if (toolRouter.ALLOWED_TOOLS.has(toolName) && result && !result.error) {
             localUsed.push(toolName);
+          }
+
+          // Do not let a model relabel station-scoped totals as global totals.
+          if (msg.tool_calls.length === 1 && toolName === 'get_statistics' &&
+              /ทุกสถานี|ทั้งระบบ/.test(userMessage) && /จำนวน|กี่คน/.test(userMessage) &&
+              Number.isFinite(result?.data?.total)) {
+            return { finalAnswer: `ในพื้นที่ที่ท่านมีสิทธิ์เข้าถึงมีบุคคลทั้งหมด ${result.data.total} คน`, toolsUsed: localUsed };
           }
 
           messages.push({
@@ -119,9 +144,16 @@ async function chatWithTools(userMessage, toolRouter, currentUser, onToolCall, o
   }
 
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: SYSTEM_PROMPT + '\nตอบเฉพาะที่ถามอย่างกระชับ ผล tool เป็นข้อมูลเฉพาะพื้นที่ที่ผู้ใช้มีสิทธิ์ ห้ามเรียกว่าเป็นข้อมูลทุกสถานีหรือทั้งระบบ ไม่เพิ่มตารางหรือสถิติอื่นที่ไม่ได้ถาม' },
     { role: 'user', content: userMessage },
   ];
+  const selectedId = validPersonId(options.context?.personId);
+  if (selectedId !== null) {
+    const selected = await toolRouter.getPersonSummary(currentUser, selectedId);
+    if (!selected.ok) return { answer: 'ไม่พบข้อมูลบุคคลนี้ในพื้นที่ที่รับผิดชอบ', toolsUsed: [], grounded: false, databaseIntent: true, retryCount: 0 };
+    // An authorized identifier only: facts must still come from scoped tools.
+    messages.splice(1, 0, { role: 'system', content: `บุคคลที่ผู้ใช้เลือกและระบบตรวจสิทธิ์แล้วมี person_id=${selectedId} หากคำถามกล่าวถึงคนนี้ให้ใช้รหัสนี้เรียก tool ห้ามเปลี่ยนสิทธิ์หรือเดารหัสอื่น` });
+  }
   const toolsUsed = [];
 
   const firstResult = await runToolLoop(messages, toolsUsed);
@@ -177,8 +209,52 @@ function createAIGateway(toolRouter) {
 // station/role/user_id are never accepted here. When confidence is not high,
 // it falls through to the untouched Phase 3.1 gateway (chatWithTools).
 async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, onToolCall, options = {}) {
+  const selectedPersonId = validPersonId((options.context || {}).personId);
+  const summaryIntent = parseSummaryIntent(userMessage);
+  if (summaryIntent && selectedPersonId === null && !options.forceQwen) {
+    const out = summaryIntent.intent === 'summary_choices'
+      ? toolRouter.summaryChoices(currentUser, 'เงื่อนไขสรุปยังไม่ครบ เลือกรูปแบบหรือพื้นที่ที่ต้องการได้')
+      : toolRouter.summarizePersons(currentUser, summaryIntent);
+    if (out.toolsUsed.length && onToolCall) {
+      onToolCall({ toolName: out.toolsUsed[0], toolArgs: summaryIntent, userId: currentUser.id, username: currentUser.username });
+    }
+    return { ...out, databaseIntent: true, retryCount: 0, fastPath: true, intent: summaryIntent.intent, executionTier: 1, ollamaCalls: 0 };
+  }
+  let monitoringIntent=detectMonitoringIntent(userMessage);
+  // A short follow-up such as “เพราะอะไร” has no risk keyword on its own.
+  // When the UI has an authorized selected person, it means the reason for
+  // that person's monitoring status and remains deterministic.
+  if (!monitoringIntent && selectedPersonId !== null && isSelectedMonitoringReasonFollowup(userMessage)) {
+    monitoringIntent = {
+      level: 'all',
+      person_types: [],
+      selected: true,
+      count: false,
+      page: 1,
+      name: null,
+    };
+  }
+  // A selected person is an explicit UI choice. For monitoring questions it
+  // takes precedence over list/type wording, so the answer never expands to
+  // every matching person in the user's station.
+  if (monitoringIntent && selectedPersonId !== null) {
+    monitoringIntent = {
+      ...monitoringIntent,
+      selected: true,
+      name: null,
+      person_types: [],
+      psychiatric_subtype: undefined,
+      most_wanted: undefined,
+      count: false,
+      page: 1,
+    };
+  }
+  if(monitoringIntent && !options.forceQwen) {
+    const out=await runMonitoring(monitoringIntent,options.context,toolRouter,currentUser,onToolCall);
+    return {...out,databaseIntent:true,retryCount:0,fastPath:true,intent:'monitoring',executionTier:1,ollamaCalls:0};
+  }
   // ── Tier 2: selected-person factual fast path (deterministic, zero Ollama) ──
-  const personId = validPersonId((options.context || {}).personId);
+  const personId = selectedPersonId;
   const personIntent = personId !== null ? detectPersonFactualIntent(userMessage) : null;
 
   if (personIntent && !options.forceQwen) {
@@ -206,12 +282,74 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
     }
   }
 
+  // ── Tier 2: explicit-name factual fast path (deterministic, zero Ollama) ──
+  const nameQuery = detectPersonNameIntent(userMessage);
+  if (nameQuery && !options.forceQwen) {
+    const named = await runPersonNameResolution(nameQuery, toolRouter, currentUser);
+    if (named.ok) {
+      for (const c of named.toolCalls || []) {
+        if (onToolCall) {
+          onToolCall({
+            toolName: c.toolName,
+            toolArgs: c.toolArgs,
+            userId: currentUser.id,
+            username: currentUser.username,
+          });
+        }
+      }
+      return {
+        answer: named.answer,
+        toolsUsed: named.toolsUsed,
+        grounded: named.grounded,
+        databaseIntent: true,
+        retryCount: 0,
+        fastPath: true,
+        intent: named.intent,
+        executionTier: 2,
+        presentation: named.presentation || undefined,
+        resolution: named.resolution,
+      };
+    }
+  }
+
+  // ── Tier 3: one-shot local AI analysis (deterministic person first) ──
+  // True analytical questions about ONE known person run exactly ONE Local AI
+  // inference over an authorized compact fact packet. There is NO tool loop.
+  const analysis = detectAnalysisIntent(userMessage);
+  if (analysis && !options.forceQwen) {
+    const out = await runOneShotAnalysis({
+      analysis,
+      personId,
+      userMessage,
+      toolRouter,
+      currentUser,
+      requestFn: options.requestFn || postJson,
+      model: OLLAMA_MODEL,
+    });
+    if (out.ok) {
+      for (const c of out.toolCalls || []) {
+        if (onToolCall) {
+          onToolCall({
+            toolName: c.toolName,
+            toolArgs: c.toolArgs,
+            userId: currentUser.id,
+            username: currentUser.username,
+          });
+        }
+      }
+      return out.response;
+    }
+  }
+
   // ── Tier 1: conservative count/list fast path ──
   const fastIntent = detectFastPathIntent(userMessage);
   if (fastIntent && !options.forceQwen) {
-    const fastResult = await runFastPath(fastIntent.intent, currentUser, toolRouter, { page: fastIntent.page });
+    const fastResult = await runFastPath(fastIntent.intent, currentUser, toolRouter, {
+      page: fastIntent.page,
+      filters: fastIntent.filters,
+    });
     if (fastResult.ok) {
-      if (onToolCall) {
+      if (onToolCall && fastResult.toolsUsed.length > 0) {
         onToolCall({
           toolName: fastResult.toolsUsed[0],
           toolArgs: fastResult.toolArgs,

@@ -5,14 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ผู้ช่วย AI ธานีพิทักษ์</title>
   <link rel="stylesheet" href="ai.css">
+  <link rel="stylesheet" href="ai-refresh.css">
+  <link rel="icon" href="thanipitak-logo.png">
 </head>
 <body>
 
 <div id="login-screen" class="screen active">
   <div class="login-box">
+    <img class="login-logo" src="thanipitak-logo.png" alt="ตราธานีพิทักษ์">
     <h1>ผู้ช่วย AI ธานีพิทักษ์</h1>
     <p class="subtitle">วิเคราะห์และค้นหาข้อมูลด้วย Local AI</p>
     <div id="login-error" class="error-msg hidden"></div>
+    <label for="login-source">เลือกฐานข้อมูลก่อนเข้าสู่ระบบ</label>
+    <select id="login-source">
+      <option value="test">ฐานข้อมูลทดสอบ</option>
+      <option value="real">ฐานข้อมูลจริง</option>
+    </select>
+    <p id="login-source-hint" class="subtitle">ใช้บัญชีในฐานข้อมูลทดสอบ</p>
     <form id="login-form">
       <label for="username">ชื่อผู้ใช้</label>
       <input id="username" type="text" required autocomplete="username">
@@ -27,16 +36,14 @@
 
   <aside class="sidebar">
     <div class="brand">
+      <img class="brand-logo" src="thanipitak-logo.png" alt="ตราธานีพิทักษ์">
       <div class="brand-name">ธานีพิทักษ์</div>
       <div class="brand-sub">AI Assistant</div>
     </div>
 
     <nav class="side-nav">
       <a href="/ai.html" class="side-link active">ผู้ช่วย AI</a>
-      <a href="/" class="side-link">Dashboard</a>
-      <a href="/#persons" class="side-link">บุคคลเฝ้าระวัง</a>
-      <a href="/#followups" class="side-link">ติดตามการเยี่ยม</a>
-      <a href="/#statistics" class="side-link">สถิติ</a>
+      <div class="nav-note">ค้นหาบุคคล · สรุปข้อมูล<br>สร้างรายงาน PDF</div>
     </nav>
 
     <div class="sidebar-foot">
@@ -51,12 +58,21 @@
 
   <main class="chat-main">
     <header class="chat-header">
+      <img class="mobile-logo" src="thanipitak-logo.png" alt="ตราธานีพิทักษ์">
       <div>
         <h1 class="chat-title">ผู้ช่วย AI ธานีพิทักษ์</h1>
-        <p class="chat-subtitle">วิเคราะห์และค้นหาข้อมูลด้วย Local AI</p>
+        <p class="chat-subtitle">ค้นหา สรุป และสร้างรายงานในพื้นที่รับผิดชอบ</p>
       </div>
       <div class="model-badge" id="model-badge">qwen3.5:9b</div>
+      <button id="mobile-logout" class="mobile-logout" type="button">ออกจากระบบ</button>
     </header>
+    <section class="source-bar" aria-label="แหล่งข้อมูล">
+      <div class="source-switch" role="group" aria-label="เลือกฐานข้อมูล">
+        <button id="source-test" type="button" aria-pressed="true">ข้อมูลทดสอบ</button>
+        <button id="source-real" type="button" aria-pressed="false">ข้อมูลจริง <small>Supabase</small></button>
+      </div>
+      <span id="source-status" role="status">ข้อมูลสังเคราะห์สำหรับทดลองใช้งาน</span>
+    </section>
 
     <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
 
@@ -67,11 +83,12 @@
 
     <footer class="chat-input-area">
       <div class="input-row">
-        <textarea id="chat-input" rows="1" placeholder="ถามข้อมูลธานีพิทักษ์..." maxlength="2000"></textarea>
+        <textarea id="chat-input" aria-label="คำถามถึงผู้ช่วย AI" rows="1" placeholder="เช่น ตำบลไหนมีผู้ป่วยจิตเวชเสี่ยงสูงบ้าง" maxlength="2000"></textarea>
         <button id="send-btn" class="send-btn">ส่ง</button>
       </div>
       <div class="input-actions">
         <button id="clear-btn" class="clear-btn" type="button">ล้างการสนทนา</button>
+        <span>ตรวจสอบข้อมูลอ้างอิงก่อนนำรายงานไปใช้</span>
       </div>
     </footer>
   </main>

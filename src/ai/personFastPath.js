@@ -9,6 +9,7 @@ const PERSON_TYPE_LABELS = {
   psychiatric: 'ผู้ป่วยจิตเวช',
   drug_user: 'ผู้เสพ',
   dealer: 'ผู้ค้า',
+  released: 'ผู้พ้นโทษ',
 };
 
 const STATUS_LABELS = {
@@ -49,11 +50,25 @@ function normalizeText(message) {
 }
 
 function detectPersonFactualIntent(message) {
-  const text = normalizeText(message);
+  let text = normalizeText(message);
+  text = text.replace(/[?？]+$/, '').trim();
+  text = text.replace(/^(?:(?:รบกวน|กรุณา|ช่วย)\s*)+/, '');
+  text = text.replace(/\s*(?:ให้หน่อย|หน่อย)?\s*(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ)$/, '').trim();
+  text = text.replace(/\s*(?:ให้หน่อย|หน่อย)$/, '').trim();
   if (!text) return null;
   for (const [intent, phrase] of PERSON_FACTUAL_PHRASES) {
     if (text === phrase) return intent;
   }
+  // Strip only selected-person pronouns, never an explicit name or extra clauses.
+  text = text.replace(/^(?:คนนี้|บุคคลนี้)\s*/, '').replace(/\s*(?:ของคนนี้|ของบุคคลนี้)$/, '').trim();
+  const aliases = [
+    ['visit_count', /^(?:ถูก)?เยี่ยม(?:ไปแล้ว|ไป|แล้ว)?(?:ทั้งหมด)?กี่ครั้ง$/],
+    ['latest_visit', /^(?:ถูก)?เยี่ยม(?:ครั้ง)?ล่าสุด(?:เมื่อไหร่|เมื่อไร|วันไหน)$/],
+    ['latest_urine_test', /^ตรวจ(?:ปัสสาวะ|ฉี่)(?:ครั้ง)?ล่าสุด(?:เมื่อไหร่|เมื่อไร|วันไหน)$/],
+    ['urine_positive_count', /^(?:เคย)?(?:ฉี่ม่วง|ตรวจพบปัสสาวะม่วง)(?:ทั้งหมด)?กี่ครั้ง$/],
+    ['latest_status', /^(?:ตอนนี้)?สถานะ(?:ล่าสุด)?(?:คืออะไร|เป็นอะไร|เป็นอย่างไร)$/],
+  ];
+  for (const [intent, pattern] of aliases) if (pattern.test(text)) return intent;
   return null;
 }
 
@@ -99,14 +114,15 @@ function buildAnswer(intent, data) {
   const name = personName(p);
   const v = data.visit_summary;
   const u = data.urine_summary;
+  const displayStatus=p.registry_status ? `สีทะเบียน ${p.registry_status}${p.custody_status?' / '+p.custody_status:''}` : p.custody_status || label(STATUS_LABELS,p.status,p.status);
 
   switch (intent) {
     case 'person_history': {
       const visitTail = v.latest_visit ? `ล่าสุด ${latestVisitText(v.latest_visit)}` : 'ยังไม่เคยถูกเยี่ยม';
       const urineTail = u.latest_test ? `ล่าสุด ${latestTestText(u.latest_test)}` : 'ยังไม่เคยตรวจปัสสาวะ';
       return (
-        `${name} (${p.synthetic_code}) เป็น${label(PERSON_TYPE_LABELS, p.person_type, p.person_type)} ` +
-        `สถานะ ${label(STATUS_LABELS, p.status, p.status)} อยู่ในเขต ${p.district}/${p.subdistrict} • ` +
+        `${name} (${p.synthetic_code}) เป็น${p.type_name || label(PERSON_TYPE_LABELS, p.person_type, p.person_type)} ` +
+        `สถานะ ${displayStatus} อยู่ในเขต ${p.district}/${p.subdistrict} • ` +
         `เยี่ยมแล้วทั้งหมด ${v.visit_count} ครั้ง ${visitTail} • ` +
         `ตรวจปัสสาวะแล้ว ${u.test_count} ครั้ง ${urineTail}`
       );
@@ -124,7 +140,7 @@ function buildAnswer(intent, data) {
     case 'urine_positive_count':
       return `${name} เคยตรวจพบปัสสาวะม่วง (positive) ทั้งหมด ${u.positive_count} ครั้ง จากที่ตรวจทั้งหมด ${u.test_count} ครั้ง`;
     case 'latest_status':
-      return `สถานะล่าสุดของ ${name} คือ ${label(STATUS_LABELS, p.status, p.status)}`;
+      return `สถานะล่าสุดของ ${name} คือ ${displayStatus}`;
     default:
       return null;
   }
@@ -174,4 +190,6 @@ module.exports = {
   sanitizePersonContext,
   runPersonFastPath,
   PERSON_FACTUAL_PHRASES,
+  buildAnswer,
+  personName,
 };

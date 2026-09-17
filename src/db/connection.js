@@ -9,6 +9,7 @@ function createConnection(dbPath) {
     db.exec('PRAGMA busy_timeout = 5000;');
   }
   db.exec(SCHEMA_SQL);
+  require('./realisticSchema').installRealisticSchema(db);
   return db;
 }
 

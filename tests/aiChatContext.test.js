@@ -96,7 +96,7 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
     assert.ok(setItems.length >= 1, 'token is persisted');
     for (const m of setItems) {
       const snippet = AI_JS.slice(m.index, m.index + 40);
-      assert.ok(snippet.startsWith('localStorage.setItem(TOKEN_KEY'), 'only TOKEN_KEY may be persisted: ' + snippet);
+      assert.ok(/^localStorage\.setItem\((TOKEN_KEY|SOURCE_KEY)/.test(snippet), 'only token and source preference may be persisted: ' + snippet);
     }
     assert.ok(!/localStorage[^;\n]*selectedPerson/.test(AI_JS), 'selection must never touch localStorage');
     // Logout path must clear the selection.
@@ -130,6 +130,19 @@ describe('STEP 2.5 frontend wiring (static)', () => {
     assert.ok(AI_JS.includes("selectPerson({ personId: item.person_id, displayName: item.full_name })"));
     assert.ok(AI_JS.includes('pl-selected'));
     assert.ok(AI_JS.includes('clear-selection-btn'));
+  });
+
+  test('typing เริ่มใหม่ resets the conversation and selected person locally', () => {
+    assert.ok(AI_JS.includes('function isStartOverCommand(message)'), 'start-over command detector exists');
+    assert.ok(AI_JS.includes("return text === 'เริ่มใหม่';"), 'start-over command is exact after polite suffix cleanup');
+    assert.ok(AI_JS.includes('function resetConversation()'), 'shared reset behavior exists');
+    assert.ok(AI_JS.includes('if (isStartOverCommand(message))'), 'start-over is handled before the API request');
+    assert.ok(AI_JS.includes('clearSelectedPerson();'), 'start-over clears the selected person');
+  });
+
+  test('a one-person monitoring result becomes the selected chat context', () => {
+    assert.ok(AI_JS.includes('if (items.length === 1)'), 'single monitoring result is detected');
+    assert.ok(AI_JS.includes('selectPerson({ personId: person.personId, displayName: person.displayName })'), 'single monitoring result is selected');
   });
 });
 

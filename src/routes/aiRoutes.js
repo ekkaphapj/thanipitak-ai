@@ -104,13 +104,21 @@ function createAIRoutes(db, authRequired, options = {}) {
         model: OLLAMA_MODEL,
         grounded: result.grounded,
         executionTier: result.executionTier || null,
+        resolution: result.resolution || null,
         presentation: result.presentation || undefined,
+        analysisMode: result.analysisMode || null,
+        ollamaCalls: result.ollamaCalls != null ? result.ollamaCalls : null,
+        timing: result.timing || undefined,
         meta: {
           responseTimeMs: Date.now() - startMs,
           fastPath: !!result.fastPath,
           grounded: result.grounded,
           retryCount: result.retryCount || 0,
           executionTier: result.executionTier || null,
+          resolution: result.resolution || null,
+          analysisMode: result.analysisMode || null,
+          ollamaCalls: result.ollamaCalls != null ? result.ollamaCalls : null,
+          timing: result.timing || undefined,
         },
       });
     } catch (err) {

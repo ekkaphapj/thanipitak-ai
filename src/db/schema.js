@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS persons (
   synthetic_code TEXT NOT NULL UNIQUE,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
-  person_type TEXT NOT NULL CHECK (person_type IN ('psychiatric','drug_user','dealer')),
+  person_type TEXT NOT NULL CHECK (person_type IN ('psychiatric','drug_user','dealer','released')),
   district TEXT NOT NULL,
   subdistrict TEXT NOT NULL,
   station_id INTEGER NOT NULL REFERENCES stations(id),

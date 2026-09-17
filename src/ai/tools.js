@@ -1,5 +1,24 @@
 const AI_TOOLS = [
   {
+    type: 'function', function: {
+      name: 'summarize_persons',
+      description: 'สรุปจำนวนหรือรายชื่อบุคคลตามประเภท ระดับเฝ้าระวัง จังหวัด สภ. อำเภอ ตำบล หรือชื่อ ภายในสิทธิ์ของผู้ใช้',
+      parameters: { type: 'object', properties: {
+        filters: { type: 'object' }, includeList: { type: 'boolean' }, includeCount: { type: 'boolean' }, sort: { type: 'string', enum: ['name_asc','name_desc','count_asc','count_desc'] },
+      }, required: [] },
+    },
+  },
+  {
+    type:'function',function:{name:'get_monitoring_persons',
+      description:'ดูบุคคลที่เฝ้าระวังหรือเสี่ยงสูงพร้อมเหตุผลจากผลเยี่ยม รายงานผู้ดูแล และทะเบียนจริงในพื้นที่ที่มีสิทธิ์เท่านั้น ไม่ทำนายความเสี่ยงเอง รองรับจิตเวช ผู้เสพ ผู้ค้า ผู้พ้นโทษ',
+      parameters:{type:'object',properties:{
+        person_types:{type:'array',items:{type:'string',enum:['psychiatric','drug_user','dealer','released']}},
+        level:{type:'string',enum:['all','watch','high']},person_id:{type:'integer'},page:{type:'integer',minimum:1},
+        psychiatric_subtype:{type:'string',enum:['drug','other']},most_wanted:{type:'boolean'}
+      },required:[]}
+    }
+  },
+  {
     type: 'function',
     function: {
       name: 'get_statistics',
@@ -15,7 +34,7 @@ const AI_TOOLS = [
     type: 'function',
     function: {
       name: 'search_persons',
-      description: 'ค้นหาบุคคลในพื้นที่ที่รับผิดชอบ สามารถค้นได้ตามชื่อ ประเภทบุคคล (psychiatric=จิตเวช, drug_user=ผู้เสพ, dealer=ผู้ค้า) หรือสถานะ (registered=ขึ้นทะเบียน, active=กำลังติดตาม, followup=ต้องติดตาม, completed=เสร็จสิ้น) ผลลัพธ์ประกอบด้วย total (จำนวนทั้งหมด), summary (ตัวเลขสรุปตามสถานะทั้งชุด คำนวณโดยระบบแล้ว) และ persons (รายการบุคคล มากสุด 20 ราย) ใช้ตัวเลข total และ summary จากผลลัพธ์ตรงๆ ห้ามคำนวณเอง ใช้เมื่อต้องการหารายชื่อบุคคลหรือต้องการจำนวนบุคคล',
+      description: 'ค้นหาบุคคลในพื้นที่ที่รับผิดชอบตามชื่อ ประเภท สถานะ จังหวัด สภ. อำเภอ หรือตำบล ผลลัพธ์ประกอบด้วย total (จำนวนทั้งหมด), summary (ตัวเลขสรุปตามสถานะทั้งชุด คำนวณโดยระบบแล้ว) และ persons (รายการบุคคล มากสุด 20 ราย) ใช้ตัวเลข total และ summary จากผลลัพธ์ตรงๆ ห้ามคำนวณเอง',
       parameters: {
         type: 'object',
         properties: {
@@ -33,6 +52,10 @@ const AI_TOOLS = [
             enum: ['registered', 'active', 'followup', 'completed'],
             description: 'สถานะ: registered (ขึ้นทะเบียน), active (กำลังติดตาม), followup (ต้องติดตาม), completed (เสร็จสิ้น)',
           },
+          province: { type: 'string', description: 'จังหวัด' },
+          station: { type: 'string', description: 'ชื่อ สภ. หรือสถานีตำรวจ' },
+          district: { type: 'string', description: 'อำเภอ' },
+          subdistrict: { type: 'string', description: 'ตำบล' },
           limit: {
             type: 'integer',
             description: 'จำนวนรายการที่ต้องการต่อหน้า (มากสุด 50 ค่าเริ่มต้น 20)',

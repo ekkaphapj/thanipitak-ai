@@ -1,6 +1,35 @@
 const express=require('express');
 const {detectFastPathIntent}=require('../ai/fastPath');
 const {parseSummaryIntent}=require('../services/summaryService');
+const REAL_TYPE_LABELS={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'};
+function describeRealScope(user){
+ if(user?.role==='admin')return'ทุกสถานีที่บัญชีผู้ดูแลระบบเข้าถึงได้';
+ const parts=[];
+ if(user?.stationName)parts.push(user.stationName);
+ if(user?.division)parts.push(user.division);
+ if(user?.province)parts.push(user.province);
+ return parts.length?parts.join(' • '):'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง';
+}
+function describeRealFilters(filters){
+ const labels=[];
+ if(filters.person_type&&filters.person_type!=='all')labels.push(REAL_TYPE_LABELS[filters.person_type]||filters.person_type);
+ if(filters.province)labels.push(`จังหวัด${filters.province}`);
+ if(filters.station)labels.push(`สภ.${String(filters.station).replace(/^สภ\.?\s*/u,'')}`);
+ if(filters.district)labels.push(`อำเภอ${filters.district}`);
+ if(filters.subdistrict)labels.push(`ตำบล${filters.subdistrict}`);
+ if(filters.query||filters.search)labels.push(`ชื่อ ${filters.query||filters.search}`);
+ return labels;
+}
+function formatRealRegistryAnswer(user,filters,result,{countOnly,page}){
+ const scope=describeRealScope(user);
+ const filterLabels=describeRealFilters(filters);
+ const category=filters.person_type&&filters.person_type!=='all'?REAL_TYPE_LABELS[filters.person_type]:'บุคคลในทะเบียน';
+ let answer=`ข้อมูลจริง • ${scope}\n`;
+ answer+=filterLabels.length?`เงื่อนไข: ${filterLabels.join(' • ')}\n`:`นับ${category} (ไม่กรองพื้นที่เพิ่มเติม)\n`;
+ answer+=`พบ ${result.total} คน`;
+ if(!countOnly)answer+=`\nแสดงหน้า ${page} (${result.data.length} คน)\n`+result.data.map((p,i)=>`${(page-1)*20+i+1}. ${p.first_name} ${p.last_name||''} — ${p.tambon||'ไม่ระบุตำบล'}`).join('\n');
+ return answer;
+}
 function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent}={}) {
  const router=express.Router();router.use(authenticate);
  async function rows(req,table,params) {
@@ -86,14 +115,15 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     }
     const sorted=[...groups.values()].sort((a,b)=>/น้อย/.test(ranking[2])?a.count-b.count:b.count-a.count);
     const winners=showAll?sorted:sorted.filter(g=>g.count===sorted[0]?.count);
-    const category={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[filters.person_type]||'บุคคล';
-    const scope=req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง';
-    const answer=`ข้อมูลจริง • ${scope}\nนับ${category}จากทะเบียนทั้งหมด ${result.total} คน\n`+(showAll?`เรียง${/น้อย/.test(ranking[2])?'น้อยไปมาก':'มากไปน้อย'}\n`:'')+(winners.length?winners.map(g=>`${ranking[1]}${g.name} ${column==='tambon'?g.district:''} ${column!=='province'?g.province:''} มี${category}${showAll?'':ranking[2]} ${g.count} คน`).join('\n'):'ไม่พบข้อมูลพื้นที่ที่จัดอันดับได้')+(!showAll&&winners.length>1?'\nมีหลายพื้นที่จำนวนเท่ากัน':'')+(missing?`\nอีก ${missing} คนไม่ระบุ${ranking[1]} จึงไม่รวมในอันดับ`:'')+(/น้อย/.test(ranking[2])?'\nอันดับนี้รวมเฉพาะพื้นที่ที่มีบุคคลในทะเบียน':'');
+    const category=REAL_TYPE_LABELS[filters.person_type]||'บุคคล';
+    const scope=describeRealScope(req.user);
+    const geoLabels=describeRealFilters({...filters,person_type:undefined});
+    const answer=`ข้อมูลจริง • ${scope}\n`+(geoLabels.length?`เงื่อนไข: ${[category,...geoLabels].join(' • ')}\n`:`นับ${category} (ไม่กรองพื้นที่เพิ่มเติม)\n`)+`จากทะเบียนทั้งหมด ${result.total} คน\n`+(showAll?`เรียง${/น้อย/.test(ranking[2])?'น้อยไปมาก':'มากไปน้อย'}\n`:'')+(winners.length?winners.map(g=>`${ranking[1]}${g.name} ${column==='tambon'?g.district:''} ${column!=='province'?g.province:''} มี${category}${showAll?'':ranking[2]} ${g.count} คน`).join('\n'):'ไม่พบข้อมูลพื้นที่ที่จัดอันดับได้')+(!showAll&&winners.length>1?'\nมีหลายพื้นที่จำนวนเท่ากัน':'')+(missing?`\nอีก ${missing} คนไม่ระบุ${ranking[1]} จึงไม่รวมในอันดับ`:'')+(/น้อย/.test(ranking[2])?'\nอันดับนี้รวมเฉพาะพื้นที่ที่มีบุคคลในทะเบียน':'');
     return res.json({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_area_count'}],meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
    }
    const page=intent?.page||1;const result=await search(req,filters,page);
    const countOnly=plan?plan.action==='count':!summary?.includeList&&(/กี่|จำนวน/.test(message));
-   const answer=`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา`+(countOnly?'':`\nแสดงหน้า ${page} (${result.data.length} คน)\n`+result.data.map((p,i)=>`${(page-1)*20+i+1}. ${p.first_name} ${p.last_name||''} — ${p.tambon||'ไม่ระบุตำบล'}`).join('\n'));
+   const answer=formatRealRegistryAnswer(req.user,filters,result,{countOnly,page});
    res.json({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
   }catch(e){res.status(502).json({error:e.message});}
  });

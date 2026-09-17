@@ -178,9 +178,10 @@ function detectFastPathIntent(message) {
 }
 
 function matchCountIntent(text) {
-  if (/ผู้ป่วยจิตเวช\s*(?:ทั้งหมด\s*)?กี่/.test(text)) return 'count_psychiatric';
-  if (/ผู้เสพ\s*(?:ทั้งหมด\s*)?กี่/.test(text)) return 'count_drug_user';
-  if (/ผู้ค้า\s*(?:ทั้งหมด\s*)?กี่/.test(text)) return 'count_dealer';
+  const countTail = String.raw`\s*(?:มี\s+)?(?:ทั้งหมด\s+)?กี่`;
+  if (new RegExp(`ผู้ป่วยจิตเวช${countTail}`).test(text)) return 'count_psychiatric';
+  if (new RegExp(`ผู้เสพ${countTail}`).test(text)) return 'count_drug_user';
+  if (new RegExp(`ผู้ค้า${countTail}`).test(text)) return 'count_dealer';
   if (/ทั้งหมด\s*กี่/.test(text)) return 'count_total';
   return null;
 }

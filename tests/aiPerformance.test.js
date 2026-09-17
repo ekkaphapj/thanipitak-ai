@@ -143,6 +143,29 @@ test('P4: "มีทั้งหมดกี่คน" → fastPath + get_statis
   }
 });
 
+test('P5b: "ขอจำนวนบุคคลทั้งหมด แยกตามประเภทบุคคล" → fastPath with 100/37/36/27 + NO Ollama', async () => {
+  const ctx = make();
+  try {
+    const { app, ollamaCalls } = makeSpyApp(ctx);
+    const token = await login(app);
+    const res = await request(app)
+      .post('/api/ai/chat')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ message: 'ขอจำนวนบุคคลทั้งหมด แยกตามประเภทบุคคล' })
+      .timeout(10000);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.meta.fastPath, true);
+    assert.deepStrictEqual(res.body.toolsUsed, [{ name: 'get_statistics' }]);
+    assert.ok(res.body.answer.includes('100'), 'must include total 100');
+    assert.ok(res.body.answer.includes('37'), 'must include psychiatric 37');
+    assert.ok(res.body.answer.includes('36'), 'must include drug_user 36');
+    assert.ok(res.body.answer.includes('27'), 'must include dealer 27');
+    assert.strictEqual(ollamaCalls(), 0);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test('P5: "สรุปจำนวนบุคคลแยกตามประเภท" → fastPath with 100/37/36/27 + NO Ollama', async () => {
   const ctx = make();
   try {
@@ -665,7 +688,7 @@ test('fast path read-only deterministic: no privilege fields leak, scope from JW
 });
 
 test('intent detector: ambiguous / complex questions are NOT fast-pathed (conservative routing)', () => {
-  const fast = ['มีผู้ป่วยจิตเวชกี่คน', 'มีผู้เสพกี่คน', 'มีผู้ค้ากี่คน', 'มีทั้งหมดกี่คน', 'สรุปจำนวนบุคคลแยกตามประเภท', 'ขอรายชื่อผู้ป่วยจิตเวช', 'ขอรายชื่อหมด', 'หาผู้เสพในพื้นที่ของฉัน', 'ในพื้นที่ของฉันมีบุคคลทั้งหมดกี่คน', 'ขอรายชื่อเฉพาะผู้ค้า', 'ขอรายชื่อผู้ค้าทั้งหมด', 'มีผู้ค้าคนไหนบ้าง', 'แสดงรายชื่อผู้ป่วยจิตเวช', 'ขอรายชื่อผู้เสพทั้งหมดให้หน่อย'];
+  const fast = ['มีผู้ป่วยจิตเวชกี่คน', 'มีผู้เสพกี่คน', 'มีผู้ค้ากี่คน', 'มีทั้งหมดกี่คน', 'สรุปจำนวนบุคคลแยกตามประเภท', 'ขอจำนวนบุคคลทั้งหมด แยกตามประเภทบุคคล', 'ขอรายชื่อผู้ป่วยจิตเวช', 'ขอรายชื่อหมด', 'หาผู้เสพในพื้นที่ของฉัน', 'ในพื้นที่ของฉันมีบุคคลทั้งหมดกี่คน', 'ขอรายชื่อเฉพาะผู้ค้า', 'ขอรายชื่อผู้ค้าทั้งหมด', 'มีผู้ค้าคนไหนบ้าง', 'แสดงรายชื่อผู้ป่วยจิตเวช', 'ขอรายชื่อผู้เสพทั้งหมดให้หน่อย'];
   const notFast = [
     'นายสมชายมีประวัติการเยี่ยมอย่างไร',
     'หาคนที่ฉี่ม่วงซ้ำและยังไม่ได้รับการเยี่ยม',

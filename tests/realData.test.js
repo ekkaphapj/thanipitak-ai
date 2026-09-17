@@ -29,6 +29,29 @@ test('spoken patient ranking counts every server page and preserves psychiatric 
  await request(app).post('/ai/chat').send({message:'ผู้ป่วยจิตเวชมีทั้งหมดกี่คน'});
  assert.equal(calls[0].searchParams.get('type_name'),'ilike.*ผู้ป่วยจิตเวช*');
 });
+test('type-breakdown prompt returns per-type counts without clarification',async()=>{
+ const app=express();app.use(express.json());
+ const typeMap={'ilike.*ผู้ป่วยจิตเวช*':9,'ilike.*ผู้เสพ*':8,'ilike.*ผู้ค้า*':7,'ilike.*พ้นโทษ*':6};
+ const countByTypeId={9:154,8:40,7:12,6:5};
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,stationName:'สภ.บ้านดุง'};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('people_type')){const typeId=typeMap[u.searchParams.get('type_name')]||9;return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{type_id:typeId}]};}
+  const typeFilter=u.searchParams.get('type_id');
+  const total=typeFilter?countByTypeId[Number(typeFilter.slice(4,-1))]||0:211;
+  return {ok:true,headers:new Headers({'content-range':`0-0/${total}`}),json:async()=>[]};
+ }}));
+ const res=await request(app).post('/ai/chat').send({message:'ขอจำนวนบุคคลทั้งหมด แยกตามประเภทบุคคล'});
+ assert.equal(res.status,200);assert.equal(res.body.meta.ollamaCalls,0);assert.equal(res.body.meta.fastPath,true);assert.match(res.body.answer,/สภ\.บ้านดุง/);assert.match(res.body.answer,/ทั้งหมด 211 คน/);assert.match(res.body.answer,/จิตเวช 154 คน/);assert.doesNotMatch(res.body.answer,/ต้องการจำนวน รายชื่อ/);
+});
+test('real count answers disclose station scope and effective filters',async()=>{
+ const app=express();app.use(express.json());
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,stationName:'สภ.บ้านดุง',division:'อุดรธานี',province:'อุดรธานี'};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async url=>{
+  const u=new URL(url);const types=u.pathname.endsWith('people_type');
+  return {ok:true,headers:new Headers({'content-range':types?'0-0/1':'0-0/154'}),json:async()=>types?[{type_id:9}]:[]};
+ }}));
+ const r=await request(app).post('/ai/chat').send({message:'ผู้ป่วยจิตเวชมีทั้งหมดกี่คน'});
+ assert.equal(r.status,200);assert.match(r.body.answer,/ข้อมูลจริง • สภ\.บ้านดุง/);assert.match(r.body.answer,/ผู้ป่วยจิตเวช/);assert.match(r.body.answer,/พบ 154 คน/);assert.doesNotMatch(r.body.answer,/ตามสิทธิ์และเงื่อนไขที่ค้นหา/);
+});
 test('real registry reads bind authenticated station and token, without source writes',async()=>{
  const calls=[];const app=express();app.use(express.json());
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='real-user';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{calls.push({url,opts});return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{id:1,first_name:'ตัวอย่าง',last_name:'ทดสอบ',tambon:'ตัวอย่าง'}]};}}));

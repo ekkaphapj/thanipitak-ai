@@ -1,5 +1,14 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const express=require('express');const request=require('supertest');
 const {createRealDataRoutes}=require('../src/routes/realDataRoutes');
+test('real mode routes product questions to RAG instead of registry clarification',async()=>{
+ const previous=process.env.RAG_ENABLED;process.env.RAG_ENABLED='true';
+ try {
+  const app=express();app.use(express.json());
+  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async()=>{throw new Error('registry must not be read');}}));
+  const res=await request(app).post('/ai/chat').send({message:'ธานีพิทักษ์คืออะไร'});
+  assert.equal(res.status,200);assert.match(res.body.answer,/ผู้ช่วย AI ภายใน/);assert.doesNotMatch(res.body.answer,/ต้องการจำนวน|รายชื่อ หรือแยกยอด/);
+ } finally { if(previous===undefined)delete process.env.RAG_ENABLED;else process.env.RAG_ENABLED=previous; }
+});
 test('unknown spoken question invokes local interpreter and executes scoped grouping',async()=>{
  let interpretations=0;const app=express();app.use(express.json());
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='t';next();},{

@@ -8,6 +8,14 @@ const {writeSummaryPdf,writeSummaryExcel,safeReportRequest}=require('../services
 const fs=require('fs');
 const {parseStationId,applyPeopleStationScope,personInOwnStation}=require('../services/stationScope');
 const {detectOverview,formatOverview,TYPE_LABELS}=require('../services/overviewService');
+const {hasDBIntent}=require('../ai/intentDetector');
+const rag=require('../ai/rag');
+
+async function ollamaJson(path,body) {
+ const response=await fetch(new URL(path,process.env.OLLAMA_HOST||'http://127.0.0.1:11434'),{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(120000),body:JSON.stringify(body)});
+ if(!response.ok)throw new Error('Local AI knowledge service unavailable');
+ return response.json();
+}
 
 function realFailure(error) {
  const code=error&&error.code;
@@ -231,6 +239,15 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(intent?.intent==='group_persons' && {subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด'}[intent.groupBy]){
    ranking=[message,{subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด'}[intent.groupBy],intent.direction==='asc'?'น้อยสุด':'มากสุด'];
    showAll=intent.showAll||showAll;
+  }
+  // Non-registry questions must never enter the registry interpreter.  In
+  // particular, product questions such as “ธานีพิทักษ์คืออะไร” used to be
+  // misread as an incomplete people lookup and got a misleading prompt.
+  if(process.env.RAG_ENABLED==='true'&&!hasDBIntent(message)){
+   try {
+    const found=await rag.answer(message,ollamaJson,process.env.OLLAMA_MODEL||'typhoon2:8b-q5');
+    if(found)return res.json({answer:found.answer,grounded:true,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:false,ollamaCalls:0,responseTimeMs:Date.now()-start,ragSources:found.sources}});
+   } catch(e) { console.error(`[real-rag] failure type=${e?.name||'Error'}`); }
   }
   try {
    if((!ranking&&!summary&&!intent)||summary?.intent==='summary_choices'||intent?.intent==='search_incomplete'){

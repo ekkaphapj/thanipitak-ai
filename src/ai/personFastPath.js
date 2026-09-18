@@ -85,9 +85,13 @@ function validPersonId(value) {
 
 function sanitizePersonContext(context) {
   if (!context || typeof context !== 'object' || Array.isArray(context)) return {};
+  const out = {};
   const personId = validPersonId(context.personId);
-  if (personId === null) return {};
-  return { personId };
+  if (personId !== null) out.personId = personId;
+  const { sanitizeTopic } = require('./conversationTopic');
+  const topic = sanitizeTopic(context.topic);
+  if (topic) out.topic = topic;
+  return out;
 }
 
 function label(map, key, fallback) {

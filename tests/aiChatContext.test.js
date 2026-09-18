@@ -108,11 +108,18 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
     assert.strictEqual(ChatContext.indicatorText({ personId: 3, displayName: 'ปกรณ์ สว่าง' }), 'กำลังสอบถามข้อมูลของ: ปกรณ์ สว่าง');
     assert.strictEqual(ChatContext.indicatorText(null), null);
   });
+
+  test('conversation topic is sent without authorization fields', () => {
+    const body = ChatContext.buildChatBody('ขอรายชื่อหน่อย', null, { person_type: 'drug_user', station_id: 2, role: 'admin' });
+    assert.deepStrictEqual(body.context, { topic: { person_type: 'drug_user' } });
+    assert.ok(!JSON.stringify(body).includes('station_id'));
+    assert.ok(!JSON.stringify(body).includes('admin'));
+  });
 });
 
 describe('STEP 2.5 frontend wiring (static)', () => {
   test('chat body always built through ChatContext.buildChatBody', () => {
-    assert.ok(AI_JS.includes('ChatContext.buildChatBody(message, state.selectedPerson)'));
+    assert.ok(AI_JS.includes('ChatContext.buildChatBody(message, state.selectedPerson, state.conversationTopic)'));
   });
 
   test('person_summary presentation renders compact fields', () => {
@@ -127,7 +134,13 @@ describe('STEP 2.5 frontend wiring (static)', () => {
   });
 
   test('person-list rows are selectable and highlight the current selection', () => {
-    assert.ok(AI_JS.includes("selectPerson({ personId: item.person_id, displayName: item.full_name })"));
+    assert.ok(AI_JS.includes('makeSelectButton'));
+    assert.ok(AI_JS.includes("makeSelectButton({ personId: item.person_id, displayName: item.full_name })"));
+    assert.ok(AI_JS.includes('/api/people?'));
+    assert.ok(AI_JS.includes('รายชื่อหน้าเดิมยังอยู่'));
+    assert.ok(AI_JS.includes('กดปุ่มเลือก เพื่อถามข้อมูลคนนั้นต่อ'));
+    assert.ok(AI_JS.includes("btn.textContent = on ? 'เลือกแล้ว' : 'เลือก'"));
+    assert.ok(AI_JS.includes('คำถามถัดไปจะดึงข้อมูลคนนี้'));
     assert.ok(AI_JS.includes('pl-selected'));
     assert.ok(AI_JS.includes('clear-selection-btn'));
   });
@@ -138,6 +151,7 @@ describe('STEP 2.5 frontend wiring (static)', () => {
     assert.ok(AI_JS.includes('function resetConversation()'), 'shared reset behavior exists');
     assert.ok(AI_JS.includes('if (isStartOverCommand(message))'), 'start-over is handled before the API request');
     assert.ok(AI_JS.includes('clearSelectedPerson();'), 'start-over clears the selected person');
+    assert.ok(AI_JS.includes('state.conversationTopic = null'), 'start-over clears conversation topic');
   });
 
   test('a one-person monitoring result becomes the selected chat context', () => {

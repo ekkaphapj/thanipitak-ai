@@ -8,6 +8,6 @@ Read `docs/agent-handoff.md` before changing the application. It describes the c
 - Model output is an untrusted query proposal. Validate it; only execute allowlisted operations. Counts and facts must come from authorized data, not model prose.
 - Run `npm test` for routing/auth/data changes. Add regression tests for missed Thai phrasing, pagination, scope and model failure. Never use real credentials in automated tests.
 - Use actual Ollama for opt-in model checks when available; report separately whether the test used the real model, mocked Supabase, or authenticated real data.
-- This repository is not yet ready for general production distribution. Do not claim that real risk/history/PDF support is complete.
+- This repository is not yet ready for general production distribution. Real registry facts, recorded visit/alert fields, and station-scoped PDF/Excel (no id_card/phones) exist. Do not claim time-window monitoring or production packaging is complete. If `users.station_id` is set, never list other stations even for Admin. Never copy fixture monitoring thresholds onto real rows.
 
 Current development branch: `phase-3.3-low-latency`. Push this branch unless the user specifies another destination. Do not merge into `main` implicitly.

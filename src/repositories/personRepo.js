@@ -91,6 +91,60 @@ function typeSummary(db, opts) {
   return summary;
 }
 
+const GROUP_SPEC = {
+  subdistrict: {
+    expr: "TRIM(p.subdistrict)",
+    extras: "s.province AS province, p.district AS district",
+    group: "TRIM(p.subdistrict), s.province, p.district",
+  },
+  district: {
+    expr: "TRIM(p.district)",
+    extras: "s.province AS province, '' AS district",
+    group: "TRIM(p.district), s.province",
+  },
+  province: {
+    expr: "TRIM(s.province)",
+    extras: "'' AS province, '' AS district",
+    group: "TRIM(s.province)",
+  },
+  station: {
+    expr: "TRIM(s.name)",
+    extras: "s.province AS province, '' AS district",
+    group: "TRIM(s.name), s.province",
+  },
+};
+
+function groupPersons(db, opts) {
+  const spec = GROUP_SPEC[opts.groupBy];
+  if (!spec) return { groups: [], missing: 0, total: 0 };
+  const { whereSql, params } = buildFilter(opts);
+  const rows = db
+    .prepare(
+      `SELECT ${spec.expr} AS name, ${spec.extras}, COUNT(*) AS count
+       FROM persons p JOIN stations s ON s.id=p.station_id
+       ${whereSql}
+       GROUP BY ${spec.group}`
+    )
+    .all(...params);
+  const groups = [];
+  let missing = 0;
+  let total = 0;
+  for (const row of rows) {
+    total += row.count;
+    if (!row.name) {
+      missing += row.count;
+      continue;
+    }
+    groups.push({
+      name: row.name,
+      province: row.province || '',
+      district: row.district || '',
+      count: row.count,
+    });
+  }
+  return { groups, missing, total };
+}
+
 function getPersonById(db, id) {
   return db.prepare('SELECT p.*,r.status AS registry_status,r.custody_status,t.type_name FROM persons p LEFT JOIN people r ON r.id=p.id LEFT JOIN people_type t ON t.type_id=r.type_id WHERE p.id = ?').get(id);
 }
@@ -163,4 +217,4 @@ function getStationPersonIds(db, stationIds) {
     .map((r) => r.id);
 }
 
-module.exports = { buildFilter, listPersons, statusSummary, typeSummary, getPersonById, getVisitsForPerson, getUrineTestsForPerson, getVisitStatsForPerson, getStationPersonIds };
+module.exports = { buildFilter, listPersons, statusSummary, typeSummary, groupPersons, getPersonById, getVisitsForPerson, getUrineTestsForPerson, getVisitStatsForPerson, getStationPersonIds };

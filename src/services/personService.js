@@ -1,5 +1,6 @@
 const personRepo = require('../repositories/personRepo');
 const config = require('../config');
+const { followupIntervalDays } = require('./followupRules');
 
 const VALID_TYPES = ['psychiatric', 'drug_user', 'dealer', 'released'];
 const VALID_STATUSES = ['registered', 'active', 'followup', 'completed'];
@@ -15,6 +16,21 @@ function hasAccessToPerson(user, person) {
   const stationIds = allowedStationIds(user);
   if (stationIds === null) return true;
   return stationIds.includes(person.station_id);
+}
+
+function stationScope(user, column = 'station_id') {
+  const stationIds = allowedStationIds(user);
+  if (stationIds === null) {
+    return { whereSql: '', params: [], empty: false };
+  }
+  if (stationIds.length === 0) {
+    return { whereSql: '1=0', params: [], empty: true };
+  }
+  return {
+    whereSql: `${column} IN (${stationIds.map(() => '?').join(',')})`,
+    params: [...stationIds],
+    empty: false,
+  };
 }
 
 function sanitizeLimit(rawLimit) {
@@ -45,12 +61,6 @@ function normalizeQuery(query) {
   };
 }
 
-const FOLLOWUP_INTERVAL_DAYS = {
-  psychiatric: 30,
-  drug_user: 60,
-  dealer: 15,
-};
-
 const RECENT_VISITS_MAX = 5;
 
 function toDateKey(d) {
@@ -69,7 +79,7 @@ function buildPersonSummary(person, visits, urineTests) {
     daysSinceLastVisit = Math.floor((today - last) / 86400000);
   }
 
-  const intervalDays = FOLLOWUP_INTERVAL_DAYS[person.person_type] || 30;
+  const intervalDays = followupIntervalDays(person.person_type);
   const overdue =
     person.status === 'completed'
       ? false
@@ -157,6 +167,22 @@ function createPersonService(db) {
     };
   }
 
+  function groupByLocation(user, query = {}) {
+    const groupBy = query.groupBy;
+    if (!['subdistrict', 'district', 'province', 'station'].includes(groupBy)) {
+      return { groups: [], missing: 0, total: 0, groupBy: null };
+    }
+    const opts = normalizeQuery(query);
+    return {
+      groupBy,
+      ...personRepo.groupPersons(db, {
+        stationIds: allowedStationIds(user),
+        ...opts,
+        groupBy,
+      }),
+    };
+  }
+
   function getPerson(user, id) {
     const person = personRepo.getPersonById(db, parseInt(id, 10));
     if (!person || !hasAccessToPerson(user, person)) {
@@ -200,6 +226,7 @@ function createPersonService(db) {
     listPersons,
     listPersonsWithSummary,
     summarizePersons,
+    groupByLocation,
     getPerson,
     getVisits,
     getUrineTests,
@@ -211,6 +238,7 @@ function createPersonService(db) {
 module.exports = {
   allowedStationIds,
   hasAccessToPerson,
+  stationScope,
   buildPersonSummary,
   createPersonService,
 };

@@ -42,6 +42,7 @@ test('summary fast path is grounded, scoped and never calls Ollama', async (t) =
   assert.equal(out.presentation.total, 3);
   assert.deepEqual(out.presentation.counts, [{ type: 'psychiatric', label: 'จิตเวช', count: 3 }]);
   assert.deepEqual(out.presentation.items.map((item) => item.full_name), ['ทดสอบ1 สถานี1', 'ทดสอบ3 สถานี1', 'ทดสอบ4 สถานี1']);
+  assert.ok(out.presentation.items.every((item) => Number.isInteger(item.person_id) && item.person_id > 0));
   assert.match(out.answer, /ต้องการให้สร้างเป็นรายงาน PDF หรือไม่/);
 
   const choices = await gateway.chatWithTools('สรุป', officer, null, {

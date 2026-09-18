@@ -72,3 +72,23 @@ test('statistics: admin stats equal all-stations total', async () => {
     ctx.cleanup();
   }
 });
+
+test('statistics: officer overdue count uses type-specific intervals not a flat 30 days', async () => {
+  const ctx = setup();
+  try {
+    const token = await getToken(ctx.app, 'station1_off');
+    const res = await request(ctx.app)
+      .get('/api/statistics')
+      .set('Authorization', `Bearer ${token}`)
+      .timeout(5000);
+    assert.strictEqual(res.status, 200);
+    const overdue = await request(ctx.app)
+      .get('/api/followups/overdue?limit=200')
+      .set('Authorization', `Bearer ${token}`)
+      .timeout(5000);
+    assert.strictEqual(overdue.status, 200);
+    assert.strictEqual(res.body.data.followupOverdue, overdue.body.meta.total);
+  } finally {
+    ctx.cleanup();
+  }
+});

@@ -266,7 +266,7 @@ test('ai route: returns answer and toolsUsed from injected gateway', async () =>
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.answer, 'พบผู้ป่วยจิตเวช 36 คน');
     assert.deepStrictEqual(res.body.toolsUsed, [{ name: 'get_statistics' }]);
-    assert.strictEqual(res.body.model, 'qwen3.5:9b');
+    assert.strictEqual(res.body.model, 'scb10x/llama3.1-typhoon2-8b-instruct:latest');
     assert.ok(typeof res.body.meta.responseTimeMs === 'number');
   } finally {
     ctx.cleanup();

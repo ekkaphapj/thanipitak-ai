@@ -43,7 +43,7 @@
 
     <nav class="side-nav">
       <a href="/ai.html" class="side-link active">ผู้ช่วย AI</a>
-      <div class="nav-note">ค้นหาบุคคล · สรุปข้อมูล<br>สร้างรายงาน PDF</div>
+      <div class="nav-note">ค้นหาบุคคล · สรุปข้อมูล<br>สร้างรายงาน PDF / Excel</div>
     </nav>
 
     <div class="sidebar-foot">
@@ -63,7 +63,7 @@
         <h1 class="chat-title">ผู้ช่วย AI ธานีพิทักษ์</h1>
         <p class="chat-subtitle">ค้นหา สรุป และสร้างรายงานในพื้นที่รับผิดชอบ</p>
       </div>
-      <div class="model-badge" id="model-badge">qwen3.5:9b</div>
+      <div class="model-badge" id="model-badge">scb10x/llama3.1-typhoon2-8b-instruct:latest</div>
       <button id="mobile-logout" class="mobile-logout" type="button">ออกจากระบบ</button>
     </header>
     <section class="source-bar" aria-label="แหล่งข้อมูล">
@@ -84,8 +84,10 @@
     <footer class="chat-input-area">
       <div class="input-row">
         <textarea id="chat-input" aria-label="คำถามถึงผู้ช่วย AI" rows="1" placeholder="เช่น ตำบลไหนมีผู้ป่วยจิตเวชเสี่ยงสูงบ้าง" maxlength="2000"></textarea>
+        <button id="mic-btn" class="mic-btn" type="button" aria-label="กดค้างเพื่อพูด" aria-pressed="false" title="กดค้างแล้วพูด">ไมค์</button>
         <button id="send-btn" class="send-btn">ส่ง</button>
       </div>
+      <p id="mic-status" class="mic-status" role="status"></p>
       <div class="input-actions">
         <button id="clear-btn" class="clear-btn" type="button">ล้างการสนทนา</button>
         <span>ตรวจสอบข้อมูลอ้างอิงก่อนนำรายงานไปใช้</span>
@@ -96,6 +98,7 @@
 </div>
 
 <script src="chatContext.js"></script>
+<script src="voiceInput.js"></script>
 <script src="ai.js"></script>
 </body>
 </html>

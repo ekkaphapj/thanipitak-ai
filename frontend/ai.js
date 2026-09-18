@@ -10,9 +10,12 @@
     dataSource: localStorage.getItem(SOURCE_KEY) === 'real' ? 'real' : 'test',
     user: null,
     aiAvailable: null,
-    aiModel: 'qwen3.5:9b',
+    aiModel: 'scb10x/llama3.1-typhoon2-8b-instruct:latest',
     sending: false,
+    mic: 'idle',
+    sttAvailable: null,
     selectedPerson: null,
+    conversationTopic: null,
     pendingSummaryReport: null,
   };
 
@@ -134,7 +137,7 @@
     const h2 = document.createElement('h2');
     h2.textContent = 'วันนี้ต้องการทราบข้อมูลอะไร?';
     const p = document.createElement('p');
-    p.textContent = 'พิมพ์ภาษาพูดได้เลย หรือเลือกตัวอย่างด้านล่างเพื่อเริ่มต้น';
+    p.textContent = 'พิมพ์ภาษาพูดได้เลย กดค้างไมค์เพื่อพูด หรือเลือกตัวอย่างด้านล่าง';
     const list = document.createElement('div');
     list.className = 'suggest-list';
     for (const q of SUGGESTIONS) {
@@ -196,7 +199,215 @@
 
   function setBusy(busy) {
     state.sending = busy;
-    $('#send-btn').disabled = busy;
+    updateSendDisabled();
+  }
+
+  function updateSendDisabled() {
+    const micBusy = state.mic === 'recording' || state.mic === 'uploading';
+    const send = $('#send-btn');
+    if (send) send.disabled = state.sending || micBusy;
+    const mic = $('#mic-btn');
+    if (mic) {
+      mic.disabled = state.sending || state.mic === 'uploading';
+      mic.setAttribute('aria-pressed', String(state.mic === 'recording'));
+    }
+  }
+
+  function setMicStatus(text, isError) {
+    const el = $('#mic-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('is-error', Boolean(isError));
+  }
+
+  async function loadSttStatus() {
+    if (state.mic === 'recording' || state.mic === 'uploading') return;
+    try {
+      const json = await api('/api/stt/status');
+      state.sttAvailable = json.available === true;
+      state.mic = state.sttAvailable ? 'idle' : 'unavailable';
+      setMicStatus(state.sttAvailable ? 'กดค้างไมค์เพื่อพูด' : VoiceInput.micErrorMessage('STT_UNAVAILABLE'), !state.sttAvailable);
+    } catch (_) {
+      state.sttAvailable = false;
+      state.mic = 'unavailable';
+      setMicStatus(VoiceInput.micErrorMessage('STT_UNAVAILABLE'), true);
+    }
+    updateSendDisabled();
+  }
+
+  const micCtl = { recorder: null, stream: null, chunks: [], timer: null, abort: null, held: false };
+
+  function abortMic() {
+    if (micCtl.timer) {
+      clearTimeout(micCtl.timer);
+      micCtl.timer = null;
+    }
+    micCtl.held = false;
+    if (micCtl.abort) {
+      try { micCtl.abort.abort(); } catch (_) { /* ignore */ }
+      micCtl.abort = null;
+    }
+    if (micCtl.recorder && micCtl.recorder.state !== 'inactive') {
+      try { micCtl.recorder.stop(); } catch (_) { /* ignore */ }
+    }
+    micCtl.recorder = null;
+    micCtl.chunks = [];
+    if (micCtl.stream) {
+      micCtl.stream.getTracks().forEach((track) => track.stop());
+      micCtl.stream = null;
+    }
+    if (state.mic === 'recording' || state.mic === 'uploading') {
+      state.mic = state.sttAvailable ? 'idle' : 'unavailable';
+    }
+    updateSendDisabled();
+  }
+
+  async function transcribeAudio(blob) {
+    const headers = {
+      'X-Data-Source': state.dataSource,
+      'Content-Type': blob.type || 'audio/webm',
+    };
+    if (state.token) headers.Authorization = 'Bearer ' + state.token;
+    micCtl.abort = new AbortController();
+    const timer = setTimeout(() => micCtl.abort.abort(), 35000);
+    try {
+      const res = await fetch('/api/stt/transcribe', { method: 'POST', headers, body: blob, signal: micCtl.abort.signal });
+      let json = null;
+      try { json = await res.json(); } catch (_) { /* empty */ }
+      if (!res.ok) {
+        const err = new Error((json && json.error) || 'Request failed');
+        err.status = res.status;
+        err.json = json;
+        throw err;
+      }
+      return json;
+    } finally {
+      clearTimeout(timer);
+      micCtl.abort = null;
+    }
+  }
+
+  async function finishRecording() {
+    micCtl.held = false;
+    if (state.mic !== 'recording') return;
+    if (micCtl.timer) {
+      clearTimeout(micCtl.timer);
+      micCtl.timer = null;
+    }
+    const recorder = micCtl.recorder;
+    state.mic = 'uploading';
+    updateSendDisabled();
+    setMicStatus('กำลังแปลงเสียงเป็นข้อความ…', false);
+    const blob = await new Promise((resolve) => {
+      if (!recorder) return resolve(null);
+      recorder.addEventListener('stop', () => {
+        resolve(new Blob(micCtl.chunks, { type: recorder.mimeType || 'audio/webm' }));
+      }, { once: true });
+      try { recorder.stop(); } catch (_) { resolve(null); }
+    });
+    if (micCtl.stream) {
+      micCtl.stream.getTracks().forEach((track) => track.stop());
+      micCtl.stream = null;
+    }
+    micCtl.recorder = null;
+    micCtl.chunks = [];
+    if (!blob || blob.size < 200) {
+      state.mic = 'idle';
+      updateSendDisabled();
+      setMicStatus(VoiceInput.micErrorMessage('EMPTY_TRANSCRIPT'), true);
+      return;
+    }
+    try {
+      const json = await transcribeAudio(blob);
+      const text = json && json.transcript;
+      if (!text) {
+        setMicStatus(VoiceInput.micErrorMessage('EMPTY_TRANSCRIPT'), true);
+      } else {
+        const input = $('#chat-input');
+        input.value = VoiceInput.applyTranscript(input.value, text);
+        autoResizeInput();
+        input.focus();
+        setMicStatus('ตรวจข้อความแล้วกดส่ง', false);
+      }
+    } catch (err) {
+      if (err && err.status === 401) {
+        await messageForError(err);
+        return;
+      }
+      const code = err && err.json && err.json.code;
+      setMicStatus(VoiceInput.micErrorMessage(code, err && err.status), true);
+    }
+    state.mic = state.sttAvailable ? 'idle' : 'unavailable';
+    updateSendDisabled();
+  }
+
+  async function startRecording(event) {
+    if (state.sending || state.mic === 'recording' || state.mic === 'uploading') return;
+    micCtl.held = true;
+    if (state.sttAvailable !== true) {
+      setMicStatus('กำลังเชื่อมต่อระบบแปลงเสียง…', false);
+      await loadSttStatus();
+      if (state.sttAvailable !== true) {
+        micCtl.held = false;
+        setMicStatus(VoiceInput.micErrorMessage('STT_UNAVAILABLE'), true);
+        return;
+      }
+    }
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setMicStatus(VoiceInput.micErrorMessage('INSECURE_CONTEXT'), true);
+      return;
+    }
+    if (event && event.currentTarget && event.pointerId != null) {
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+    }
+    try {
+      micCtl.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      micCtl.held = false;
+      const denied = err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError');
+      setMicStatus(VoiceInput.micErrorMessage(denied ? 'PERMISSION_DENIED' : 'INSECURE_CONTEXT'), true);
+      return;
+    }
+    if (!micCtl.held) {
+      micCtl.stream.getTracks().forEach((track) => track.stop());
+      micCtl.stream = null;
+      return;
+    }
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+    micCtl.chunks = [];
+    micCtl.recorder = mime ? new MediaRecorder(micCtl.stream, { mimeType: mime }) : new MediaRecorder(micCtl.stream);
+    micCtl.recorder.addEventListener('dataavailable', (ev) => {
+      if (ev.data && ev.data.size) micCtl.chunks.push(ev.data);
+    });
+    micCtl.recorder.start(250);
+    state.mic = 'recording';
+    updateSendDisabled();
+    setMicStatus('กำลังฟัง… ปล่อยปุ่มเมื่อพูดจบ', false);
+    micCtl.timer = setTimeout(() => {
+      setMicStatus(VoiceInput.micErrorMessage('AUDIO_TOO_LONG'), true);
+      finishRecording();
+    }, VoiceInput.MAX_SECONDS * 1000);
+  }
+
+  function bindMicButton() {
+    const btn = $('#mic-btn');
+    if (!btn) return;
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    if (window.PointerEvent) {
+      btn.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        startRecording(e);
+      });
+      btn.addEventListener('pointerup', () => finishRecording());
+      btn.addEventListener('pointercancel', () => finishRecording());
+    } else {
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        startRecording(e);
+      }, { passive: false });
+      btn.addEventListener('touchend', () => finishRecording());
+    }
   }
 
   function isStartOverCommand(message) {
@@ -210,7 +421,9 @@
   }
 
   function resetConversation() {
+    abortMic();
     clearSelectedPerson();
+    state.conversationTopic = null;
     state.pendingSummaryReport = null;
     removeTypingIndicator();
     $('#chat-input').value = '';
@@ -241,6 +454,16 @@
     state.selectedPerson = sel;
     highlightSelectedRow();
     renderSelectedPersonBar();
+    return sel;
+  }
+
+  function applyPersonSelection(raw, announce) {
+    const sel = selectPerson(raw);
+    if (!sel) return null;
+    if (announce !== false) {
+      appendMessage('assistant', 'เลือกแล้ว: ' + sel.displayName + ' — คำถามถัดไปจะดึงข้อมูลคนนี้ เช่น "คนนี้มีประวัติอย่างไร"');
+    }
+    return sel;
   }
 
   function clearSelectedPerson() {
@@ -255,11 +478,31 @@
   }
 
   function highlightSelectedRow() {
-    document.querySelectorAll('#chat-messages tr.pl-row').forEach((tr) => {
-      const id = Number(tr.getAttribute('data-person-id'));
-      const on = state.selectedPerson && id === state.selectedPerson.personId;
-      tr.classList.toggle('pl-selected', on);
+    document.querySelectorAll('#chat-messages [data-person-id]').forEach((row) => {
+      const id = Number(row.getAttribute('data-person-id'));
+      const on = Boolean(state.selectedPerson && id === state.selectedPerson.personId);
+      row.classList.toggle('pl-selected', on);
+      const btn = row.querySelector('.pl-select-btn');
+      if (btn) btn.textContent = on ? 'เลือกแล้ว' : 'เลือก';
     });
+  }
+
+  function makeSelectButton(raw) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pc-btn pl-select-btn';
+    const sel = window.ChatContext.normalizeSelectedPerson(raw);
+    const on = sel && state.selectedPerson && sel.personId === state.selectedPerson.personId;
+    btn.textContent = on ? 'เลือกแล้ว' : 'เลือก';
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      applyPersonSelection(raw);
+    });
+    return btn;
+  }
+
+  function hostForPresentation(wrap) {
+    return wrap.querySelector('.bubble') || wrap;
   }
 
   function renderPersonList(wrap, presentation) {
@@ -271,34 +514,25 @@
     };
 
     const box = document.createElement('div');
-    box.className = 'person-list';
+    box.className = 'person-list person-candidates';
 
-    const header = document.createElement('div');
-    header.className = 'pl-header';
+    const title = document.createElement('div');
+    title.className = 'pc-title';
+    title.textContent = 'กดปุ่มเลือก เพื่อถามข้อมูลคนนั้นต่อ';
+    box.appendChild(title);
+
     const rangeText = document.createElement('div');
     rangeText.className = 'pl-range';
-    header.appendChild(rangeText);
-    box.appendChild(header);
+    box.appendChild(rangeText);
 
-    const table = document.createElement('table');
-    table.className = 'pl-table';
-    const thead = document.createElement('thead');
-    const hr = document.createElement('tr');
-    for (const col of ['ลำดับ', 'ชื่อ', 'ประเภท', 'สถานะ', 'ตำบล']) {
-      const th = document.createElement('th');
-      th.textContent = col;
-      hr.appendChild(th);
-    }
-    thead.appendChild(hr);
-    table.appendChild(thead);
-    const tbody = document.createElement('tbody');
-    table.appendChild(tbody);
-    box.appendChild(table);
+    const list = document.createElement('div');
+    list.className = 'pc-list';
+    box.appendChild(list);
 
     function normalizeItem(u) {
       return {
         person_id: u.person_id != null ? u.person_id : u.id,
-        full_name: u.full_name || (u.first_name + ' ' + (u.last_name || '')),
+        full_name: u.full_name || ((u.first_name || '') + ' ' + (u.last_name || '')).trim(),
         person_type: u.person_type,
         status: u.status,
         district: u.district,
@@ -307,40 +541,34 @@
     }
 
     function renderRows(items) {
-      tbody.innerHTML = '';
-      (items || []).forEach((raw, i) => {
-        const item = normalizeItem(raw);
-        const tr = document.createElement('tr');
-        tr.className = 'pl-row';
-        tr.setAttribute('data-person-id', String(item.person_id));
-        tr.setAttribute('data-person-name', item.full_name);
-        tr.title = 'เลือก ' + item.full_name + ' เพื่อสอบถามข้อมูล';
-        if (isSelectedRow(item)) tr.classList.add('pl-selected');
-        tr.addEventListener('click', () => {
-          selectPerson({ personId: item.person_id, displayName: item.full_name });
-        });
-        const cells = [
-          String((ctx.page - 1) * ctx.pageSize + i + 1),
-          item.full_name,
-          TYPE_AI_LABEL[item.person_type] || item.person_type || '-',
-          STATUS_AI_LABEL[item.status] || item.status || '-',
-          item.subdistrict || item.district || '-',
-        ];
-        for (const c of cells) {
-          const td = document.createElement('td');
-          td.textContent = c;
-          tr.appendChild(td);
-        }
-        tbody.appendChild(tr);
-      });
-      if (!items || items.length === 0) {
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = 5;
-        td.textContent = 'ไม่มีข้อมูล';
-        tr.appendChild(td);
-        tbody.appendChild(tr);
+      list.innerHTML = '';
+      const rows = items || [];
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pc-empty';
+        empty.textContent = 'ไม่มีข้อมูล';
+        list.appendChild(empty);
+        return;
       }
+      rows.forEach((raw) => {
+        const item = normalizeItem(raw);
+        if (!item.person_id) return;
+        const row = document.createElement('div');
+        row.className = 'pc-row';
+        row.setAttribute('data-person-id', String(item.person_id));
+        if (isSelectedRow(item)) row.classList.add('pl-selected');
+        const info = document.createElement('div');
+        info.className = 'pc-info';
+        const name = document.createElement('span');
+        name.className = 'pc-name';
+        name.textContent = item.full_name || 'ไม่ระบุชื่อ';
+        const tag = document.createElement('span');
+        tag.className = 'pc-tag';
+        tag.textContent = [TYPE_AI_LABEL[item.person_type] || item.person_type, item.subdistrict || item.district].filter(Boolean).join(' • ');
+        info.append(name, tag);
+        row.append(info, makeSelectButton({ personId: item.person_id, displayName: item.full_name }));
+        list.appendChild(row);
+      });
     }
 
     function updateRange() {
@@ -362,22 +590,37 @@
     next.className = 'pl-btn';
     next.textContent = 'หน้าถัดไป';
 
-    async function fetchPage(page) {
-      ctx.page = page;
-      const qp = new URLSearchParams();
-      qp.set('limit', String(ctx.pageSize));
-      qp.set('offset', String((page - 1) * ctx.pageSize));
+    function applyListFilters(qp) {
       if (ctx.filter.person_type) qp.set('person_type', ctx.filter.person_type);
       if (ctx.filter.status) qp.set('status', ctx.filter.status);
+      if (ctx.filter.province) qp.set('province', ctx.filter.province);
+      if (ctx.filter.district) qp.set('district', ctx.filter.district);
+      if (ctx.filter.subdistrict) qp.set('subdistrict', ctx.filter.subdistrict);
+      if (ctx.filter.station) qp.set('station', ctx.filter.station);
+      if (ctx.filter.query) qp.set('search', ctx.filter.query);
+    }
+
+    async function fetchPage(page) {
+      const qp = new URLSearchParams();
+      qp.set('limit', String(ctx.pageSize));
+      applyListFilters(qp);
+      let path;
+      if (state.dataSource === 'real') {
+        qp.set('page', String(page));
+        path = '/api/people?' + qp.toString();
+      } else {
+        qp.set('offset', String((page - 1) * ctx.pageSize));
+        path = '/api/persons?' + qp.toString();
+      }
       try {
-        const json = await api('/api/persons?' + qp.toString());
+        const json = await api(path);
+        const rows = json.data || [];
+        ctx.page = page;
         if (json.meta && typeof json.meta.total === 'number') ctx.total = json.meta.total;
-        renderRows(json.data || []);
+        renderRows(rows);
         updateRange();
       } catch (_) {
-        ctx.page = page;
-        renderRows([]);
-        updateRange();
+        rangeText.textContent = 'โหลดหน้านี้ไม่สำเร็จ กรุณาลองใหม่ (รายชื่อหน้าเดิมยังอยู่)';
       }
     }
 
@@ -392,10 +635,16 @@
     pager.appendChild(next);
     box.appendChild(pager);
 
-    if (Array.isArray(presentation.items)) renderRows(presentation.items);
+    if (Array.isArray(presentation.items)) {
+      renderRows(presentation.items);
+      if (presentation.items.length === 1) {
+        const only = normalizeItem(presentation.items[0]);
+        selectPerson({ personId: only.person_id, displayName: only.full_name });
+      }
+    }
     updateRange();
 
-    wrap.appendChild(box);
+    hostForPresentation(wrap).appendChild(box);
     return box;
   }
 
@@ -412,6 +661,7 @@
     for (const c of candidates) {
       const row = document.createElement('div');
       row.className = 'pc-row';
+      row.setAttribute('data-person-id', String(c.personId));
       const info = document.createElement('div');
       info.className = 'pc-info';
       const nameSpan = document.createElement('span');
@@ -424,16 +674,8 @@
       tagSpan.textContent = pType + (pType && sType ? ' • ' : '') + sType;
       info.appendChild(nameSpan);
       info.appendChild(tagSpan);
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'pc-btn';
-      btn.textContent = 'เลือก';
-      btn.addEventListener('click', () => {
-        selectPerson({ personId: c.personId, displayName: c.displayName });
-        appendMessage('assistant', 'เลือกแล้ว: ' + c.displayName + ' — พิมพ์คำถามต่อ เช่น "คนนี้มีประวัติอย่างไร"');
-      });
       row.appendChild(info);
-      row.appendChild(btn);
+      row.appendChild(makeSelectButton({ personId: c.personId, displayName: c.displayName }));
       list.appendChild(row);
     }
     if (candidates.length === 0) {
@@ -443,7 +685,7 @@
       list.appendChild(empty);
     }
     box.appendChild(list);
-    wrap.appendChild(box);
+    hostForPresentation(wrap).appendChild(box);
     return box;
   }
 
@@ -452,10 +694,10 @@
     const items=presentation.items||[];
     for(const person of items) {
       const row=document.createElement('div');row.className='pc-row';
+      row.setAttribute('data-person-id', String(person.personId));
       const label=document.createElement('span');label.textContent=`${person.displayName} • ${person.level}`;
-      const btn=document.createElement('button');btn.type='button';btn.className='pc-btn';btn.textContent='เลือกบุคคล';
-      btn.addEventListener('click',()=>selectPerson({personId:person.personId,displayName:person.displayName}));
-      row.append(label,btn);box.appendChild(row);
+      row.append(label, makeSelectButton({personId:person.personId,displayName:person.displayName}));
+      box.appendChild(row);
     }
     // A one-person result is unambiguous. Keep it as the chat context so a
     // natural follow-up such as “เพราะอะไร” answers that person directly.
@@ -472,7 +714,7 @@
         $('#chat-input').focus();
       });box.appendChild(next);
     }
-    wrap.appendChild(box);
+    hostForPresentation(wrap).appendChild(box);
   }
 
   function renderMonitoringLocationSummary(wrap, presentation) {
@@ -530,42 +772,97 @@
     box.className = 'person-candidates';
     const create = document.createElement('button');
     create.type = 'button'; create.className = 'suggest-btn'; create.textContent = 'สร้างรายงาน PDF';
-    create.addEventListener('click', () => createSummaryPdf());
+    create.addEventListener('click', () => downloadReport('pdf'));
+    const excel = document.createElement('button');
+    excel.type = 'button'; excel.className = 'suggest-btn'; excel.textContent = 'สร้างรายงาน Excel';
+    excel.addEventListener('click', () => downloadReport('xlsx'));
     const dismiss = document.createElement('button');
     dismiss.type = 'button'; dismiss.className = 'suggest-btn'; dismiss.textContent = 'ไม่ต้องการรายงาน';
-    dismiss.addEventListener('click', () => { state.pendingSummaryReport = null; appendMessage('assistant', 'รับทราบ จะไม่สร้างรายงาน PDF'); });
-    box.append(create, dismiss); wrap.appendChild(box);
+    dismiss.addEventListener('click', () => { state.pendingSummaryReport = null; appendMessage('assistant', 'รับทราบ จะไม่สร้างรายงาน'); });
+    box.append(create, excel, dismiss);
+    const items = presentation.items || [];
+    if (presentation.includeList && items.length) {
+      const title = document.createElement('div');
+      title.className = 'pc-title';
+      title.textContent = 'รายชื่อ — กดเลือกเพื่อถามข้อมูลคนนั้นต่อ';
+      box.appendChild(title);
+      for (const item of items) {
+        const personId = item.person_id || item.personId;
+        if (!personId) continue;
+        const row = document.createElement('div');
+        row.className = 'pc-row';
+        row.setAttribute('data-person-id', String(personId));
+        const info = document.createElement('span');
+        info.textContent = item.full_name + (item.level ? ' • ' + item.level : '');
+        row.append(info, makeSelectButton({ personId, displayName: item.full_name }));
+        box.appendChild(row);
+      }
+    }
+    wrap.appendChild(box);
   }
 
   function isPdfAffirmative(message) {
-    return /^(?:ได้|ได้ครับ|ได้ค่ะ|ใช่|ใช่ครับ|ใช่ค่ะ|เอา|เอาเลย|สร้างเลย|ทำเลย)$/u.test(String(message || '').trim());
+    return /^(?:ได้|ได้ครับ|ได้ค่ะ|ใช่|ใช่ครับ|ใช่ค่ะ|เอา|เอาเลย|สร้างเลย|ทำเลย|ต้องการ|ใช่สร้าง|สร้าง pdf|สร้างpdf)$/iu.test(String(message || '').trim());
   }
   function isPdfNegative(message) {
     return /^(?:ไม่|ไม่เอา|ไม่ต้อง|ไม่ต้องการ|ยังไม่)$/u.test(String(message || '').trim());
   }
-  async function createSummaryPdf() {
-    const reportRequest = state.pendingSummaryReport;
-    if (!reportRequest || state.sending) return;
+  function renderReportOffer(wrap, presentation) {
+    state.pendingSummaryReport = presentation.reportRequest || null;
+    const box = document.createElement('div');
+    box.className = 'person-candidates';
+    const title = document.createElement('div');
+    title.className = 'pc-title';
+    title.textContent = presentation.confirm ? 'ต้องการสร้าง PDF ใช่หรือไม่?' : 'ดาวน์โหลดรายงานตามสิทธิ์บัญชีนี้';
+    box.appendChild(title);
+    const formats = presentation.formats || ['pdf', 'xlsx'];
+    if (formats.includes('pdf')) {
+      const pdfBtn = document.createElement('button');
+      pdfBtn.type = 'button'; pdfBtn.className = 'suggest-btn'; pdfBtn.textContent = 'ดาวน์โหลด PDF';
+      pdfBtn.addEventListener('click', () => downloadReport('pdf', presentation.reportRequest));
+      box.appendChild(pdfBtn);
+    }
+    if (formats.includes('xlsx')) {
+      const xlsBtn = document.createElement('button');
+      xlsBtn.type = 'button'; xlsBtn.className = 'suggest-btn'; xlsBtn.textContent = 'ดาวน์โหลด Excel';
+      xlsBtn.addEventListener('click', () => downloadReport('xlsx', presentation.reportRequest));
+      box.appendChild(xlsBtn);
+    }
+    hostForPresentation(wrap).appendChild(box);
+    if (presentation.auto === 'pdf') downloadReport('pdf', presentation.reportRequest);
+    if (presentation.auto === 'xlsx') downloadReport('xlsx', presentation.reportRequest);
+  }
+  async function downloadReport(kind, reportRequest) {
+    const requestBody = reportRequest || state.pendingSummaryReport;
+    if (!requestBody || state.sending) return;
     setBusy(true);
+    const isExcel = kind === 'xlsx';
     try {
-      const response = await fetch('/api/reports/summary.pdf', {
+      const response = await fetch(isExcel ? '/api/reports/summary.xlsx' : '/api/reports/summary.pdf', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + state.token, 'Content-Type': 'application/json', 'X-Data-Source': state.dataSource },
-        body: JSON.stringify({ reportRequest }),
+        body: JSON.stringify({ reportRequest: requestBody }),
       });
       if (!response.ok) throw new Error('สร้างรายงานไม่สำเร็จ');
       const url = URL.createObjectURL(await response.blob());
-      const wrap = appendMessage('assistant', 'สร้างรายงาน PDF แล้ว');
+      const wrap = appendMessage('assistant', isExcel ? 'สร้างรายงาน Excel แล้ว' : 'สร้างรายงาน PDF แล้ว');
       const link = document.createElement('a');
-      link.href = url; link.download = 'thanipitak-summary.pdf'; link.textContent = 'ดาวน์โหลดรายงาน PDF';
-      link.className = 'suggest-btn'; wrap.querySelector('.bubble').appendChild(document.createElement('br')); wrap.querySelector('.bubble').appendChild(link);
-      state.pendingSummaryReport = null;
+      link.href = url;
+      link.download = isExcel ? 'thanipitak-summary.xlsx' : 'thanipitak-summary.pdf';
+      link.textContent = isExcel ? 'ดาวน์โหลดรายงาน Excel' : 'ดาวน์โหลดรายงาน PDF';
+      link.className = 'suggest-btn';
+      wrap.querySelector('.bubble').appendChild(document.createElement('br'));
+      wrap.querySelector('.bubble').appendChild(link);
+      link.click();
     } catch (_) {
-      appendMessage('assistant', 'สร้างรายงาน PDF ไม่สำเร็จ กรุณาลองใหม่', { error: true });
+      appendMessage('assistant', 'สร้างรายงานไม่สำเร็จ กรุณาลองใหม่', { error: true });
     } finally {
       setBusy(false);
       $('#chat-input').focus();
     }
+  }
+  async function createSummaryPdf() {
+    return downloadReport('pdf');
   }
 
   const VISIT_RESULT_LABEL = {
@@ -604,6 +901,19 @@
 
     const box = document.createElement('div');
     box.className = 'person-summary';
+    const personId = p.id || p.person_id;
+    if (personId) {
+      box.setAttribute('data-person-id', String(personId));
+      const action = document.createElement('div');
+      action.className = 'pc-row';
+      action.setAttribute('data-person-id', String(personId));
+      const who = document.createElement('span');
+      who.className = 'pc-name';
+      who.textContent = name;
+      action.append(who, makeSelectButton({ personId, displayName: name }));
+      box.appendChild(action);
+      selectPerson({ personId, displayName: name });
+    }
     const title = document.createElement('div');
     title.className = 'ps-title';
     title.textContent = 'สรุปข้อมูลบุคคล';
@@ -621,7 +931,7 @@
       row.appendChild(vd);
       box.appendChild(row);
     }
-    wrap.appendChild(box);
+    hostForPresentation(wrap).appendChild(box);
     return box;
   }
 
@@ -645,6 +955,7 @@
   }
 
   function sendMessage(overrideText) {
+    if (state.mic === 'recording' || state.mic === 'uploading') return;
     const message = (overrideText !== undefined ? overrideText : $('#chat-input').value || '').trim();
     if (!message || state.sending) return;
 
@@ -690,13 +1001,25 @@
 
     api('/api/ai/chat', {
       method: 'POST',
-      body: JSON.stringify(window.ChatContext.buildChatBody(message, state.selectedPerson)),
+      body: JSON.stringify(window.ChatContext.buildChatBody(message, state.selectedPerson, state.conversationTopic)),
     })
       .then((json) => {
         if (settled) return;
         clearTimeout(watchdog);
         settled = true;
         removeTypingIndicator();
+        if (json.conversation && json.conversation.topic) {
+          state.conversationTopic = json.conversation.topic;
+        } else if (json.presentation && json.presentation.filters && json.presentation.filters.person_type) {
+          state.conversationTopic = window.ChatContext.sanitizeTopic({
+            person_type: json.presentation.filters.person_type,
+            province: json.presentation.filters.province,
+            district: json.presentation.filters.district,
+            subdistrict: json.presentation.filters.subdistrict,
+            station: json.presentation.filters.station,
+          });
+        }
+
         const wrap = appendMessage('assistant', json.answer || '');
 
         const toolNames = (Array.isArray(json.toolsUsed) ? json.toolsUsed : [])
@@ -722,6 +1045,7 @@
         if (json.presentation && json.presentation.type === 'monitoring_location_summary') renderMonitoringLocationSummary(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_result') renderSummaryResult(wrap, json.presentation);
+        if (json.presentation && json.presentation.type === 'report_offer') renderReportOffer(wrap, json.presentation);
 
         const rt = json.meta && json.meta.responseTimeMs;
         if (typeof rt === 'number' && rt >= 0) {
@@ -797,6 +1121,7 @@
         showApp();
         renderEmptyState();
         loadAiStatus();
+        loadSttStatus();
       } catch (err) {
         const box = $('#login-error');
         box.textContent = err.message || 'เข้าสู่ระบบล้มเหลว';
@@ -805,13 +1130,21 @@
     });
 
     $('#logout-btn').addEventListener('click', () => {
+      abortMic();
       state.token = null;
       state.user = null;
       localStorage.removeItem(TOKEN_KEY);
       clearSelectedPerson();
+      state.conversationTopic = null;
       showLogin();
     });
 
+    bindMicButton();
+    setInterval(() => {
+      if (state.token && state.sttAvailable !== true && state.mic !== 'recording' && state.mic !== 'uploading') {
+        loadSttStatus();
+      }
+    }, 10000);
     $('#send-btn').addEventListener('click', () => sendMessage());
     $('#chat-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -836,6 +1169,7 @@
         showApp();
         renderEmptyState();
         loadAiStatus();
+        loadSttStatus();
         return;
       } catch (_) {
         localStorage.removeItem(TOKEN_KEY);

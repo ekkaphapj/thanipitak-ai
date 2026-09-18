@@ -1,6 +1,6 @@
 # ThaniPitak AI
 
-Thai conversational registry assistant using Express, SQLite fixtures, Supabase user authentication/registry reads and local Ollama (`qwen3.5:9b`). Development branch: `phase-3.3-low-latency`.
+Thai conversational registry assistant using Express, SQLite fixtures, Supabase user authentication/registry reads and local Ollama (`scb10x/llama3.1-typhoon2-8b-instruct:latest`). Development branch: `phase-3.3-low-latency`.
 
 **Start here for continued development:** [Agent handoff](docs/agent-handoff.md). Read [AGENTS.md](AGENTS.md) for repository conventions.
 
@@ -12,7 +12,7 @@ Use a recent Node release with `node:sqlite` and `--disable-warning` support (cu
 npm ci
 Copy-Item .env.example .env
 # Edit .env: set JWT_SECRET and HOST=127.0.0.1 for local-only use.
-ollama pull qwen3.5:9b
+ollama pull scb10x/llama3.1-typhoon2-8b-instruct:latest
 # Ollama must be running, normally at 127.0.0.1:11434.
 npm start
 ```

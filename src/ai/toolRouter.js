@@ -8,6 +8,7 @@ const {createSummaryService}=require('../services/summaryService');
 const ALLOWED_TOOLS = new Set([
   'get_statistics',
   'search_persons',
+  'get_person_summary',
   'get_person_detail',
   'get_visit_history',
   'get_urine_history',
@@ -186,14 +187,21 @@ function createToolRouter(db) {
     getPersonSummary: (user, personId) => persons.getPersonSummary(user, personId),
     // Authorized search used by the deterministic name resolver (STEP 3).
     // Scope always comes from the backend user, never from the frontend/prompt.
-    searchPersons: (user, search, limit) =>
+    searchPersons: (user, search, limit, filters = {}) =>
       persons.listPersons(user, {
         search: String(search == null ? '' : search).slice(0, 100),
+        person_type: filters.person_type,
+        status: filters.status,
+        province: filters.province,
+        station: filters.station,
+        district: filters.district,
+        subdistrict: filters.subdistrict,
         limit: Number.isInteger(limit) && limit > 0 ? limit : 100,
         offset: 0,
       }),
     summarizePersons: (user, request) => summaries.summarize(user, request),
     summaryChoices: (user, prompt) => summaries.choices(user, prompt),
+    groupPersons: (user, opts) => persons.groupByLocation(user, opts),
   };
 }
 

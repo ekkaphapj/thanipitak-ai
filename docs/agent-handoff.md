@@ -1,69 +1,152 @@
-# Coding agent handoff — 2026-09-17
+# Coding agent handoff — current as of 2026-09-17 (session complete)
+
+Read this before changing the app. Dated reports and older capability tables in `README.md` lag. This file is the working picture.
 
 ## Goal and delivery state
 
-The user wants a Thai spoken-language AI assistant to read registry data, count/list people, explain recorded monitoring levels and create PDFs, with PC/mobile UI and actual logo. They want a selectable test/real database on the login screen, real-source account authentication and a limited pilot to collect user problems. No authorization to modify real registry records or deploy a public service has been given. Push requested to https://github.com/ekkaphapj/thanipitak-ai.git on existing branch `phase-3.3-low-latency`.
+Thai spoken-language AI to read registry data, count/list people, explain **recorded** monitoring levels, and create PDF/Excel, with PC/mobile UI and the official logo. Login screen chooses test vs real data. Real-source uses main-system accounts. Pilot-only; no permission to modify real registry rows or ship a public service. Push to https://github.com/ekkaphapj/thanipitak-ai.git on `phase-3.3-low-latency`. Do not merge `main`.
 
-Workspace on development PC: `E:\Projects\Thanipitak-sandbox`. Main-system checkout: `E:\Projects\ThaniPitak\udonpolice-datacenter`. Upstream https://github.com/ekkaphapj/udonpolice-datacenter.git, last inspected/fetched `origin/main` commit `b1303e2`. These are environment hints, not portable runtime dependencies.
+Workspace: `E:\Projects\Thanipitak-sandbox`. Main-system checkout: `E:\Projects\ThaniPitak\udonpolice-datacenter` (`origin/main` last inspected `b1303e2`). Environment hints, not portable deps.
 
-Real Supabase client in upstream `src/integrations/supabase/client.ts` uses `apnppxsxwlfnttzmjtgk.supabase.co`. Its public anon key is copied to `src/realConfig.js`, with env overrides. An older upstream local `.env` pointed at a different project (`kvnrtgqiviytjstbrhvg`); do NOT blindly copy that config. Verified upstream auth settings endpoint responds HTTP 200. No service-role key is used.
+Real Supabase in upstream `src/integrations/supabase/client.ts`: `apnppxsxwlfnttzmjtgk.supabase.co`. Anon key in `src/realConfig.js` (env overrides). Older local `.env` may point at `kvnrtgqiviytjstbrhvg` — do not copy blindly. No service-role key.
+
+Official DDL (tables only): workspace root `THANI PITAK-new.sql`. Do not execute against production. Never put `app_secrets`, PIN, `id_card`, or bank fields in prompts, logs, or exports.
 
 ## Runtime map
 
-- `src/index.js` starts Express and initializes fixture DB. `src/db/connection.js` executes schema setup (not read-only); `src/db/index.js` may seed. Never use these initializers on production data.
-- `src/app.js` dispatches `X-Data-Source: real` to real auth/data routers BEFORE local middleware. Missing source means test. Unsupported real endpoints are caught by real router, not local fallback. Real `/api/data-sources` is currently intercepted too; endpoint ordering needs cleanup.
-- `frontend/ai.html`, `ai.js`, original `ai.css` plus overriding `ai-refresh.css`: vanilla frontend, real logo `thanipitak-logo.png`. No bundler. Source chosen at login; localStorage has `tp_token` and `tp_data_source`; selected person is in memory. Source forwarded on chat/PDF requests. Switching source forces logout/reset.
-- Test mode: `src/routes/aiRoutes.js` → `src/ai/gateway.js` → deterministic fast paths, monitoring, person/name resolution, model gateway. `toolRouter.js` invokes SQLite services. `personAnalyzer.js` is a compact one-call person analysis path.
-- Real auth: `src/routes/realAuthRoutes.js` calls Supabase password grant using `${username}@thaniphitak.local`, verifies `/auth/v1/user`, looks up `users` by auth_id, then `stations` by server-returned station_id. Returns stationName/division/province. Supabase token stays distinct from local signed JWT. Profile refreshed for each real request; no refresh-token flow yet.
-- Real data: `src/routes/realDataRoutes.js`. Direct allowlisted GETs with user token and explicit station filter for non-admin. Admin relies on Supabase RLS plus optional query filters. Unknown user_type is displayed as generic user and mapped to viewer; richer upstream permission semantics still require parity work.
-- `src/ai/realIntent.js`: unknown phrases → Ollama `/api/chat`, JSON schema output, `think:false`, temperature 0, 260 output tokens, 60s timeout. Receives the question only (no token or registry records). Validates keys/enums/string lengths before route executes a query. No model-generated SQL or factual prose is used.
-- Real grouping fetches all authorized pages (selects IDs/geography only), stable ID ordering, exact counts, rejects total changes, duplicates or incomplete pagination. Separates identically named subdistricts by province/district. Same-count winners all shown; missing location counted separately. Minimum ranking covers only places represented in registry.
-- Test PDF: `reportService.js`, `reportRoutes.js`, PDFKit and Thai font. Creates temporary output, sends download, then deletes. Real router blocks PDFs. No production records exported by this implementation so far.
+- `src/index.js` → Express + fixture SQLite. `src/db/connection.js` runs schema setup. Never point these at production.
+- `src/app.js` order: real auth for `X-Data-Source: real` → **STT** (`POST /api/stt/transcribe` raw-then-auth, `GET /api/stt/status`) → real data interceptor → test routes. Missing source = test. Unsupported real paths 409; never fall back to fixtures.
+- Frontend: `frontend/ai.html`, `ai.js`, `voiceInput.js`, `chatContext.js`, `ai.css` + `ai-refresh.css`. No bundler. `tp_token` / `tp_data_source` in localStorage. Selected person and conversation topic are **memory only**. Source header on chat, PDF, Excel, STT. Source switch logs out.
+- Test AI: `src/routes/aiRoutes.js` → `src/ai/gateway.js` (summary → export → monitoring → person facts → name → analysis → fastPath → Ollama). Tools hit SQLite via `toolRouter.js`.
+- Real auth: `src/routes/realAuthRoutes.js`. Password grant `${username}@thaniphitak.local`, `/auth/v1/user`, `users` by `auth_id`, `stations` by parsed `station_id`. `stationId` coerced with `parseStationId` (string `"2"` → `2`). Token is the Supabase access token, not the test JWT. No refresh-token flow.
+- Real data: `src/routes/realDataRoutes.js`, `src/services/realRegistryRead.js`, `src/services/stationScope.js`. Allowlisted GETs with user token. **If `users.station_id` is set, every people/visits/report query is `station_id=eq.<id>` even when `user_type` is Admin.** Stationless non-admin is deny. Stationless Admin may still be province-wide (RLS). Rows with a mismatched `station_id` are dropped after fetch.
+- Interpreter: `src/ai/realIntent.js` + `src/ai/domainCatalog.js`. Ollama JSON schema, `think:false`, temp 0, 260 tokens, 60s. Question only. Validate enums; coerce bad `group` to `clarify`. No model SQL.
+- Reports: `src/services/reportService.js` + `excelReport.js` + `src/ai/exportIntent.js`. Test: `POST /api/reports/summary.pdf` and `/summary.xlsx`. Real: same paths on the real router. Temp file, download, unlink. No `id_card` / phones.
+- Local LLM default: `OLLAMA_MODEL` or `scb10x/llama3.1-typhoon2-8b-instruct:latest` (was `qwen3.5:9b`). `/api/ai/status` is `available` only if **that named model** is in Ollama tags. Restart Node after changing the model; a running process keeps the old default.
+- Experimental Intent JSON Router: branch `experiment/typhoon25-intent-router` adds `OLLAMA_ROUTING_MODE=intent` and `OLLAMA_INTENT_MODEL=hf.co/typhoon-ai/typhoon2.5-qwen3-4b-gguf:Q4_K_M`. The 4B model receives no tool definitions; its JSON is validated before fixed, station-scoped operations run. Default remains `OLLAMA_ROUTING_MODE=tools`, and malformed/unavailable Intent JSON fails closed.
+- Local STT: hold-to-talk `#mic-btn`. Browser MediaRecorder → app proxy → loopback faster-whisper `http://127.0.0.1:8178`. Transcript into `#chat-input`, **never auto-send**. Design: `docs/local-voice-stt.md`.
 
-## Source schema / test schema distinction
+## Schema distinction
 
-Real `people`: id, first_name, last_name, station_id, province, amphoe, tambon, type_id, status, custody_status. `people_type`: type_id/type_name. `stations`: station_id/station_name/division/province. Real `users`: user_id/auth_id/username/name/station_id/user_type. Real visits include visit_date/time/category/status, status_condition and drug_test_result. Check upstream migrations as generated types may lag.
+Real `people`: id, prefix, first_name, last_name, nickname, gender, birth_date, station_id, province, amphoe, tambon, moo, village_name, house_number, type_id, status, custody_status. `people_type`: type_id/type_name (no category). `stations`: station_id/station_name/division/province. `users`: user_id/auth_id/username/name/station_id/user_type (`Admin`|`User`|`External`). `visits`: visit_status `อาการปกติ`/`ปกติ`/`เฝ้าระวัง`/`เสี่ยงสูง`/custody outcomes, drug_test_result, notes, visitor_name/station — not `visitor_phone`/`photo_url`. `person_report_status`: alert_level `ปกติ`/`เฝ้าระวัง`/`เสี่ยงสูง`.
 
-Fixtures: 80 synthetic people, 5 stations, 16 per station; people_type has extra category mapping. `persons` is a compatibility projection maintained by triggers from `people`. It contains generic active/completed flags; these are NOT production colors or risk levels. Older `data/thanipitak.db` has 500 legacy fixtures, while new `thanipitak-realistic.db` is the default. Never merge these or relabel fixtures as real.
+Fixtures: 80 synthetic people, 5 stations, 16/station. `persons` is a trigger projection. Default DB `thanipitak-realistic.db`. Older 500-row `thanipitak.db` is legacy. Do not merge or relabel fixtures as real.
 
-Monitoring in `monitoringService.js` calculates alerts from visits, guardian reports/settings and sticky status. AI reads invoke `refreshGuardianStatus(...,{persist:false})`. Explicit simulation writes retain persistence and refresh before overwriting guardian reports to preserve sticky history. Real monitoring is NOT wired to this algorithm; do not copy simulated thresholds onto real records without parity checks.
+Test monitoring **calculates** alerts (`monitoringService.js`, `persist:false` on AI reads). Real monitoring **reads recorded** latest `visits.visit_status` + `person_report_status.alert_level`. High if either is `เสี่ยงสูง`; watch if either is `เฝ้าระวัง` and not high. **Never copy fixture thresholds onto real rows.**
 
-## User-reported bugs / regression cases
+## What was built this session (do not regress)
 
-1. Selected person + “เสี่ยงสูงเพราะอะไร” returned everyone. Fixed in TEST gateway. One-result monitoring auto-selects person. “เพราะอะไร” uses selection. “เริ่มใหม่” clears screen and selection.
-2. “ขอรายชื่อ” took 36 seconds. Test fast paths avoid model generation of raw tables.
-3. “ตำบลไหนมีผู้ป่วยจิตเวชเสี่ยงสูงบ้าง” answered people instead of places. Test monitoring has grouping; real risk still unsupported.
-4. Real “ผู้ป่วยจิตเวชมีทั้งหมดกี่คน” became generic count_total (211) versus upstream screenshot 154 psychiatric people at สภ.บ้านดุง. Real route now retains explicit psychiatric subject, with upstream-compatible type-name match. The generic `fastPath.js` detector STILL returns count_total for that phrase: fix test-mode parity separately. Actual 154 reconciliation has NOT been confirmed. User originally proposed สภ.ท่าอุเทน นครพนม but later screenshot selected บ้านดุง; never assume station from conversation—use authenticated profile.
-5. Profile displayed “สถานี 5”. Real auth now resolves name and division; fixture tests cover login and `/me`. User's actual display not independently verified after patch.
-6. “ตำบลไหนมีผู้ป่วยมากที่สุด” now ranks all fetched real registry rows; bare ผู้ป่วย currently means psychiatric, explicitly stated in answer.
-7. “ขอจำนวนผู้ป่วยเรียงตามตำบล จากมากไปน้อย” now shows ALL locations ordered, not just winners. Unknown “อยากเห็นยอดคนไข้แจกแจงรายตำบล เอาที่เยอะขึ้นก่อน” invokes local interpreter, then executes scoped grouping.
+### Scope, overdue, spoken lookup (test SQLite)
 
-## Validation and what remains unverified
+- Empty officer `stationId` → deny (`stationScope()` / `1=0`). No `IN ()`.
+- Overdue: `src/services/followupRules.js` (psych 30, drug_user 60, dealer 15, else 30 including `released`). Stats, overdue list, person summary share it.
+- `fastPath.js` + `spokenGeo.js`: type beats `ทั้งหมดกี่` (`ผู้ป่วยจิตเวชมีทั้งหมดกี่คน`); bare ผู้ป่วย/คนไข้ = psychiatric and the answer says so; geo filters; ranking; two types return both totals; `ผู้เสพมีมั้ย` → `มี N คน` / `ไม่มีผู้เสพ`.
+- Grouping phrases skip `parseSummaryIntent`.
 
-- Full suite run with this handoff: 241 tests passed, 25 suites, zero failures (2026-09-17). Includes the new fallback integration test. Run again after subsequent code changes.
-- Actual local qwen3.5:9b successfully interpreted “อยากเห็นยอดคนไข้แจกแจงรายตำบล เอาที่เยอะขึ้นก่อน” as action=group, person_type=psychiatric, group=ตำบล, direction=desc. This was real inference with NO Supabase data access.
-- `tests/realData.test.js` mocks Supabase and verifies station restriction, token use, full pagination, explicit type retention, ordered grouping and unknown-phrase interpreter dispatch. `realAuth.test.js` mocks auth/profile/station responses. These do not verify live RLS policies.
-- Earlier browser checks confirmed test UI/grouping/PDF downloads. Responsive UI screenshot inspected at narrow width; no comprehensive mobile device/browser matrix has been run.
-- No production credential is included. Human should log in through UI for real account validation. Do not read/export browser tokens or ask for PIN in chat.
+### Conversation + selection
 
-## Priority next work and limitations
+- `conversation.topic` via `ChatContext.buildChatBody(message, selected, topic)`. Never `station_id`/`role` in body.
+- `ขอรายชื่อหน่อย` after a type-specific count lists that type. `ขอรายชื่อทั้งหมด` is all. Mixed types → clarify.
+- `เริ่มใหม่`, logout, source switch clear topic and selection.
+- Lists render **เลือก** (`makeSelectButton`). One-person lists auto-select. Follow-ups send `context.personId`; backend re-authorizes.
 
-1. Reconcile real counts against main UI with SAME authenticated station, type filters, time and exclusions. Display effective type AND geographical filters in every answer; generic count answer currently says only “ตามสิทธิ์และเงื่อนไข”.
-2. Expand common deterministic grammar and robust model schema coverage. Regex guard for real risk/history/selected person returns unsupported BEFORE Ollama. This is intentional capability gating, but substring “ทำไม” also blocks broader questions. Distinguish unsupported data from misunderstood language.
-3. Parse ranking/filter combinations correctly. Current deterministic ordered-group parser is narrow and may drop unsupported qualifiers; summary extraction may interpret grouping words as filter values. Handle negation, multiple types, explicit subtypes, top-N, history and conjunctions without silently broadening queries. Model grouping currently lists all groups even if an unknown phrase asks only a winner. Validate plan against supported capabilities and clarify ambiguous constraints.
-4. Implement real selected-person detail/history and monitoring using official recorded levels/migrations. Preserve station authorization for every join. Present clinical/monitoring evidence as records, not model diagnosis or predictions.
-5. Implement real PDF using same validated filters, full counts and complete/paginated lists; include source, time and scope. Existing TEST summary counts risk items from a page capped at 200 and normal names are capped at 200: fix aggregate/list completeness before real reuse.
-6. Improve auth UX: token refresh/re-login, actual user_type permissions (External), provincial/division-level scopes. Never turn stationless users into admins. Station metadata failure currently may block login on network exception.
-7. Source switching during in-flight requests has no cancellation/generation guard; old response may render in new screen. Add request abort + source/session generation check, revoke report blob URLs, clear pending reports consistently on logout.
-8. Real status endpoint hardcodes available=true, so it does NOT prove Ollama availability. Reuse real health check and expose separate DB/model statuses. JSON schema validation currently returns safe errors but has limited malformed output tests.
-9. Real grouping fetches all rows per question, without global request budget or caching. Stable ordering/total checks cannot guarantee a transactional snapshot if records change without count changes. Consider server-side authorized aggregates or snapshot semantics, bounded workload, carefully scoped cache, performance tests.
-10. Real requests lack the complete audit instrumentation of test gateway. Implement source/request ID/latency/tool/error audit without automatically recording names, prompts, PINs or tokens. Feedback/report-a-problem UI still only planned.
-11. Pilot deployment: HTTPS, auth/rate limits, network-limited Ollama, fixture/admin endpoint isolation, read-only data access verification, Thai font on server, packaging/config docs. Current app is localhost development, not deployed. Runtime defaults HOST=0.0.0.0 unless set; developer starts with 127.0.0.1.
+### Real registry, visits, monitoring
 
-## Continuing and publishing
+- Selected-person questions (ตำบล, อายุ from `birth_date` Asia/Bangkok, ประเภท, ประวัติเยี่ยม, ผลตรวจยา, เสี่ยงสูงเพราะอะไร) read scoped `people` + visits + `person_report_status`.
+- `ใครเสี่ยงสูง` / `ใครต้องเฝ้าระวัง` → `person_list` from recorded levels.
+- `ใคร…` is a collection question and must not collapse to the selected person.
+- Unsupported: time exclusion (`เดือนที่แล้ว`, `ยกเว้น`), phones, id_card, model diagnosis.
 
-Run `npm ci`, `npm test`, `npm start`; use a new DB_PATH only for a new fixture. `.env.example` documents variables; DATABASE_URL unused. Actual .env and SQLite files are intentionally untracked. Opt-in `scripts/benchmark-*.js` use synthetic data and real Ollama. `scripts/check-real-connection.js` has a hardcoded local checkout path; parameterize before using on another machine.
+### Station-only real lists (user: สภ.ท่าอุเทน ภ.จว.นครพนม)
 
-Excluded local scratch: `tmp_make_benchdb.js`, `tmp_s3bench_info.js`, generated `docs/*results*.json`, runtime logs/PDFs. Historical markdown may link to excluded artifacts; rerun the relevant benchmarks to regenerate, or treat those links as historical evidence only. Do not publish private data while trying to restore them.
+- Bug: Admin `user_type` skipped `station_id` filter → whole division/province.
+- Fix: `applyPeopleStationScope` in `stationScope.js`. **Assigned station always wins.** Coerce string ids. Extra drop of mismatched `station_id` on rows. Station name filters cannot widen past own id.
 
-GitHub commits are code publication only. Do not merge main, deploy, change production schema, or publish actual reports just because a push was requested.
+### Reports PDF + Excel
+
+- Phrases: `สร้างรายงานให้หน่อย`, `สร้าง pdf ให้หน่อย`, `สร้าง excel ให้หน่อย`. Uses conversation topic for type/place.
+- STT often yields `พีทีเอฟ` for PDF. `correctTranscript` maps it; `exportIntent` treats พีทีเอฟ/พีดีเอฟ/ทำเป็นรายงาน/ไฟล์พี as PDF. Ambiguous รายงาน/ไฟล์/พี → ask `ต้องการสร้าง PDF ใช่หรือไม่?` then `ใช่` or the button.
+- Test + real download endpoints. Real export is station-scoped registry fields only.
+- Frontend `presentation.type === 'report_offer'`. Auto-download only when the format is unambiguous.
+
+### Pagination of name lists
+
+- Bug: next page called test `GET /api/persons` during a real session → 409 → UI replaced the list with empty, and back also refetched and wiped page 1.
+- Fix: real `GET /api/people?page=&limit=` (same station scope). Test still uses `/api/persons`. On fetch error, keep current rows and say the previous page is still there.
+
+### Voice STT
+
+- Hold-to-talk, 45s cap, loopback only, `STT_BUSY` 429, no audio persist, no STT audit rows.
+- Recheck `/api/stt/status` on hold and every 10s if previously down (model load used to freeze “ยังไม่พร้อม”).
+- Engine: `scripts/stt-server.py` + `.venv-stt` + ffmpeg (`FFMPEG_PATH` on Windows). Default model **`Vinxscribe/biodatlab-whisper-th-medium-faster`** (Thai-finetuned medium), not `small`. Prompt has registry nouns, **not** `เสี่ยงสูง`.
+- `correctTranscript.js` exact maps only (no fuzzy on unsegmented Thai).
+
+### Local LLM
+
+- Live check: Typhoon2 `available: true`. A no-fast-path chat used `summarize_persons` and returned fixture counts (16 people for station 1). First load ~2 minutes. Fast-path counts still skip the model.
+
+## Reproduction cases (fixed unless noted)
+
+1. Selected + “เสี่ยงสูงเพราะอะไร” listed everyone — test + real now person-scoped unless `ใคร`.
+2. Slow “ขอรายชื่อ” — deterministic lists + `person_list` presentation.
+3. Ranking vs people for ตำบลไหน+เสี่ยงสูง — test groups; real recorded-risk lists people.
+4. `ผู้ป่วยจิตเวชมีทั้งหมดกี่คน` as station total — type wins. สภ.บ้านดุง 154 vs 211 still unverified.
+5. Profile “สถานี 5” — name/division from `stations` row. Live Tha Uthen display not re-verified after station-scope patch.
+6. Bare ผู้ป่วย ranking = psychiatric, stated in answer.
+7. แจกแจงรายตำบล deterministic in test and real.
+8. `ผู้เสพมีมั้ย` → count, not clarify.
+9. No select buttons — card rows + เลือก.
+10. `ขอรายชื่อหน่อย` after a typed count listed everyone — topic inherit.
+11. Real selected + ตำบล/ข้อมูลเพิ่มเติม/อายุ → scoped people row.
+12. Real ประวัติเยี่ยม / ใครเสี่ยงสูง → recorded reads.
+13. STT “ยังไม่พร้อม” after login during model load — retry.
+14. `ขอข้อมูลผู้ป่วย` → `พูปไว้` — exact map + Thai medium model.
+15. Running app still on qwen after switching Ollama model — restart Node; status checks named model.
+16. Real Tha Uthen saw all names — station-assigned filter.
+17. `รายงานพีทีเอฟ` ignored — PDF mishear + confirm.
+18. Next list page blank and page 1 wiped — real `/api/people` + keep rows on error.
+
+## Validation
+
+- Last full `npm test` in this work: **286 tests**, 25 suites, 0 fail. This includes the Intent Router regression suite; rerun after later edits.
+- Live Typhoon2 (test SQLite, not real registry, not mocked Ollama): status + tool chat succeeded.
+- Live Typhoon2.5 Intent Router benchmark: 34 synthetic questions; intent accuracy 100%, requested-field recall 100%, parameter accuracy 97.1%, deterministic route and grounded answer 100%, hallucination and authorization-leak rates 0%. See `docs/typhoon25-intent-router-34-results-2026-09-17.json`.
+- Real-data tests mock Supabase; they do not prove live RLS.
+- STT tests mock the helper; they do not measure WER. Try mic in Chrome at `http://127.0.0.1:3100/ai.html`.
+- Never put real credentials in tests or commits.
+
+## How to run (this PC)
+
+1. Ollama `127.0.0.1:11434` with `scb10x/llama3.1-typhoon2-8b-instruct:latest`.
+2. App: `npm start` → `http://127.0.0.1:3100/ai.html`. After UI changes: **Ctrl+F5**. Use `127.0.0.1`, not a LAN IP (mic needs a secure context).
+3. STT: `.venv-stt\Scripts\python.exe scripts\stt-server.py` with `FFMPEG_PATH` if needed. Health `http://127.0.0.1:8178/health`.
+
+Test login: `station1_off` / `thanipitak123`. Real: UI **ข้อมูลจริง**, main-system username + PIN (never in chat).
+
+After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node does not pick up a new default until restart.
+
+## Do not
+
+- Widen access with body `station_id`, model role, fixtures, or service role.
+- Fall back from real → test data.
+- Copy fixture monitoring math onto real visits.
+- Log transcripts, names, PINs, or audio.
+- Auto-send STT into chat.
+- Put `เสี่ยงสูง` in the Whisper prompt (echo risk).
+- Claim production packaging or time-window real monitoring is done.
+
+## Next / still limited
+
+1. Reconcile real counts vs main UI with the **same** account, station, type, time, exclusions; print filters in the answer.
+2. More grammar: negation, top-N, months, `ยกเว้น` — clarify, don’t silently broaden.
+3. Real monitoring is latest visit + guardian alert only.
+4. Token refresh, External user_type, province/division-only admins (station_id null).
+5. In-flight source switch can still apply an old answer; abort + generation token.
+6. Real `/api/ai/status` still hardcodes available=true (STT has its own status).
+7. List/report cap 200; grouping/monitoring fetch up to 1000 then chunk visits.
+8. STT still mishears open vocabulary; add exact maps when users report phrases.
+9. Pilot: HTTPS, rate limits, `HOST=127.0.0.1` for local-only. Runtime default HOST is `0.0.0.0` unless `.env` sets it.
+
+## Publishing
+
+`npm ci`, `npm test`, `npm start`. Untracked: `.env`, SQLite, `.venv-stt`, Whisper weights, `output/pdf`, runtime logs, real-person exports. Do not commit those. GitHub push is code only — not a production deploy.

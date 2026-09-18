@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const PDFDocument = require('pdfkit');
 const { createSummaryService, TYPE_LABELS } = require('./summaryService');
+const { createXlsxBuffer } = require('./excelReport');
 
 const REPORT_DIR = path.join(__dirname, '..', '..', 'output', 'pdf');
 const DEFAULT_FONT = 'C:\\Windows\\Fonts\\tahoma.ttf';
@@ -26,9 +27,11 @@ function safeReportRequest(input) {
   };
 }
 
-function createSummaryPdf(db, user, input) {
-  const request = safeReportRequest(input);
-  const summary = createSummaryService(db).summarize(user, request).presentation;
+function writeSummaryPdf(summary) {
+  summary = summary || {};
+  summary.filters = summary.filters || {};
+  summary.counts = summary.counts || [];
+  summary.items = summary.items || [];
   const fontPath = process.env.REPORT_FONT_PATH || DEFAULT_FONT;
   if (!fs.existsSync(fontPath)) throw new Error('ไม่พบฟอนต์ภาษาไทยสำหรับสร้างรายงาน');
   fs.mkdirSync(REPORT_DIR, { recursive: true });
@@ -79,4 +82,62 @@ function createSummaryPdf(db, user, input) {
   });
 }
 
-module.exports = { createSummaryPdf, safeReportRequest, REPORT_DIR };
+function createSummaryPdf(db, user, input) {
+  const request = safeReportRequest(input);
+  const summary = createSummaryService(db).summarize(user, request).presentation;
+  return writeSummaryPdf(summary);
+}
+
+function summaryRows(summary) {
+  const when = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' }).format(new Date());
+  const labels = [];
+  if (summary.filters.person_type) labels.push(TYPE_LABELS[summary.filters.person_type]);
+  if (summary.filters.level === 'high') labels.push('เสี่ยงสูง');
+  if (summary.filters.level === 'watch') labels.push('เฝ้าระวัง');
+  for (const [key, label] of [['province', 'จังหวัด'], ['station', 'สภ.'], ['district', 'อำเภอ'], ['subdistrict', 'ตำบล']]) {
+    if (summary.filters[key]) labels.push(`${label}${summary.filters[key]}`);
+  }
+  const rows = [
+    ['รายงานสรุปข้อมูลบุคคลธานีพิทักษ์'],
+    [`จัดทำเมื่อ ${when}`],
+    [`จำนวน ${summary.total} คน${labels.length ? ` • เงื่อนไข: ${labels.join(' • ')}` : ''}`],
+    [],
+  ];
+  if (summary.includeCount && Array.isArray(summary.counts)) {
+    rows.push(['สรุปจำนวนตามประเภท']);
+    rows.push(['ประเภท', 'จำนวน']);
+    for (const row of summary.counts) rows.push([row.label, String(row.count)]);
+    rows.push([]);
+  }
+  if (summary.includeList) {
+    rows.push(['รายชื่อ']);
+    rows.push(['ลำดับ', 'ชื่อ', 'ประเภท', 'ระดับ', 'ตำบล', 'อำเภอ']);
+    (summary.items || []).forEach((row, index) => {
+      rows.push([
+        String(index + 1),
+        row.full_name || '',
+        TYPE_LABELS[row.person_type] || row.person_type || '',
+        row.level || '',
+        row.subdistrict || '',
+        row.district || '',
+      ]);
+    });
+  }
+  return rows;
+}
+
+function writeSummaryExcel(summary) {
+  fs.mkdirSync(REPORT_DIR, { recursive: true });
+  const filename = `summary-${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(4).toString('hex')}.xlsx`;
+  const outputPath = path.join(REPORT_DIR, filename);
+  fs.writeFileSync(outputPath, createXlsxBuffer(summaryRows(summary)));
+  return { path: outputPath, filename, summary };
+}
+
+function createSummaryExcel(db, user, input) {
+  const request = safeReportRequest(input);
+  const summary = createSummaryService(db).summarize(user, request).presentation;
+  return writeSummaryExcel(summary);
+}
+
+module.exports = { createSummaryPdf, createSummaryExcel, writeSummaryPdf, writeSummaryExcel, safeReportRequest, REPORT_DIR, summaryRows };

@@ -1,0 +1,241 @@
+{
+  "startedAt": "2026-09-17T06:49:49.252Z",
+  "model": "qwen3.5:9b",
+  "transport": "Real localhost Ollama HTTP; existing gateway request bodies unchanged",
+  "fixture": {
+    "station1Total": 4,
+    "station2Total": 1,
+    "person1": {
+      "person": {
+        "id": 1,
+        "synthetic_code": "SYN-1",
+        "first_name": "สมชาย",
+        "last_name": "ทดสอบ",
+        "person_type": "drug_user",
+        "district": "อำเภอจำลอง",
+        "subdistrict": "ตำบลจำลอง",
+        "station_id": 1,
+        "status": "followup",
+        "last_visit_date": "2026-09-10",
+        "created_at": "2026-01-01"
+      },
+      "visit_summary": {
+        "visit_count": 3,
+        "latest_visit": {
+          "date": "2026-09-10",
+          "result": "normal",
+          "note": "พบที่บ้านและพูดคุยได้",
+          "officer_name": null
+        }
+      },
+      "urine_summary": {
+        "test_count": 3,
+        "positive_count": 1,
+        "negative_count": 2,
+        "latest_test": {
+          "date": "2026-09-10",
+          "result": "negative",
+          "officer_name": null
+        }
+      },
+      "followup": {
+        "overdue": false,
+        "days_since_last_visit": 7
+      },
+      "recent_visits": [
+        {
+          "id": 3,
+          "visit_date": "2026-09-10",
+          "result": "normal",
+          "note": "พบที่บ้านและพูดคุยได้",
+          "officer_name": null
+        },
+        {
+          "id": 2,
+          "visit_date": "2026-08-20",
+          "result": "normal",
+          "note": "ให้ความร่วมมือในการติดตาม",
+          "officer_name": null
+        },
+        {
+          "id": 1,
+          "visit_date": "2026-08-01",
+          "result": "warning",
+          "note": "เจ้าหน้าที่พบตามนัด",
+          "officer_name": null
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "canonical-person",
+      "message": "เยี่ยมทั้งหมดกี่ครั้ง",
+      "context": {
+        "personId": 1
+      },
+      "expected": "3 visits; zero inference",
+      "status": 200,
+      "wallMs": 24,
+      "actualOllamaCalls": 0,
+      "calls": [],
+      "response": {
+        "answer": "สมชาย ทดสอบ มีการเยี่ยมทั้งหมด 3 ครั้ง",
+        "toolsUsed": [
+          {
+            "name": "get_person_summary"
+          }
+        ],
+        "model": "qwen3.5:9b",
+        "grounded": true,
+        "executionTier": 2,
+        "resolution": null,
+        "presentation": {
+          "type": "person_summary",
+          "person": {
+            "id": 1,
+            "synthetic_code": "SYN-1",
+            "first_name": "สมชาย",
+            "last_name": "ทดสอบ",
+            "person_type": "drug_user",
+            "district": "อำเภอจำลอง",
+            "subdistrict": "ตำบลจำลอง",
+            "station_id": 1,
+            "status": "followup",
+            "last_visit_date": "2026-09-10",
+            "created_at": "2026-01-01"
+          },
+          "visitSummary": {
+            "visit_count": 3,
+            "latest_visit": {
+              "date": "2026-09-10",
+              "result": "normal",
+              "note": "พบที่บ้านและพูดคุยได้",
+              "officer_name": null
+            }
+          },
+          "urineSummary": {
+            "test_count": 3,
+            "positive_count": 1,
+            "negative_count": 2,
+            "latest_test": {
+              "date": "2026-09-10",
+              "result": "negative",
+              "officer_name": null
+            }
+          },
+          "followup": {
+            "overdue": false,
+            "days_since_last_visit": 7
+          },
+          "recentVisits": [
+            {
+              "id": 3,
+              "visit_date": "2026-09-10",
+              "result": "normal",
+              "note": "พบที่บ้านและพูดคุยได้",
+              "officer_name": null
+            },
+            {
+              "id": 2,
+              "visit_date": "2026-08-20",
+              "result": "normal",
+              "note": "ให้ความร่วมมือในการติดตาม",
+              "officer_name": null
+            },
+            {
+              "id": 1,
+              "visit_date": "2026-08-01",
+              "result": "warning",
+              "note": "เจ้าหน้าที่พบตามนัด",
+              "officer_name": null
+            }
+          ]
+        },
+        "analysisMode": null,
+        "ollamaCalls": null,
+        "meta": {
+          "responseTimeMs": 1,
+          "fastPath": true,
+          "grounded": true,
+          "retryCount": 0,
+          "executionTier": 2,
+          "resolution": null,
+          "analysisMode": null,
+          "ollamaCalls": null
+        }
+      }
+    },
+    {
+      "id": "forced-tool-loop",
+      "message": "สรุปจำนวนบุคคลแยกตามประเภท",
+      "forceQwen": true,
+      "expected": "real tool loop; total 4, drug_user 3, psychiatric 1, dealer 0",
+      "status": 200,
+      "wallMs": 19887,
+      "actualOllamaCalls": 2,
+      "calls": [
+        {
+          "model": "qwen3.5:9b",
+          "toolsOffered": true,
+          "wallMs": 6689,
+          "done_reason": "stop",
+          "total_duration": 6687745600,
+          "load_duration": 2685200,
+          "prompt_eval_count": 1469,
+          "prompt_eval_duration": 3004355000,
+          "eval_count": 56,
+          "eval_duration": 3664219000,
+          "toolCalls": [
+            {
+              "index": 0,
+              "name": "get_statistics",
+              "arguments": {}
+            }
+          ],
+          "content": "",
+          "thinkingChars": 194
+        },
+        {
+          "model": "qwen3.5:9b",
+          "toolsOffered": true,
+          "wallMs": 13190,
+          "done_reason": "stop",
+          "total_duration": 13188856000,
+          "load_duration": 3067600,
+          "prompt_eval_count": 1540,
+          "prompt_eval_duration": 676767000,
+          "eval_count": 186,
+          "eval_duration": 12492455000,
+          "content": "## สรุปจำนวนบุคคลแยกตามประเภท\n\n| ประเภท | จำนวน |\n|--------|-------|\n| จิตเวช | 1 |\n| ผู้เสพ | 3 |\n| ผู้ค้า | 0 |\n| **รวมทั้งหมด** | **4** |\n\n**สถานะปัจจุบัน:**\n- กำลังติดตาม (active): 3 คน\n- ต้องติดตาม (followup): 1 คน\n\n**หมายเหตุ:** บุคคลที่เลยกำหนดติดตามมี 3 คน",
+          "thinkingChars": 254
+        }
+      ],
+      "response": {
+        "answer": "## สรุปจำนวนบุคคลแยกตามประเภท\n\n| ประเภท | จำนวน |\n|--------|-------|\n| จิตเวช | 1 |\n| ผู้เสพ | 3 |\n| ผู้ค้า | 0 |\n| **รวมทั้งหมด** | **4** |\n\n**สถานะปัจจุบัน:**\n- กำลังติดตาม (active): 3 คน\n- ต้องติดตาม (followup): 1 คน\n\n**หมายเหตุ:** บุคคลที่เลยกำหนดติดตามมี 3 คน",
+        "toolsUsed": [
+          {
+            "name": "get_statistics"
+          }
+        ],
+        "model": "qwen3.5:9b",
+        "grounded": true,
+        "executionTier": 3,
+        "resolution": null,
+        "analysisMode": null,
+        "ollamaCalls": null,
+        "meta": {
+          "responseTimeMs": 19881,
+          "fastPath": false,
+          "grounded": true,
+          "retryCount": 0,
+          "executionTier": 3,
+          "resolution": null,
+          "analysisMode": null,
+          "ollamaCalls": null
+        }
+      }
+    }
+  ],
+  "finishedAt": "2026-09-17T06:50:09.164Z"
+}

@@ -46,7 +46,7 @@ test('ai phase3: /api/ai/status returns availability and model', async () => {
     const res = await request(app).get('/api/ai/status').set('Authorization', `Bearer ${token}`).timeout(5000);
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.available, true);
-    assert.strictEqual(res.body.model, 'qwen3.5:9b');
+    assert.strictEqual(res.body.model, 'scb10x/llama3.1-typhoon2-8b-instruct:latest');
   } finally {
     ctx.cleanup();
   }
@@ -224,7 +224,7 @@ test('ai phase3: chat response has extended safe format', async () => {
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.answer, 'พบทั้งหมด 100 คน');
     assert.deepStrictEqual(res.body.toolsUsed, [{ name: 'get_statistics' }]);
-    assert.strictEqual(res.body.model, 'qwen3.5:9b');
+    assert.strictEqual(res.body.model, 'scb10x/llama3.1-typhoon2-8b-instruct:latest');
     assert.ok(typeof res.body.meta.responseTimeMs === 'number');
   } finally {
     ctx.cleanup();

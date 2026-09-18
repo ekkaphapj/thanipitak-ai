@@ -165,6 +165,17 @@ function normalizeCollapse(text) {
   return String(text).replace(/[\s\u00A0]+/g, ' ').trim();
 }
 
+// Normalize only harmless presentation differences. This is intentionally
+// exact matching: titles are removed as a bounded prefix, while the person's
+// actual first/last-name tokens still have to match the authorized row.
+function normalizeThaiPersonName(text) {
+  let value = normalizeCollapse(text);
+  if (!value) return '';
+  const tokens = value.split(' ').filter(Boolean);
+  const stripped = titleStrippedTokens(tokens);
+  return stripped ? stripped.join(' ') : value;
+}
+
 function stripLeadingPoliteness(text) {
   let t = text;
   let changed = true;
@@ -269,12 +280,12 @@ function detectPersonNameIntent(message) {
 // Shared deterministic search trunk used by both the STEP-3 factual resolver
 // and the STEP-4 analysis resolver. Returns exact (station-scoped) matches and
 // the effective search name actually used.
-async function searchExactPerson(name, toolRouter, currentUser, limit = NAME_SEARCH_LIMIT) {
+async function searchExactPerson(name, toolRouter, currentUser, limit = NAME_SEARCH_LIMIT, filters = {}) {
   const attempts = buildNameAttempts(name);
   let exactMatches = [];
   let usedName = name;
   for (const attempt of attempts) {
-    const res = await toolRouter.searchPersons(currentUser, attempt, limit);
+    const res = await toolRouter.searchPersons(currentUser, attempt, limit, filters);
     const rows = (res && res.rows) || [];
     const tokens = attempt.split(/\s+/).filter(Boolean);
     const exact = rows.filter((p) => isExactMatch(p, tokens));
@@ -292,9 +303,9 @@ async function searchExactPerson(name, toolRouter, currentUser, limit = NAME_SEA
 //   not_found  -> no exact match in the user's station scope
 //   ambiguous  -> more than one exact match (candidates returned, no auto-select)
 //   unique     -> exactly one person (caller must still run getPersonSummary)
-async function resolvePersonByName(name, toolRouter, currentUser, limit = NAME_SEARCH_LIMIT) {
-  const { exactMatches, usedName } = await searchExactPerson(name, toolRouter, currentUser, limit);
-  const searchToolCall = { toolName: 'search_persons', toolArgs: { query: usedName } };
+async function resolvePersonByName(name, toolRouter, currentUser, limit = NAME_SEARCH_LIMIT, filters = {}) {
+  const { exactMatches, usedName } = await searchExactPerson(name, toolRouter, currentUser, limit, filters);
+  const searchToolCall = { toolName: 'search_persons', toolArgs: { query: usedName, ...filters } };
 
   if (exactMatches.length === 0) {
     return {
@@ -361,8 +372,11 @@ function titleStrippedTokens(tokens) {
 }
 
 function buildNameAttempts(name) {
-  const attempts = [name];
-  const tokens = name.split(/\s+/).filter(Boolean);
+  const collapsed = normalizeCollapse(name);
+  const normalized = normalizeThaiPersonName(collapsed);
+  const attempts = [collapsed];
+  if (normalized && normalized !== collapsed) attempts.push(normalized);
+  const tokens = collapsed.split(/\s+/).filter(Boolean);
   const stripped = titleStrippedTokens(tokens);
   if (stripped) {
     const alt = stripped.join(' ');
@@ -483,6 +497,7 @@ module.exports = {
   stripEndParticles,
   isProhibitedName,
   normalizeCollapse,
+  normalizeThaiPersonName,
   buildNameAttempts,
   isExactMatch,
   extractNamePortion,

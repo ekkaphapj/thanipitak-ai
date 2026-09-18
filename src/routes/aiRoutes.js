@@ -1,7 +1,12 @@
 const express = require('express');
 const http = require('http');
 const { createToolRouter } = require('../ai/toolRouter');
-const { createAIGateway, OLLAMA_MODEL } = require('../ai/gateway');
+const {
+  createAIGateway,
+  OLLAMA_MODEL,
+  OLLAMA_ROUTING_MODE,
+  OLLAMA_INTENT_MODEL,
+} = require('../ai/gateway');
 const { createAIAuditor } = require('../repositories/aiAuditRepo');
 const { sanitizePersonContext } = require('../ai/personFastPath');
 
@@ -9,6 +14,10 @@ const MAX_MESSAGE_LENGTH = 2000;
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 
 const FORBIDDEN_BODY_FIELDS = ['station_id', 'allowedStationIds', 'role', 'user_id', 'province_id', 'permissions', 'tool', 'system_prompt', 'sql'];
+
+function activeOllamaModel() {
+  return OLLAMA_ROUTING_MODE === 'intent' ? OLLAMA_INTENT_MODEL : OLLAMA_MODEL;
+}
 
 function checkOllamaAvailable() {
   return new Promise((resolve) => {
@@ -21,9 +30,11 @@ function checkOllamaAvailable() {
         try {
           const parsed = JSON.parse(data);
           const models = (parsed.models || []).map((m) => m.name || m.model);
-          resolve({ available: true, models });
+          const wanted = activeOllamaModel();
+          const hasModel = models.some((name) => name === wanted || `${name}:latest` === wanted || name === `${wanted}:latest`);
+          resolve({ available: hasModel, models });
         } catch {
-          resolve({ available: true, models: [] });
+          resolve({ available: false, models: [] });
         }
       });
     });
@@ -41,7 +52,7 @@ function createAIRoutes(db, authRequired, options = {}) {
 
   router.get('/status', authRequired, async (req, res) => {
     const { available } = await ollamaCheck();
-    return res.json({ available, model: OLLAMA_MODEL });
+    return res.json({ available, model: activeOllamaModel(), routingMode: OLLAMA_ROUTING_MODE });
   });
 
   router.post('/chat', authRequired, async (req, res) => {
@@ -101,16 +112,19 @@ function createAIRoutes(db, authRequired, options = {}) {
       return res.json({
         answer: result.answer,
         toolsUsed: (result.toolsUsed || []).map((name) => ({ name })),
-        model: OLLAMA_MODEL,
+        model: result.model || activeOllamaModel(),
+        routingMode: result.routingMode || OLLAMA_ROUTING_MODE,
         grounded: result.grounded,
         executionTier: result.executionTier || null,
         resolution: result.resolution || null,
         presentation: result.presentation || undefined,
+        conversation: result.conversation || undefined,
         analysisMode: result.analysisMode || null,
         ollamaCalls: result.ollamaCalls != null ? result.ollamaCalls : null,
         timing: result.timing || undefined,
         meta: {
           responseTimeMs: Date.now() - startMs,
+          routingMode: result.routingMode || OLLAMA_ROUTING_MODE,
           fastPath: !!result.fastPath,
           grounded: result.grounded,
           retryCount: result.retryCount || 0,
@@ -133,4 +147,4 @@ function createAIRoutes(db, authRequired, options = {}) {
   return router;
 }
 
-module.exports = { createAIRoutes, checkOllamaAvailable };
+module.exports = { createAIRoutes, checkOllamaAvailable, activeOllamaModel };

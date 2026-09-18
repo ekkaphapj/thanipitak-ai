@@ -1,6 +1,6 @@
 'use strict';
 // Opt-in real Ollama integration, isolated synthetic DB, no production access.
-process.env.OLLAMA_HOST='http://127.0.0.1:11434';process.env.OLLAMA_MODEL='qwen3.5:9b';
+process.env.OLLAMA_HOST='http://127.0.0.1:11434';process.env.OLLAMA_MODEL=process.env.OLLAMA_MODEL||'scb10x/llama3.1-typhoon2-8b-instruct:latest';
 const fs=require('fs');const path=require('path');const assert=require('node:assert/strict');const request=require('supertest');
 const {createConnection}=require('../src/db/connection');
 const {seedRealisticDatabase}=require('../src/db/realisticSeed');
@@ -36,7 +36,7 @@ async function main(){
     {q:'ขอรายชื่อผู้ป่วยจิตเวชเสี่ยงสูงพร้อมเหตุผลจากข้อมูล',force:true,total:3},
     {q:'คนนี้เสี่ยงสูงเพราะอะไร',context:{personId:1},force:true,total:1},
   ];
-  const results={startedAt:new Date().toISOString(),model:'qwen3.5:9b',asOf:seeded.asOf,fixture:{people:80,station1:16,watchOrHigh:9,highPsychiatric:3},runs:[]};
+  const results={startedAt:new Date().toISOString(),model:process.env.OLLAMA_MODEL,asOf:seeded.asOf,fixture:{people:80,station1:16,watchOrHigh:9,highPsychiatric:3},runs:[]};
   const output=path.join(__dirname,'..','docs','monitoring-real-results.json');fs.mkdirSync(path.dirname(output),{recursive:true});
   for(const c of cases){
     calls=[];forceQwen=!!c.force;console.log(`START ${c.force?'MODEL':'FAST'} ${c.q}`);const start=Date.now();

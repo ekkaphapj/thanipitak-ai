@@ -14,4 +14,12 @@ module.exports = {
   dbPath,
   defaultLimit: 50,
   maxLimit: 200,
+  stt: {
+    enabled: process.env.STT_ENABLED !== 'false',
+    url: process.env.STT_URL || 'http://127.0.0.1:8178',
+    timeoutMs: Number(process.env.STT_TIMEOUT_MS) || 30000,
+    maxBytes: Number(process.env.STT_MAX_BYTES) || 5 * 1024 * 1024,
+    language: process.env.STT_LANGUAGE || 'th',
+    api: process.env.STT_API || 'faster-whisper',
+  },
 };

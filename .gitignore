@@ -1,5 +1,10 @@
 # Dependencies
 node_modules/
+.venv-stt/
+__pycache__/
+*.pt
+*.bin
+*.onnx
 
 # Environment / secrets
 .env

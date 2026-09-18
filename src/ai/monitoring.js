@@ -1,17 +1,8 @@
 'use strict';
 const {resolvePersonByName,stripEndParticles,normalizeCollapse}=require('./personNameResolver');
+const {detectLocationGroup}=require('./spokenGeo');
 const TYPE_LABELS={psychiatric:'จิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'};
 const SOURCE_LABELS={visits:'ผลเยี่ยม',guardian_reports:'รายงานผู้ดูแล',people_type:'ทะเบียนประเภทบุคคล',dealer_profiles:'ทะเบียนผู้ค้า',sticky_alert:'สถานะแจ้งเตือนค้าง'};
-function detectLocationGroup(text) {
-  // Questions such as "ตำบลไหนมีผู้ป่วยจิตเวชเสี่ยงสูงบ้าง" ask for
-  // locations, not a long list of people. Keep this narrow so a filter such
-  // as "ในตำบลจำลอง" still returns people in that place.
-  if (/(?:ตำบล\s*ไหน|อยู่(?:ใน)?ตำบลไหน|ตำบล(?:ใด|อะไร)บ้าง)/u.test(text)) return 'subdistrict';
-  if (/(?:อำเภอ\s*ไหน|เขต\s*ไหน|อยู่(?:ใน)?(?:อำเภอ|เขต)ไหน|(?:อำเภอ|เขต)(?:ใด|อะไร)บ้าง)/u.test(text)) return 'district';
-  if (/(?:สภ\.?\s*ไหน|สถานี\s*ไหน|อยู่(?:ที่)?(?:สภ\.?|สถานี)ไหน|(?:สภ\.?|สถานี)(?:ใด|อะไร)บ้าง)/u.test(text)) return 'station';
-  if (/(?:จังหวัด\s*ไหน|อยู่(?:ใน)?จังหวัดไหน|จังหวัด(?:ใด|อะไร)บ้าง)/u.test(text)) return 'province';
-  return null;
-}
 const LOCATION_BOUNDARY='(?=\\s*(?:ใน?จังหวัด|จังหวัด|จ\\.|สภ\\.?|สถานี|อำเภอ|เขต|ตำบล|ผู้ป่วย|จิตเวช|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ|เสี่ยงสูง|เฝ้าระวัง|ที่(?:เสี่ยง|ต้อง|มี)|มีใคร|ใครบ้าง|เพราะ|$))';
 function extractLocation(text, labels) {
   const escaped=labels.map(label=>label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
@@ -99,4 +90,4 @@ async function runMonitoring(intent,context,router,user,onToolCall) {
   return {answer:renderMonitoring(data,intent),toolsUsed:[...toolsUsed,'get_monitoring_persons'],grounded:!data.error,
     presentation:!data.error?{type:intent.group_by&&!personId?'monitoring_location_summary':'monitoring_list',...data,filters:args}:undefined};
 }
-module.exports={detectMonitoringIntent,isSelectedMonitoringReasonFollowup,runMonitoring,renderMonitoring};
+module.exports={detectMonitoringIntent,isSelectedMonitoringReasonFollowup,runMonitoring,renderMonitoring,detectLocationGroup};

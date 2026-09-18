@@ -44,8 +44,8 @@ const AI_TOOLS = [
           },
           person_type: {
             type: 'string',
-            enum: ['psychiatric', 'drug_user', 'dealer'],
-            description: 'ประเภทบุคคล: psychiatric (จิตเวช), drug_user (ผู้เสพ), dealer (ผู้ค้า)',
+            enum: ['psychiatric', 'drug_user', 'dealer', 'released'],
+            description: 'ประเภทบุคคล: psychiatric (จิตเวช/ผู้ป่วย/คนไข้), drug_user (ผู้เสพ), dealer (ผู้ค้า), released (ผู้พ้นโทษ)',
           },
           status: {
             type: 'string',

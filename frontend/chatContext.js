@@ -61,13 +61,35 @@
     return { personId, displayName: toDisplayName(raw, personId) };
   }
 
-  // Build the AI chat request body. context contains ONLY { personId } and is
-  // omitted entirely when the selection is invalid/cleared.
-  function buildChatBody(message, selected) {
+  const TOPIC_TYPES = ['psychiatric', 'drug_user', 'dealer', 'released'];
+  const TOPIC_PLACES = ['province', 'district', 'subdistrict', 'station'];
+
+  function sanitizeTopic(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const topic = {};
+    if (TOPIC_TYPES.includes(raw.person_type)) topic.person_type = raw.person_type;
+    if (Array.isArray(raw.person_types)) {
+      const types = raw.person_types.filter((item) => TOPIC_TYPES.includes(item));
+      if (types.length === 1) topic.person_type = types[0];
+      else if (types.length > 1) topic.person_types = types;
+    }
+    for (const key of TOPIC_PLACES) {
+      if (typeof raw[key] === 'string' && raw[key].trim()) topic[key] = raw[key].trim().slice(0, 100);
+    }
+    if (raw.scope === 'all') topic.scope = 'all';
+    return Object.keys(topic).length ? topic : null;
+  }
+
+  // Build the AI chat request body. context may contain personId and/or topic.
+  // It never includes station_id, role, or other authorization fields.
+  function buildChatBody(message, selected, topic) {
     const body = { message: String(message == null ? '' : message) };
     const sel = normalizeSelectedPerson(selected);
-    if (sel) {
-      body.context = { personId: sel.personId };
+    const safeTopic = sanitizeTopic(topic);
+    if (sel || safeTopic) {
+      body.context = {};
+      if (sel) body.context.personId = sel.personId;
+      if (safeTopic) body.context.topic = safeTopic;
     }
     return body;
   }
@@ -85,6 +107,7 @@
   return {
     validPersonId,
     normalizeSelectedPerson,
+    sanitizeTopic,
     buildChatBody,
     indicatorText,
     clearSelection,

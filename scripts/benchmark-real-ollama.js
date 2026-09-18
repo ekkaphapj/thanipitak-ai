@@ -2,7 +2,7 @@
 
 // Explicit, opt-in integration check. Uses only an in-memory synthetic database.
 process.env.OLLAMA_HOST = 'http://127.0.0.1:11434';
-process.env.OLLAMA_MODEL = 'qwen3.5:9b';
+process.env.OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'scb10x/llama3.1-typhoon2-8b-instruct:latest';
 const fs = require('fs');
 const path = require('path');
 const http = require('http');

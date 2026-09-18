@@ -221,7 +221,7 @@ function renderAnalysis(content, observations, requiredIds = []) {
 
 // Orchestrates the one-shot analysis flow and returns a gateway-shaped result.
 // Exactly ONE Ollama request on the success path; ZERO on every safety branch.
-async function runOneShotAnalysis({ analysis, personId, userMessage, toolRouter, currentUser, requestFn, model = process.env.OLLAMA_MODEL || 'qwen3.5:9b' }) {
+async function runOneShotAnalysis({ analysis, personId, userMessage, toolRouter, currentUser, requestFn, model = process.env.OLLAMA_MODEL || 'scb10x/llama3.1-typhoon2-8b-instruct:latest' }) {
   if (requestFn == null || typeof requestFn !== 'function') {
     throw new Error('one-shot analysis requires requestFn');
   }

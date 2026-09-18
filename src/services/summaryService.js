@@ -2,6 +2,7 @@
 
 const { createPersonService, allowedStationIds } = require('./personService');
 const { createMonitoringService } = require('./monitoringService');
+const { detectLocationGroup } = require('../ai/spokenGeo');
 
 const TYPE_LABELS = { psychiatric: 'จิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'ผู้พ้นโทษ' };
 const TYPE_MARKERS = [
@@ -24,6 +25,8 @@ function parseSummaryIntent(message) {
   // Existing compact statistics command stays on get_statistics, which is
   // faster and keeps its established response shape.
   if (/^สรุปจำนวนบุคคลแยกตามประเภท$/u.test(text)) return null;
+  // Ranking / per-area breakdown is a grouping lookup, not a person summary.
+  if (detectLocationGroup(text)) return null;
   const filters = {};
   for (const marker of TYPE_MARKERS) {
     if (marker.words.some((word) => text.includes(word))) { filters.person_type = marker.type; break; }
@@ -149,7 +152,7 @@ function createSummaryService(db) {
       const byType = {};
       for (const item of monitored.items) byType[item.personType] = (byType[item.personType] || 0) + 1;
       counts = sortCounts(byType, sort);
-      items = monitored.items.map((item) => ({ full_name: item.displayName, person_type: item.personType, level: item.level }));
+      items = monitored.items.map((item) => ({ person_id: item.personId, full_name: item.displayName, person_type: item.personType, level: item.level }));
     } else {
       const normal = persons.summarizePersons(user, {
         person_type: filters.person_type,
@@ -164,7 +167,7 @@ function createSummaryService(db) {
       total = normal.total;
       counts = sortCounts(normal.byType, sort);
       items = normal.rows
-        .map((item) => ({ full_name: `${item.first_name} ${item.last_name}`.trim(), person_type: item.person_type }))
+        .map((item) => ({ person_id: item.id, full_name: `${item.first_name} ${item.last_name}`.trim(), person_type: item.person_type }))
         .sort((a, b) => sort === 'name_desc' ? b.full_name.localeCompare(a.full_name, 'th') : a.full_name.localeCompare(b.full_name, 'th'));
     }
     const result = { total, counts, items, filters, includeList, includeCount, sort };

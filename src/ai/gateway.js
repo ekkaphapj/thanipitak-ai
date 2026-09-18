@@ -5,6 +5,8 @@ const {detectMonitoringIntent,isSelectedMonitoringReasonFollowup,runMonitoring,r
 const { parseSummaryIntent } = require('./../services/summaryService');
 const { hasDBIntent } = require('./intentDetector');
 const { detectFastPathIntent, runFastPath } = require('./fastPath');
+const { sanitizeTopic, topicFromIntent } = require('./conversationTopic');
+const { detectExportIntent, reportRequestFromExport } = require('./exportIntent');
 const {
   detectPersonFactualIntent,
   validPersonId,
@@ -18,9 +20,12 @@ const {
   detectAnalysisIntent,
   runOneShotAnalysis,
 } = require('./personAnalyzer');
+const { runIntentRouter, INTENT_MODEL } = require('./intentRouter');
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3.5:9b';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'scb10x/llama3.1-typhoon2-8b-instruct:latest';
+const OLLAMA_ROUTING_MODE = process.env.OLLAMA_ROUTING_MODE || 'tools';
+const OLLAMA_INTENT_MODEL = process.env.OLLAMA_INTENT_MODEL || INTENT_MODEL;
 const MAX_TOOL_ITERATIONS = 5;
 const REQUEST_TIMEOUT_MS = 120_000;
 
@@ -83,6 +88,7 @@ async function chatWithTools(userMessage, toolRouter, currentUser, onToolCall, o
 
   async function runToolLoop(messages, toolsUsedSoFar) {
     let finalAnswer = '';
+    let lastPeopleList = null;
     const localUsed = [...toolsUsedSoFar];
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
@@ -115,7 +121,50 @@ async function chatWithTools(userMessage, toolRouter, currentUser, onToolCall, o
 
           const result = await toolRouter.execute(toolName, toolArgs, currentUser);
           if(toolName==='get_monitoring_persons' && !result.error) {
-            return {finalAnswer:renderMonitoring(result),toolsUsed:[...localUsed,toolName]};
+            return {finalAnswer:renderMonitoring(result),toolsUsed:[...localUsed,toolName],presentation:{type:'monitoring_list',...result,filters:toolArgs||{}}};
+          }
+          if (toolName === 'search_persons' && Array.isArray(result?.persons)) {
+            lastPeopleList = {
+              type: 'person_list',
+              total: result.total,
+              returned: result.returned,
+              page: result.page || 1,
+              pageSize: result.pageSize || 20,
+              filters: {
+                person_type: toolArgs?.person_type || null,
+                status: toolArgs?.status || null,
+                province: toolArgs?.province || null,
+                station: toolArgs?.station || null,
+                district: toolArgs?.district || null,
+                subdistrict: toolArgs?.subdistrict || null,
+              },
+              items: result.persons.map((p) => ({
+                person_id: p.id,
+                full_name: `${p.first_name} ${p.last_name || ''}`.trim(),
+                person_type: p.person_type,
+                status: p.status,
+                district: p.district,
+                subdistrict: p.subdistrict,
+              })),
+            };
+          }
+          if (toolName === 'get_person_detail' && result?.data?.id) {
+            lastPeopleList = {
+              type: 'person_list',
+              total: 1,
+              returned: 1,
+              page: 1,
+              pageSize: 1,
+              filters: {},
+              items: [{
+                person_id: result.data.id,
+                full_name: result.data.full_name || `${result.data.first_name} ${result.data.last_name || ''}`.trim(),
+                person_type: result.data.person_type,
+                status: result.data.status,
+                district: result.data.district,
+                subdistrict: result.data.subdistrict,
+              }],
+            };
           }
 
           if (toolRouter.ALLOWED_TOOLS.has(toolName) && result && !result.error) {
@@ -126,7 +175,7 @@ async function chatWithTools(userMessage, toolRouter, currentUser, onToolCall, o
           if (msg.tool_calls.length === 1 && toolName === 'get_statistics' &&
               /ทุกสถานี|ทั้งระบบ/.test(userMessage) && /จำนวน|กี่คน/.test(userMessage) &&
               Number.isFinite(result?.data?.total)) {
-            return { finalAnswer: `ในพื้นที่ที่ท่านมีสิทธิ์เข้าถึงมีบุคคลทั้งหมด ${result.data.total} คน`, toolsUsed: localUsed };
+            return { finalAnswer: `ในพื้นที่ที่ท่านมีสิทธิ์เข้าถึงมีบุคคลทั้งหมด ${result.data.total} คน`, toolsUsed: localUsed, presentation: lastPeopleList };
           }
 
           messages.push({
@@ -140,7 +189,7 @@ async function chatWithTools(userMessage, toolRouter, currentUser, onToolCall, o
       }
     }
 
-    return { finalAnswer, toolsUsed: localUsed };
+    return { finalAnswer, toolsUsed: localUsed, presentation: lastPeopleList || undefined };
   }
 
   const messages = [
@@ -175,6 +224,7 @@ async function chatWithTools(userMessage, toolRouter, currentUser, onToolCall, o
         grounded: true,
         databaseIntent,
         retryCount,
+        presentation: retryResult.presentation,
       };
     }
 
@@ -193,6 +243,7 @@ async function chatWithTools(userMessage, toolRouter, currentUser, onToolCall, o
     grounded: databaseIntent ? toolsUsed.length > 0 : null,
     databaseIntent,
     retryCount: 0,
+    presentation: firstResult.presentation,
   };
 }
 
@@ -219,6 +270,39 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
       onToolCall({ toolName: out.toolsUsed[0], toolArgs: summaryIntent, userId: currentUser.id, username: currentUser.username });
     }
     return { ...out, databaseIntent: true, retryCount: 0, fastPath: true, intent: summaryIntent.intent, executionTier: 1, ollamaCalls: 0 };
+  }
+  const exportIntent = detectExportIntent(userMessage);
+  if (exportIntent && !options.forceQwen) {
+    const topic = sanitizeTopic((options.context || {}).topic);
+    const reportRequest = reportRequestFromExport(exportIntent, topic);
+    const bits = [];
+    if (reportRequest.filters.person_type) bits.push({ psychiatric: 'ผู้ป่วยจิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'ผู้พ้นโทษ' }[reportRequest.filters.person_type]);
+    if (reportRequest.filters.level === 'high') bits.push('เสี่ยงสูง');
+    if (reportRequest.filters.level === 'watch') bits.push('เฝ้าระวัง');
+    const scope = bits.length ? bits.join(' • ') : 'บุคคลในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง';
+    const files = exportIntent.formats.map((item) => item === 'xlsx' ? 'Excel' : 'PDF').join(' และ ');
+    const answer = exportIntent.confirm
+      ? `ต้องการสร้าง PDF ใช่หรือไม่? ถ้าใช่พิมพ์ "ใช่" หรือกดปุ่มด้านล่าง (จะสร้างของ${scope} ตามสิทธิ์บัญชีนี้)`
+      : `พร้อมสร้างรายงาน${files} ของ${scope} ตามสิทธิ์บัญชีนี้ กดดาวน์โหลดด้านล่าง (ตรวจรายชื่อก่อนนำไปใช้)`;
+    return {
+      answer,
+      toolsUsed: [],
+      grounded: true,
+      databaseIntent: true,
+      retryCount: 0,
+      fastPath: true,
+      intent: 'export_report',
+      executionTier: 1,
+      ollamaCalls: 0,
+      presentation: {
+        type: 'report_offer',
+        formats: exportIntent.formats,
+        auto: exportIntent.confirm ? null : exportIntent.auto,
+        confirm: !!exportIntent.confirm,
+        reportRequest,
+      },
+      conversation: { topic: topic || (reportRequest.filters.person_type ? { person_type: reportRequest.filters.person_type } : null) },
+    };
   }
   let monitoringIntent=detectMonitoringIntent(userMessage);
   // A short follow-up such as “เพราะอะไร” has no risk keyword on its own.
@@ -342,11 +426,19 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
   }
 
   // ── Tier 1: conservative count/list fast path ──
-  const fastIntent = detectFastPathIntent(userMessage);
+  const incomingTopic = sanitizeTopic((options.context || {}).topic);
+  const fastIntent = detectFastPathIntent(userMessage, incomingTopic);
   if (fastIntent && !options.forceQwen) {
     const fastResult = await runFastPath(fastIntent.intent, currentUser, toolRouter, {
       page: fastIntent.page,
       filters: fastIntent.filters,
+      groupBy: fastIntent.groupBy,
+      direction: fastIntent.direction,
+      showAll: fastIntent.showAll,
+      barePsychiatric: fastIntent.barePsychiatric,
+      mentionedTypes: fastIntent.mentionedTypes,
+      answer: fastIntent.answer,
+      presentation: fastIntent.presentation,
     });
     if (fastResult.ok) {
       if (onToolCall && fastResult.toolsUsed.length > 0) {
@@ -367,6 +459,49 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
         intent: fastIntent.intent,
         executionTier: 1,
         presentation: fastResult.presentation,
+        conversation: { topic: topicFromIntent(fastIntent) || incomingTopic },
+      };
+    }
+  }
+
+  // Experimental no-tool routing mode. The small model emits only a validated
+  // intent plan; all database reads still go through the allowlisted tool
+  // router and authenticated user scope. Native tool calling remains the
+  // default and can be forced for a single request with forceQwen.
+  const routingMode = options.routingMode || OLLAMA_ROUTING_MODE;
+  if (routingMode === 'intent' && !options.forceQwen) {
+    try {
+      const intentResult = await runIntentRouter(userMessage, {
+        requestFn: options.requestFn || postJson,
+        model: options.intentModel || OLLAMA_INTENT_MODEL,
+        toolRouter,
+        currentUser,
+        selectedPersonId,
+        onToolCall,
+      });
+      return {
+        ...intentResult,
+        databaseIntent: true,
+        retryCount: 0,
+        routingMode: 'intent',
+        fastPath: false,
+        executionTier: 3,
+      };
+    } catch (err) {
+      // A malformed or unavailable local model must fail closed. Do not fall
+      // through to the native tool path because that would silently change
+      // the selected experimental backend.
+      return {
+        answer: 'โหมดทดลอง Intent JSON ยังไม่สามารถแปลคำถามนี้ได้ กรุณาลองใหม่หรือเปลี่ยนกลับเป็นโหมด tools',
+        toolsUsed: [],
+        grounded: false,
+        databaseIntent: true,
+        retryCount: 0,
+        routingMode: 'intent',
+        executionTier: 3,
+        fastPath: false,
+        ollamaCalls: 1,
+        intentRouterError: err.message,
       };
     }
   }
@@ -386,4 +521,6 @@ module.exports = {
   MAX_TOOL_ITERATIONS,
   DB_RETRY_INSTRUCTION,
   SAFE_DB_FAILURE,
+  OLLAMA_ROUTING_MODE,
+  OLLAMA_INTENT_MODEL,
 };

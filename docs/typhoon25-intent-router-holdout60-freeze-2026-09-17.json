@@ -1,0 +1,9 @@
+{
+  "createdAt": "2026-09-17T15:54:18.556Z",
+  "branch": "experiment/typhoon25-intent-router",
+  "head": "acb2cbbd04889b3d9917386523214aae058e0c49",
+  "fixture": "tests/fixtures/typhoon25-intent-router-holdout60.json",
+  "sha256": "0fe80f4b837ea3d8eca4046ad91c26914fa14abedff0c38e3c5bf22d9be573c8",
+  "caseCount": 60,
+  "status": "FROZEN_BEFORE_LIVE_OLLAMA_RUN"
+}

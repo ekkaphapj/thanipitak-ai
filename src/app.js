@@ -19,6 +19,25 @@ function createApp(db, options = {}) {
   app.use(express.json());
   const realAuth = require('./routes/realAuthRoutes').createRealAuthRoutes(options.realAuth);
   app.use('/api/auth', (req, res, next) => req.get('X-Data-Source') === 'real' ? realAuth(req, res, next) : next());
+
+  const { createSttRoutes } = require('./routes/sttRoutes');
+  const config = require('./config');
+  function authenticateBySource(req, res, next) {
+    if (req.get('X-Data-Source') === 'real') return realAuth.authenticate(req, res, next);
+    return authRequired(req, res, next);
+  }
+  const stt = createSttRoutes(options);
+  app.post(
+    '/api/stt/transcribe',
+    express.raw({
+      type: (req) => /^audio\/(webm|mp4|mpeg|wav|ogg|x-wav|wave)(;.*)?$/i.test(req.headers['content-type'] || ''),
+      limit: config.stt.maxBytes,
+    }),
+    authenticateBySource,
+    stt.transcribe
+  );
+  app.use('/api/stt', authenticateBySource, stt.router);
+
   const realData = require('./routes/realDataRoutes').createRealDataRoutes(realAuth.authenticate,options.realAuth);
   app.use('/api', (req,res,next) => req.get('X-Data-Source') === 'real' ? realData(req,res,next) : next());
 

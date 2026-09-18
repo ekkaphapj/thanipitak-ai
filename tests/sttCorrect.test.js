@@ -1,0 +1,18 @@
+'use strict';
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { correctTranscript } = require('../src/stt/correctTranscript');
+
+test('corrects the misheard ผู้ป่วย forms from small Whisper', () => {
+  assert.equal(correctTranscript('ขอข้อมูลพูปไว้'), 'ขอข้อมูลผู้ป่วย');
+  assert.equal(correctTranscript('ขอข้อมูลผู้ปวย'), 'ขอข้อมูลผู้ป่วย');
+  assert.equal(correctTranscript('มีผู้ป่วยกี่คน'), 'มีผู้ป่วยกี่คน');
+  assert.equal(correctTranscript('คนไข่จิตเวช'), 'คนไข้จิตเวช');
+  assert.equal(correctTranscript('ช่วยทำเป็นรายงานพีทีเอฟให้หน่อย'), 'ช่วยทำเป็นรายงานpdfให้หน่อย');
+});
+
+test('does not invent registry terms in unrelated text', () => {
+  assert.equal(correctTranscript('สวัสดีครับ'), 'สวัสดีครับ');
+  assert.equal(correctTranscript('ขอข้อมูลเพิ่มเติม'), 'ขอข้อมูลเพิ่มเติม');
+});

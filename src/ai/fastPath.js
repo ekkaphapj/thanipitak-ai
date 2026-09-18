@@ -1,35 +1,35 @@
 'use strict';
 
+const { detectLocationGroup, normalizeSpokenConnectors } = require('./spokenGeo');
+const { mergeTopicFilters, wantsExplicitAllList, listClarify } = require('./conversationTopic');
+
 const PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
 
-const COMPLEX_TERMS = [
+const HARD_COMPLEX_TERMS = [
   'ประวัติ',
   'เยี่ยม',
   'ปัสสาวะ',
   'ตรวจ',
   'ฉี่',
   'ซ้ำ',
-  'และ',
-  'หรือ',
   'เปรียบเทียบ',
   'เทียบ',
-  'คนที่',
-  'หาคน',
+  'วิเคราะห์',
   'สมมติ',
   'admin',
   'ทุกสถานี',
   'ทั้งระบบ',
   'ข้ามสถานี',
+];
+
+const LATE_COMPLEX_TERMS = [
   'ใช่ไหม',
   'ใช่หรือไม่',
-  'ติดตาม',
   'ควร',
-  'วิเคราะห์',
   'พิเศษ',
 ];
 
-// Semantic components for conservative high-confidence list intents.
 const LIST_INTENT_PHRASES = [
   'รายชื่อ',
   'แสดงรายชื่อ',
@@ -37,14 +37,22 @@ const LIST_INTENT_PHRASES = [
   'คนไหนบ้าง',
 ];
 
-const PERSON_TYPE_MARKERS = [
-  { type: 'psychiatric', keywords: ['ผู้ป่วยจิตเวช'], listIntent: 'list_psychiatric' },
-  { type: 'drug_user', keywords: ['ผู้เสพ'], listIntent: 'list_drug_user' },
-  { type: 'dealer', keywords: ['ผู้ค้า'], listIntent: 'list_dealer' },
-  { type: 'released', keywords: ['ผู้พ้นโทษ'], listIntent: 'list_released' },
+const COUNT_INTENTS = [
+  'count_psychiatric',
+  'count_drug_user',
+  'count_dealer',
+  'count_released',
+  'count_total',
+  'statistics_summary',
 ];
 
-const COUNT_INTENTS = ['count_psychiatric', 'count_drug_user', 'count_dealer', 'count_total', 'statistics_summary'];
+const COUNT_TYPE = {
+  count_psychiatric: 'psychiatric',
+  count_drug_user: 'drug_user',
+  count_dealer: 'dealer',
+  count_released: 'released',
+  count_total: null,
+};
 
 const LIST_TYPE = {
   list_psychiatric: 'psychiatric',
@@ -54,11 +62,25 @@ const LIST_TYPE = {
   list_all: null,
 };
 
+const TYPE_LABELS = {
+  psychiatric: 'ผู้ป่วยจิตเวช',
+  drug_user: 'ผู้เสพ',
+  dealer: 'ผู้ค้า',
+  released: 'ผู้พ้นโทษ',
+};
+
+function presenceAnswer(label, total) {
+  const count = Number(total) || 0;
+  if (count <= 0) return `ไม่มี${label}`;
+  return `มี${label} ${count} คน`;
+}
+
 const COUNT_ANSWERS = {
-  count_psychiatric: (d) => `ในพื้นที่รับผิดชอบมีผู้ป่วยจิตเวชทั้งหมด ${d.psychiatric} คน`,
-  count_drug_user: (d) => `ในพื้นที่รับผิดชอบมีผู้เสพทั้งหมด ${d.drug_user} คน`,
-  count_dealer: (d) => `ในพื้นที่รับผิดชอบมีผู้ค้าทั้งหมด ${d.dealer} คน`,
-  count_total: (d) => `ในพื้นที่รับผิดชอบมีบุคคลทั้งหมด ${d.total} คน`,
+  count_psychiatric: (d) => presenceAnswer('ผู้ป่วยจิตเวช', d.psychiatric),
+  count_drug_user: (d) => presenceAnswer('ผู้เสพ', d.drug_user),
+  count_dealer: (d) => presenceAnswer('ผู้ค้า', d.dealer),
+  count_released: (d) => presenceAnswer('ผู้พ้นโทษ', d.released),
+  count_total: (d) => presenceAnswer('บุคคล', d.total),
   statistics_summary: (d) =>
     `สรุปจำนวนบุคคลแยกตามประเภท: ทั้งหมด ${d.total} คน • จิตเวช ${d.psychiatric} คน • ผู้เสพ ${d.drug_user} คน • ผู้ค้า ${d.dealer} คน` + (d.released ? ` • ผู้พ้นโทษ ${d.released} คน` : ''),
 };
@@ -84,53 +106,78 @@ const SEARCH_STATUS_MARKERS = [
   { status: 'completed', words: ['เสร็จสิ้น', 'จบแล้ว', 'ยุติแล้ว'] },
   { status: 'registered', words: ['ขึ้นทะเบียน'] },
 ];
-const SEARCH_FIELD_BOUNDARY = '(?=\\s*(?:ใน?จังหวัด|จังหวัด|จ\\.|สภ\\.?|สถานี|อำเภอ|เขต|ตำบล|ชื่อ(?:ว่า)?|ผู้ป่วย|จิตเวช|ผู้เสพ|คนเสพ|ผู้ค้า|ผู้พ้นโทษ|กำลังติดตาม|ต้องติดตาม|ค้างติดตาม|เสร็จสิ้น|$))';
+const SEARCH_FIELD_BOUNDARY = '(?=\\s*(?:ใน?จังหวัด|จังหวัด|จ\\.|สภ\\.?|สถานี|อำเภอ|เขต|ตำบล|ชื่อ(?:ว่า)?|ผู้ป่วย|จิตเวช|ผู้เสพ|คนเสพ|ผู้ค้า|ผู้พ้นโทษ|กำลังติดตาม|ต้องติดตาม|ค้างติดตาม|เสร็จสิ้น|ทั้งหมด|ในพื้นที่|ของฉัน|ให้หน่อย|มากที่สุด|น้อยที่สุด|เรียงตาม|แยกตาม|$)|กี่)';
+const GROUP_LABELS = { subdistrict: 'ตำบล', district: 'อำเภอ', station: 'สภ.', province: 'จังหวัด' };
+
+function cleanPlaceValue(value) {
+  if (!value) return null;
+  const trimmed = value.trim().replace(/(?:ให้หน่อย|หน่อย|ที|ครับ|ค่ะ|นะ)$/u, '').trim();
+  if (!trimmed) return null;
+  if (/ไหน|ใด|อะไร|มากที่สุด|เยอะที่สุด|น้อยที่สุด|มากสุด|เยอะสุด|น้อยสุด|เรียงตาม|แยกตาม|แจกแจง/.test(trimmed)) return null;
+  return trimmed;
+}
 
 function extractSpokenField(text, labels) {
   const label = labels.map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
   const match = text.match(new RegExp(`(?:${label})\\s*([^,]+?)${SEARCH_FIELD_BOUNDARY}`, 'u'));
-  return match && match[1] ? match[1].trim().replace(/(?:ให้หน่อย|หน่อย|ที|ครับ|ค่ะ|นะ)$/u, '').trim() : null;
+  return cleanPlaceValue(match && match[1]);
 }
 
-function detectSpokenPersonSearch(message) {
-  const text = message.replace(/\s+/g, ' ').trim();
-  if (!SEARCH_ACTION_RE.test(text)) return null;
-
-  const filters = {};
-  for (const marker of SEARCH_TYPE_MARKERS) {
-    if (marker.words.some((word) => text.includes(word))) {
-      filters.person_type = marker.type;
-      break;
-    }
+function detectMentionedTypes(text) {
+  const types = [];
+  let barePsychiatric = false;
+  if (/ผู้ป่วยจิตเวช|คนไข้จิตเวช|จิตเวช/.test(text)) types.push('psychiatric');
+  else if (/ผู้ป่วย|คนไข้/.test(text)) {
+    types.push('psychiatric');
+    barePsychiatric = true;
   }
+  if (/ผู้ใช้ยาเสพติด|คนใช้ยา|ผู้เสพ|คนเสพ/.test(text) || (/ยาเสพติด/.test(text) && !/จิตเวช/.test(text))) {
+    types.push('drug_user');
+  }
+  if (/ผู้จำหน่าย|คนขายยา|พ่อค้ายา|ผู้ค้า/.test(text)) types.push('dealer');
+  if (/ออกจากเรือนจำ|ออกจากคุก|ผู้พ้นโทษ|พ้นโทษ/.test(text)) types.push('released');
+  return { types, barePsychiatric };
+}
+
+function extractLookupFilters(text) {
+  const { types, barePsychiatric } = detectMentionedTypes(text);
+  const filters = {};
+  if (types.length === 1) filters.person_type = types[0];
   for (const marker of SEARCH_STATUS_MARKERS) {
     if (marker.words.some((word) => text.includes(word))) {
       filters.status = marker.status;
       break;
     }
   }
-
   const province = extractSpokenField(text, ['ในจังหวัด', 'จังหวัด', 'จ.']);
   const station = extractSpokenField(text, ['สภ.', 'สภ', 'สถานี']);
   const district = extractSpokenField(text, ['อำเภอ', 'เขต']);
   const subdistrict = extractSpokenField(text, ['ตำบล']);
-  const name = extractSpokenField(text, ['ชื่อว่า', 'ชื่อ']);
+  const name = extractSpokenField(text.replace(/รายชื่อ/g, ' '), ['ชื่อว่า', 'ชื่อ']);
   if (province) filters.province = province;
   if (station) filters.station = station;
   if (district) filters.district = district;
   if (subdistrict) filters.subdistrict = subdistrict;
   if (name) filters.query = name;
+  return { filters, types, barePsychiatric };
+}
 
-  // “หานายสมชาย” is a common spoken shorthand for “หาคนชื่อนายสมชาย”.
+function hasExtraFilters(filters) {
+  return Boolean(filters && (filters.province || filters.station || filters.district || filters.subdistrict || filters.status || filters.query));
+}
+
+function detectSpokenPersonSearch(message) {
+  const text = normalizeSpokenConnectors(message);
+  if (!SEARCH_ACTION_RE.test(text)) return null;
+
+  const { filters } = extractLookupFilters(text);
+
   if (!filters.query) {
     const rest = text.replace(SEARCH_ACTION_RE, '').trim();
     const named = rest.match(new RegExp(`^(นาย|นางสาว|นาง|ด\\.ช\\.|ด\\.ญ\\.)\\s*([^,]+?)${SEARCH_FIELD_BOUNDARY}`, 'u'));
     if (named) filters.query = (named[1] + named[2]).trim();
   }
 
-  // Preserve the established type-only list intents (for example
-  // “หาผู้เสพ”) while using the richer intent as soon as another condition
-  // is supplied.
   if (Object.keys(filters).length === 1 && filters.person_type && /หา\s*ผู้/u.test(text)) return null;
 
   const trailing = text.replace(/[,.]+$/u, '').trim();
@@ -139,31 +186,55 @@ function detectSpokenPersonSearch(message) {
   return { intent: incomplete ? 'search_incomplete' : 'search_persons', filters };
 }
 
-function spokenSearchAnswer(total, filters) {
+function filterLabels(filters, { barePsychiatric } = {}) {
   const labels = [];
+  if (barePsychiatric) labels.push('คำว่า “ผู้ป่วย” ในคำถามนี้หมายถึงผู้ป่วยจิตเวช');
   const type = SEARCH_TYPE_MARKERS.find((item) => item.type === filters.person_type);
-  if (type) labels.push(type.words[0]);
+  if (type && !barePsychiatric) labels.push(type.words[0]);
+  if (filters.status === 'followup') labels.push('ต้องติดตาม');
+  if (filters.status === 'active') labels.push('กำลังติดตาม');
+  if (filters.status === 'completed') labels.push('เสร็จสิ้น');
+  if (filters.status === 'registered') labels.push('ขึ้นทะเบียน');
   if (filters.province) labels.push(`จังหวัด${filters.province}`);
   if (filters.station) labels.push(`สภ.${filters.station.replace(/^สภ\.?\s*/u, '')}`);
   if (filters.district) labels.push(`อำเภอ${filters.district}`);
   if (filters.subdistrict) labels.push(`ตำบล${filters.subdistrict}`);
   if (filters.query) labels.push(`ชื่อ ${filters.query}`);
+  return labels;
+}
+
+function spokenSearchAnswer(total, filters, extras) {
+  const labels = filterLabels(filters, extras);
   return `พบ ${total} คน${labels.length ? ' ตามเงื่อนไข: ' + labels.join(' • ') : ''}`;
 }
 
-function detectFastPathIntent(message) {
+function countAnswer(type, total, filters, extras) {
+  const label = type ? TYPE_LABELS[type] : 'บุคคล';
+  const labels = filterLabels(filters, extras);
+  const presence = presenceAnswer(label, total);
+  if (!labels.length) return presence;
+  if (!total) return `ตามเงื่อนไข: ${labels.join(' • ')} ${presence}`;
+  return `ตามเงื่อนไข: ${labels.join(' • ')} ${presence}`;
+}
+
+function hasCountAsk(text) {
+  return /กี่\s*(?:คน|ราย)|ทั้งหมด\s*กี่|มีทั้งหมด|ขอยอด|มียอด|ยอดเท่าไหร่|มีจำนวนเท่าไหร่/.test(text);
+}
+
+function hasExistenceAsk(text) {
+  return /มี(?:อยู่)?(?:มั้ย|ไหม|มะ|ปะ|ป่าว|หรือไม่|รึเปล่า|หรือเปล่า)|(?:มั้ย|ไหม|มะ|ปะ|ป่าว|หรือไม่|รึเปล่า|หรือเปล่า)\s*(?:ครับ|ค่ะ|คะ|จ้า|นะ)?\s*$/u.test(text);
+}
+
+function detectFastPathIntent(message, topic) {
   if (!message || typeof message !== 'string') return null;
-  const text = message.replace(/\s+/g, ' ').trim();
+  const text = normalizeSpokenConnectors(message);
   if (!text) return null;
 
   const lower = text.toLowerCase();
-  // These need joins, histories, or reasoning beyond the supported filters.
-  // Keep them on the existing reliable tool/model path instead of treating
-  // them as an incomplete ordinary search.
-  if (['ประวัติ', 'เยี่ยม', 'ปัสสาวะ', 'ฉี่', 'ซ้ำ', 'และ', 'หรือ', 'เปรียบเทียบ', 'เทียบ', 'วิเคราะห์'].some((term) => lower.includes(term))) return null;
+  if (HARD_COMPLEX_TERMS.some((term) => lower.includes(term))) return null;
+
   const spokenSearch = detectSpokenPersonSearch(text);
   if (spokenSearch) return { ...spokenSearch, page: 1 };
-  if (COMPLEX_TERMS.some((t) => lower.includes(t))) return null;
 
   let page = 1;
   const pageMatch = text.match(/หน้า\s*(\d+)/);
@@ -172,43 +243,151 @@ function detectFastPathIntent(message) {
     if (Number.isFinite(n) && n > 0) page = n;
   }
 
-  const intent = matchCountIntent(text) || matchStatisticsIntent(text) || matchListIntent(text);
-  if (!intent) return null;
-  return { intent, page };
-}
+  const groupBy = detectLocationGroup(text);
+  const { filters, types, barePsychiatric } = extractLookupFilters(text);
+  if (groupBy === 'subdistrict') delete filters.subdistrict;
+  if (groupBy === 'district') delete filters.district;
+  if (groupBy === 'province') delete filters.province;
+  if (groupBy === 'station') delete filters.station;
+  if (/สถานี\s*\d+/.test(text) || /station_id/i.test(text)) return null;
+  const wantsList = LIST_INTENT_PHRASES.some((p) => text.includes(p)) || /หา\s*ผู้/.test(text);
+  const wantsCount = (hasCountAsk(text) || (hasExistenceAsk(text) && types.length > 0)) && !wantsList;
+  const desc = !/น้อยที่สุด|น้อยสุด|น้อยไปมาก|จากน้อย|น้อยขึ้น/.test(text);
+  const showAll = /เรียงตาม|แยกตาม|แจกแจง|แต่ละ/.test(text) && !/มากที่สุด|เยอะที่สุด|น้อยที่สุด|มากสุด|เยอะสุด|น้อยสุด/.test(text);
 
-function matchCountIntent(text) {
-  if (/ผู้ป่วยจิตเวช\s*(?:ทั้งหมด\s*)?กี่/.test(text)) return 'count_psychiatric';
-  if (/ผู้เสพ\s*(?:ทั้งหมด\s*)?กี่/.test(text)) return 'count_drug_user';
-  if (/ผู้ค้า\s*(?:ทั้งหมด\s*)?กี่/.test(text)) return 'count_dealer';
-  if (/ทั้งหมด\s*กี่/.test(text)) return 'count_total';
-  return null;
-}
-
-function matchStatisticsIntent(text) {
-  if (/สรุปจำนวน/.test(text) && /แยกตาม/.test(text)) return 'statistics_summary';
-  return null;
-}
-
-function matchListIntent(text) {
-  const hasListPhrase =
-    LIST_INTENT_PHRASES.some((p) => text.includes(p)) ||
-    /หา\s*ผู้/.test(text);
-
-  if (hasListPhrase) {
-    for (const marker of PERSON_TYPE_MARKERS) {
-      if (marker.keywords.some((k) => text.includes(k))) return marker.listIntent;
+  if (groupBy && (wantsCount || /ไหน|ใด|อะไรบ้าง|มากที่สุด|เยอะที่สุด|น้อยที่สุด|มากสุด|เยอะสุด|น้อยสุด|เรียงตาม|แยกตาม|แจกแจง|แต่ละ/.test(text))) {
+    if (types.length > 1) {
+      return {
+        intent: 'lookup_clarify',
+        page,
+        answer: 'คำถามระบุมากกว่าหนึ่งประเภทบุคคล กรุณาถามทีละประเภท เช่น ผู้ป่วยจิตเวช หรือผู้เสพ',
+      };
     }
-    // A bare request such as “ขอรายชื่อ” is an unambiguous request for the
-    // authorized station's person list. It must not wait for Ollama merely
-    // because the earlier turn supplied the count rather than a type filter.
-    return 'list_all';
+    return {
+      intent: 'group_persons',
+      page,
+      filters,
+      groupBy,
+      direction: desc ? 'desc' : 'asc',
+      showAll,
+      barePsychiatric,
+    };
   }
 
+  if (/สรุปจำนวน/.test(text) && /แยกตาม/.test(text) && /ประเภท/.test(text) && !groupBy) {
+    return { intent: 'statistics_summary', page };
+  }
+
+  if (types.length > 1 && wantsCount) {
+    return { intent: 'statistics_summary', page, mentionedTypes: types };
+  }
+
+  if (wantsCount) {
+    if (types.length === 1) {
+      return {
+        intent: `count_${types[0]}`,
+        page,
+        filters: mergeTopicFilters(filters, topic),
+        barePsychiatric,
+      };
+    }
+    if (topic && Array.isArray(topic.person_types) && topic.person_types.length > 1 && !/ทั้งหมด|ทุกประเภท/.test(text)) {
+      return listClarify(topic);
+    }
+    if (topic && topic.person_type && !/ทั้งหมด|ทุกประเภท|ทุกคน/.test(text)) {
+      return {
+        intent: `count_${topic.person_type}`,
+        page,
+        filters: mergeTopicFilters(filters, topic),
+        barePsychiatric: topic.barePsychiatric || false,
+      };
+    }
+    if (/ทั้งหมด|ในพื้นที่|บุคคล|คนทั้งหมด|มีกี่/.test(text) || /กี่\s*(?:คน|ราย)/.test(text)) {
+      return { intent: 'count_total', page, filters: mergeTopicFilters(filters, topic) };
+    }
+  }
+
+  if (wantsList) {
+    if (types.length > 1) {
+      return {
+        intent: 'lookup_clarify',
+        page,
+        answer: 'คำถามระบุมากกว่าหนึ่งประเภทบุคคล กรุณาถามทีละประเภท เช่น ผู้ป่วยจิตเวช หรือผู้เสพ',
+      };
+    }
+    if (types[0]) {
+      return { intent: `list_${types[0]}`, page, filters: mergeTopicFilters(filters, topic), barePsychiatric };
+    }
+    if (wantsExplicitAllList(text, types)) {
+      return { intent: 'list_all', page, filters: mergeTopicFilters(filters, topic) };
+    }
+    if (topic && Array.isArray(topic.person_types) && topic.person_types.length > 1) {
+      return listClarify(topic);
+    }
+    if (topic && topic.person_type) {
+      return {
+        intent: `list_${topic.person_type}`,
+        page,
+        filters: mergeTopicFilters(filters, topic),
+        barePsychiatric: topic.barePsychiatric || false,
+      };
+    }
+    return { intent: 'list_all', page, filters, barePsychiatric };
+  }
+
+  if (LATE_COMPLEX_TERMS.some((term) => lower.includes(term))) return null;
   return null;
+}
+
+function formatGroupName(groupBy, row) {
+  const label = GROUP_LABELS[groupBy] || '';
+  const raw = row.name || '';
+  const prefixed = raw.startsWith(label) ? raw : `${label}${raw}`;
+  if (groupBy === 'subdistrict' && (row.district || row.province)) {
+    return `${prefixed} (${row.district} ${row.province})`.replace(/\s+/g, ' ').trim();
+  }
+  if ((groupBy === 'district' || groupBy === 'station') && row.province) {
+    return `${prefixed} (${row.province})`;
+  }
+  return prefixed;
+}
+
+function renderGroupAnswer(result, options) {
+  const groupBy = options.groupBy;
+  const label = GROUP_LABELS[groupBy] || 'พื้นที่';
+  const type = options.filters && options.filters.person_type;
+  const category = type ? TYPE_LABELS[type] : 'บุคคล';
+  const sorted = [...result.groups].sort((a, b) => {
+    const diff = options.direction === 'asc' ? a.count - b.count : b.count - a.count;
+    return diff || a.name.localeCompare(b.name, 'th');
+  });
+  const rows = options.showAll ? sorted : sorted.filter((row) => row.count === sorted[0]?.count);
+  const notes = [];
+  if (options.barePsychiatric) notes.push('คำว่า “ผู้ป่วย” ในคำถามนี้หมายถึงผู้ป่วยจิตเวช');
+  notes.push(...filterLabels(options.filters || {}, { barePsychiatric: false }).filter((item) => item !== TYPE_LABELS[type]));
+  const heading = `นับ${category}จากทะเบียนทั้งหมด ${result.total} คน`;
+  const scope = notes.length ? `ตามเงื่อนไข: ${notes.join(' • ')}\n` : '';
+  const body = rows.length
+    ? rows.map((row, index) => `${index + 1}. ${formatGroupName(groupBy, row)} — ${row.count} คน`).join('\n')
+    : `ไม่พบข้อมูล${label}ที่จัดอันดับได้`;
+  const extra = [];
+  if (!options.showAll && rows.length > 1) extra.push('มีหลายพื้นที่จำนวนเท่ากัน');
+  if (result.missing) extra.push(`อีก ${result.missing} คนไม่ระบุ${label} จึงไม่รวมในอันดับ`);
+  if (options.direction === 'asc') extra.push('อันดับนี้รวมเฉพาะพื้นที่ที่มีบุคคลในทะเบียน');
+  return `${scope}${heading}\n${options.showAll ? `เรียง${options.direction === 'asc' ? 'น้อยไปมาก' : 'มากไปน้อย'}\n` : ''}${body}${extra.length ? `\n${extra.join('\n')}` : ''}`;
 }
 
 async function runFastPath(intent, currentUser, toolRouter, options = {}) {
+  if (intent === 'lookup_clarify') {
+    return {
+      ok: true,
+      answer: options.answer || 'กรุณาระบุประเภทบุคคลที่ต้องการดู',
+      toolsUsed: [],
+      toolArgs: {},
+      grounded: true,
+      presentation: options.presentation || null,
+    };
+  }
   if (intent === 'search_incomplete') {
     return {
       ok: true,
@@ -219,14 +398,56 @@ async function runFastPath(intent, currentUser, toolRouter, options = {}) {
       presentation: null,
     };
   }
-  if (COUNT_INTENTS.includes(intent)) {
+
+  const spokenFilters = options.filters || {};
+  if (intent === 'group_persons') {
+    const args = { groupBy: options.groupBy };
+    if (spokenFilters.person_type) args.person_type = spokenFilters.person_type;
+    for (const field of ['status', 'province', 'station', 'district', 'subdistrict', 'query']) {
+      if (spokenFilters[field]) args[field === 'query' ? 'search' : field] = spokenFilters[field];
+    }
+    const result = toolRouter.groupPersons(currentUser, args);
+    if (!result || result.groupBy == null) return { ok: false };
+    return {
+      ok: true,
+      answer: renderGroupAnswer(result, options),
+      toolsUsed: ['group_persons'],
+      toolArgs: args,
+      grounded: true,
+      presentation: {
+        type: 'location_summary',
+        groupBy: result.groupBy,
+        total: result.total,
+        missing: result.missing,
+        items: result.groups,
+        filters: { person_type: spokenFilters.person_type || null, ...spokenFilters },
+      },
+    };
+  }
+
+  const extra = hasExtraFilters(spokenFilters);
+  if (COUNT_INTENTS.includes(intent) && !extra) {
     const result = await toolRouter.execute('get_statistics', {}, currentUser);
     if (result.error || !result.data) {
       return { ok: false };
     }
+    if (intent === 'statistics_summary' && Array.isArray(options.mentionedTypes) && options.mentionedTypes.length > 1) {
+      const parts = options.mentionedTypes.map((type) => `${TYPE_LABELS[type]} ${result.data[type] || 0} คน`);
+      return {
+        ok: true,
+        answer: `ในพื้นที่รับผิดชอบ ${parts.join(' • ')}`,
+        toolsUsed: ['get_statistics'],
+        toolArgs: {},
+        grounded: true,
+        presentation: null,
+      };
+    }
+    const answer = COUNT_ANSWERS[intent](result.data);
     return {
       ok: true,
-      answer: COUNT_ANSWERS[intent](result.data),
+      answer: options.barePsychiatric
+        ? `${answer}\nคำว่า “ผู้ป่วย” ในคำถามนี้หมายถึงผู้ป่วยจิตเวช`
+        : answer,
       toolsUsed: ['get_statistics'],
       toolArgs: {},
       grounded: true,
@@ -234,7 +455,25 @@ async function runFastPath(intent, currentUser, toolRouter, options = {}) {
     };
   }
 
-  const spokenFilters = intent === 'search_persons' ? (options.filters || {}) : {};
+  if (COUNT_INTENTS.includes(intent) && extra && intent !== 'statistics_summary') {
+    const personType = COUNT_TYPE[intent];
+    const args = { limit: 1, offset: 0 };
+    if (personType) args.person_type = personType;
+    for (const field of ['status', 'province', 'station', 'district', 'subdistrict', 'query']) {
+      if (spokenFilters[field]) args[field] = spokenFilters[field];
+    }
+    const result = await toolRouter.execute('search_persons', args, currentUser);
+    if (result.error || !Number.isFinite(result.total)) return { ok: false };
+    return {
+      ok: true,
+      answer: countAnswer(personType, result.total, { ...spokenFilters, person_type: personType }, { barePsychiatric: options.barePsychiatric }),
+      toolsUsed: ['search_persons'],
+      toolArgs: args,
+      grounded: true,
+      presentation: null,
+    };
+  }
+
   const personType = intent === 'search_persons' ? spokenFilters.person_type : LIST_TYPE[intent];
   if (intent !== 'search_persons' && personType === undefined) return { ok: false };
 
@@ -262,9 +501,12 @@ async function runFastPath(intent, currentUser, toolRouter, options = {}) {
     subdistrict: p.subdistrict,
   }));
 
+  const listIntent = LIST_ANSWERS[intent] ? intent : 'search_persons';
   return {
     ok: true,
-    answer: intent === 'search_persons' ? spokenSearchAnswer(result.total, spokenFilters) : LIST_ANSWERS[intent](result.total),
+    answer: listIntent === 'search_persons' || extra
+      ? spokenSearchAnswer(result.total, { ...spokenFilters, person_type: personType }, { barePsychiatric: options.barePsychiatric })
+      : LIST_ANSWERS[intent](result.total),
     toolsUsed: ['search_persons'],
     toolArgs: args,
     grounded: true,
@@ -274,7 +516,14 @@ async function runFastPath(intent, currentUser, toolRouter, options = {}) {
       returned: items.length,
       page,
       pageSize: limit,
-      filters: { person_type: personType || null, status: spokenFilters.status || null },
+      filters: {
+        person_type: personType || null,
+        status: spokenFilters.status || null,
+        province: spokenFilters.province || null,
+        station: spokenFilters.station || null,
+        district: spokenFilters.district || null,
+        subdistrict: spokenFilters.subdistrict || null,
+      },
       items,
     },
   };

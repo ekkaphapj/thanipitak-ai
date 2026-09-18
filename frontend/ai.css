@@ -273,10 +273,10 @@ body {
 }
 
 /* ---------- SELECTED PERSON CONTEXT (STEP 2.5) ---------- */
-.pl-table tbody tr.pl-row { cursor: pointer; }
 .pl-table tbody tr.pl-row:hover { background: #eff6ff; }
 .pl-table tbody tr.pl-row.pl-selected { background: #dbeafe; }
 .pl-table tbody tr.pl-row.pl-selected td { font-weight: 600; color: var(--primary-dark); }
+.pl-select-btn { min-width: 72px; }
 
 .selected-person-bar {
   display: flex;
@@ -351,6 +351,7 @@ body {
   background: var(--bg);
 }
 .pc-row:hover { background: #fffbeb; }
+.pc-row.pl-selected { background: #dbeafe; border-color: #93c5fd; }
 .pc-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pc-name { font-size: 13px; font-weight: 600; color: var(--text); }
 .pc-tag { font-size: 11px; color: var(--muted); }
@@ -419,6 +420,33 @@ body {
 }
 .send-btn:hover { background: var(--primary-dark); }
 .send-btn:disabled { background: #93c5fd; cursor: not-allowed; }
+.mic-btn {
+  min-height: 46px;
+  min-width: 46px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: #f5f4f1;
+  color: #555;
+  cursor: pointer;
+  font-weight: 600;
+}
+.mic-btn[aria-pressed="true"] {
+  background: var(--danger);
+  color: #fff;
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+.mic-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+@keyframes mic-pulse {
+  50% { box-shadow: 0 0 0 4px #dc262633; }
+}
+.mic-status {
+  margin: 6px 4px 0;
+  min-height: 1.2em;
+  font-size: 12px;
+  color: #888;
+}
+.mic-status.is-error { color: var(--danger); }
 .input-actions { margin-top: 8px; }
 .clear-btn {
   padding: 6px 10px;

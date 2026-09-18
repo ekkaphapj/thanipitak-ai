@@ -24,6 +24,11 @@ MODEL_NAME = os.environ.get("STT_MODEL", "Vinxscribe/biodatlab-whisper-th-medium
 DEVICE = os.environ.get("STT_DEVICE", "cpu")
 COMPUTE = os.environ.get("STT_COMPUTE", "int8")
 MAX_SECONDS = 45.0
+# A conservative quality gate: if Whisper itself reports predominantly low
+# confidence or silence, return no usable transcript so the UI asks the
+# officer to repeat instead of inserting unreliable text into the chat.
+MIN_AVG_LOGPROB = float(os.environ.get("STT_MIN_AVG_LOGPROB", "-1.5"))
+MAX_NO_SPEECH_PROB = float(os.environ.get("STT_MAX_NO_SPEECH_PROB", "0.65"))
 THAI_PROMPT = (
     "ขอข้อมูลผู้ป่วย จิตเวช คนไข้ ผู้เสพ ผู้ค้า ผู้พ้นโทษ "
     "ตำบล อำเภอ จังหวัด รายชื่อ ประวัติการเยี่ยม อายุเท่าไหร่"
@@ -111,8 +116,14 @@ async def transcribe(file: UploadFile = File(...), language: str = Form("th")):
             without_timestamps=True,
             initial_prompt=THAI_PROMPT,
         )
-        text = "".join(segment.text for segment in segments).strip()
-        return {"text": text}
+        segment_list = list(segments)
+        text = "".join(segment.text for segment in segment_list).strip()
+        if not text:
+            return {"text": "", "quality": {"accepted": False}}
+        avg_logprob = sum(segment.avg_logprob for segment in segment_list) / len(segment_list)
+        no_speech_prob = max(segment.no_speech_prob for segment in segment_list)
+        accepted = avg_logprob >= MIN_AVG_LOGPROB and no_speech_prob <= MAX_NO_SPEECH_PROB
+        return {"text": text, "quality": {"accepted": accepted}}
     except RuntimeError:
         return JSONResponse(status_code=400, content={"code": "STT_BAD_AUDIO", "error": "cannot decode audio"})
     finally:

@@ -82,6 +82,20 @@ async function run() {
   const add = db.prepare(`INSERT INTO people (id,synthetic_code,first_name,last_name,type_id,station_id,province,amphoe,tambon,status,custody_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   add.run(1001,'HOLD-DUP-1','ซ้ำ','ทดสอบ',5,1,'อุดรธานี','อำเภอจำลอง 1','ตำบลจำลอง','active',null,'2026-01-01','2026-09-17');
   add.run(1002,'HOLD-DUP-2','ซ้ำ','ทดสอบ',5,1,'อุดรธานี','อำเภอจำลอง 1','ตำบลจำลอง','active',null,'2026-01-01','2026-09-17');
+  // These fixture names are referenced by h56, h59, and h60. Keep the
+  // Frozen question/expectation file unchanged; seed matching synthetic rows
+  // only in this isolated in-memory benchmark database.
+  for (const fixtureNumber of [17, 18, 19]) {
+    const id = 1000 + fixtureNumber;
+    add.run(id, `HOLD-${fixtureNumber}`, `ทดสอบ${fixtureNumber}`, 'สถานี1', 5, 1, 'อุดรธานี', 'อำเภอจำลอง 1', 'ตำบลจำลอง', 'active', null, '2026-01-01', '2026-09-17');
+  }
+  const addVisit = db.prepare('INSERT INTO visits (person_id, visit_date, result, note, officer_user_id) VALUES (?, ?, ?, ?, ?)');
+  const addUrine = db.prepare('INSERT INTO urine_tests (person_id, test_date, result, officer_user_id) VALUES (?, ?, ?, ?)');
+  for (const fixtureNumber of [17, 18, 19]) {
+    const id = 1000 + fixtureNumber;
+    addVisit.run(id, '2026-09-16', 'normal', 'synthetic holdout visit', 2);
+    addUrine.run(id, '2026-09-16', fixtureNumber === 19 ? 'positive' : 'negative', 2);
+  }
   const base = createToolRouter(db); const toolTimings = [];
   const timed = (name, fn) => async (...args) => { const start = Date.now(); const out = await fn(...args); toolTimings.push({ toolName: name, latencyMs: Date.now() - start }); return out; };
   const toolRouter = { ALLOWED_TOOLS: base.ALLOWED_TOOLS, execute: timed('execute', async (tool, ...args) => { const start = Date.now(); const out = await base.execute(tool, ...args); toolTimings.push({ toolName: tool, latencyMs: Date.now() - start }); return out; }), getPersonSummary: timed('get_person_summary', base.getPersonSummary), searchPersons: timed('search_persons', base.searchPersons), summarizePersons: timed('summarize_persons', base.summarizePersons) };

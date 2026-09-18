@@ -175,7 +175,12 @@ async function defaultTranscribe(buffer, contentType) {
     err.http = { status: 503, code: 'STT_UNAVAILABLE', error: 'ระบบแปลงเสียงในเครื่องยังไม่พร้อม กรุณาพิมพ์คำถามได้ตามปกติ' };
     throw err;
   }
-  return { text: String(json.text || json.transcript || '') };
+  return {
+    text: String(json.text || json.transcript || ''),
+    quality: json && json.quality && typeof json.quality === 'object'
+      ? { accepted: json.quality.accepted !== false }
+      : undefined,
+  };
 }
 
 function createSttClient(options = {}) {

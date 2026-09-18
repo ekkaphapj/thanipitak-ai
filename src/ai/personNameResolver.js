@@ -23,7 +23,7 @@ const CANDIDATE_MAX = 10;
 
 // Thai honorific / title prefixes. Stripped only as a retry (a) when the raw
 // candidate does not resolve, so a real literal name is never mis-selected.
-const THAI_TITLES = ['คุณ', 'นาย', 'นาง', 'นางสาว', 'น.ส.', 'นส.', 'ด.ช.', 'ด.ญ.', 'ทนพ.', 'ทนท.'];
+const THAI_TITLES = ['นางสาว', 'น.ส.', 'นส.', 'ด.ช.', 'ด.ญ.', 'ทนพ.', 'ทนท.', 'คุณ', 'นาย', 'นาง'];
 
 // Leading politeness / request words that may precede the actual phrase.
 const POLITE_LEADERS = ['รบกวนช่วย', 'รบกวน', 'กรุณา', 'อยากได้', 'อยากให้', 'ช่วย', 'ขอ'];

@@ -63,6 +63,28 @@ test('stt transcribe with test JWT calls injected helper and writes no audit row
   }
 });
 
+test('stt does not return a low-confidence transcript and asks the officer to repeat', async () => {
+  const ctx = setup();
+  try {
+    const { app } = createApp(ctx.db, {
+      sttCheck: async () => ({ available: true }),
+      sttTranscribe: async () => ({ text: 'คำที่ฟังไม่ชัด', quality: { accepted: false } }),
+    });
+    const token = await login(app);
+    const res = await request(app)
+      .post('/api/stt/transcribe')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Content-Type', 'audio/webm')
+      .send(Buffer.from('fake-webm-bytes'));
+    assert.equal(res.status, 422);
+    assert.equal(res.body.code, 'STT_LOW_CONFIDENCE');
+    assert.match(res.body.error, /พูดใหม่อีกครั้ง/);
+    assert.ok(!JSON.stringify(res.body).includes('คำที่ฟังไม่ชัด'));
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test('stt transcribe without token still 401 for a large audio body', async () => {
   const ctx = setup();
   try {

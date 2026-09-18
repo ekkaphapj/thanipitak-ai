@@ -18,5 +18,6 @@ test('micErrorMessage distinguishes size, duration, busy, and unavailable', () =
   assert.match(VoiceInput.micErrorMessage('AUDIO_TOO_LONG'), /45 วินาที/);
   assert.match(VoiceInput.micErrorMessage('STT_BUSY'), /คำขออื่น/);
   assert.match(VoiceInput.micErrorMessage('STT_UNAVAILABLE'), /ยังไม่พร้อม/);
+  assert.match(VoiceInput.micErrorMessage('STT_LOW_CONFIDENCE'), /พูดใหม่อีกครั้ง/);
   assert.equal(VoiceInput.micErrorMessage(null, 401), 'กรุณาเข้าสู่ระบบใหม่');
 });

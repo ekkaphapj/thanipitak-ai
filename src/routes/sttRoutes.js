@@ -39,6 +39,12 @@ function createSttRoutes(options = {}) {
       if (!transcript) {
         return res.json({ transcript: '', language: config.stt.language, code: 'EMPTY_TRANSCRIPT' });
       }
+      if (result && result.quality && result.quality.accepted === false) {
+        return res.status(422).json({
+          error: 'ฟังเสียงไม่ชัดพอ กรุณาพูดใหม่อีกครั้งให้ชัดและใกล้ไมโครโฟน',
+          code: 'STT_LOW_CONFIDENCE',
+        });
+      }
       return res.json({ transcript, language: config.stt.language });
     } catch (err) {
       const http = err && err.http;

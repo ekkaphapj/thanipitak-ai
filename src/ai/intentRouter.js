@@ -147,7 +147,7 @@ function parseIntentContent(content) {
 }
 
 function isScopeOverrideAttempt(message) {
-  return /\badmin\b|เป็น\s*(แอดมิน|ผู้ดูแล)|อีก\s*(สภ\.?|สถานี)|สถานีอื่น|ข้ามสถานี|ทุกสถานี|ทั้งระบบ/i.test(String(message || ''));
+  return /\badmin\b|เป็น\s*(แอดมิน|ผู้ดูแล)|อีก\s*(สภ\.?|สถานี)|สถานีอื่น|ข้ามสถานี|ทุก\s*(สถานี|สภ\.?|โรงพัก)|ทั้งระบบ|ผู้กำกับ.*(?:ทุก|ทั้งหมด)|(?:ทุก|ทั้งหมด).*(?:โรงพัก|สภ\.?)/i.test(String(message || ''));
 }
 
 function safeFilters(plan) {
@@ -170,6 +170,50 @@ function emitToolCall(onToolCall, currentUser, toolName, toolArgs) {
   onToolCall?.({ toolName, toolArgs, userId: currentUser.id, username: currentUser.username });
 }
 
+function isLocalScopeReference(value) {
+  return /^(?:เขตนี้|พื้นที่นี้|ในพื้นที่นี้|ของเรา|เขตเรา)$/i.test(String(value || '').trim());
+}
+
+// This extracts only an explicit, contiguous name phrase from common Thai
+// question forms. It is a search hint, never an identity: resolution remains
+// exact and station-scoped in resolvePersonByName().
+function extractExplicitPersonHint(text) {
+  const source = String(text || '').replace(/[\s\u00a0]+/g, ' ').trim();
+  if (!source) return null;
+  const named = source.match(/(?:ข้อมูล|ประวัติ(?:การเยี่ยม)?|(?:สรุป)?ผล(?:ตรวจ)?(?:ฉี่|ปัสสาวะ)(?:ที่เคยตรวจ)?)ของ\s*(.+?)(?=\s*(?:ที่(?:ไม่มี|ไม่เคย)|ไม่ใช่|ให้|หน่อย|ครับ|ค่ะ|$))/i);
+  if (named?.[1]) return named[1].trim();
+  const marker = /ถูกเยี่ยม|มีประวัติ|ช่วงนี้|ผล(?:ตรวจ)?(?:ฉี่|ปัสสาวะ)|ไปเยี่ยม|เยี่ยม|ตรวจ(?:ฉี่|ปัสสาวะ)|ขอแค่|อยากทราบ|สถานะ(?:ปัจจุบัน|ล่าสุด)/i.exec(source);
+  if (!marker || marker.index === 0) return null;
+  let candidate = source.slice(0, marker.index).trim();
+  candidate = candidate.replace(/^(?:รบกวน(?:ช่วย)?|กรุณา|ช่วย(?:เช็ก|ตรวจ|ดู)?|ขอ)\s*/i, '');
+  candidate = candidate.replace(/^(?:สรุปผล(?:ตรวจ)?(?:ฉี่|ปัสสาวะ)(?:ที่เคยตรวจ)?ของ)\s*/i, '');
+  candidate = candidate.replace(/^ของ\s*/i, '').trim();
+  return candidate && !isProhibitedName(candidate) ? candidate : null;
+}
+
+function formatLatestVisit(value) {
+  if (!value || typeof value !== 'object') return value || 'ไม่มีข้อมูล';
+  const date = value.visit_date || value.date || value.visited_at || value.created_at;
+  const status = value.visit_status || value.status || value.result;
+  const details = [date, status].filter(Boolean);
+  return details.length ? details.join(' — ') : 'มีข้อมูลบันทึกการเยี่ยมล่าสุด';
+}
+
+async function enrichPeopleWithLatestUrine(rows, toolRouter, currentUser, onToolCall) {
+  const capped = rows.slice(0, 20);
+  const enriched = [];
+  for (const person of capped) {
+    const args = { person_id: person.id };
+    const urine = await toolRouter.execute('get_urine_history', args, currentUser);
+    emitToolCall(onToolCall, currentUser, 'get_urine_history', args);
+    enriched.push({
+      ...person,
+      latest_urine: urine.error ? 'ไม่พร้อมใช้งาน' : (urine.data || [])[0]?.result || 'ไม่มีข้อมูล',
+    });
+  }
+  return enriched;
+}
+
 function normalizePlanForMessage(rawPlan, message) {
   const text = String(message || '').replace(/[\s\u00a0]+/g, ' ').trim();
   const plan = {
@@ -179,18 +223,29 @@ function normalizePlanForMessage(rawPlan, message) {
   };
   const requested = new Set(plan.requested);
   const hasUrine = /ฉี่|ปัสสาวะ|ตรวจ.*(ฉี่|ปัสสาวะ)|ผล.*(ฉี่|ปัสสาวะ)|ม่วง|ผ่านบ่|เป็นหยัง/i.test(text);
-  const hasPositiveUrine = /ฉี่ม่วง|ผล.*เป็นบวก|ตรวจ.*พบสาร|ตรวจฉี่เป็นบวก/i.test(text);
+  const hasPositiveUrine = /ฉี่ม่วง|ผล.*(?:ม่วง|เป็นบวก)|ตรวจ.*พบสาร|ตรวจฉี่เป็นบวก/i.test(text);
   const hasVisitCount = /กี่รอบ|กี่ครั้ง|จักเทื่อ|จักครั้ง|กี่เที่ยว|ไปหา.*กี่|ไปเยี่ยม.*กี่|เยี่ยม.*กี่/i.test(text);
   const hasLatestVisit = /(?:เยี่ยม|ไปหา|สายตรวจ)\s*(?:ครั้ง)?\s*ล่าสุด|ล่าสุด\s*(?:ไปหา|เยี่ยม|สายตรวจ)|สายตรวจ.*(?:หา|เยี่ยม)/i.test(text)
     || (/(มื้อได๋|เมื่อไหร่|วันไหน)/i.test(text) && /(เยี่ยม|ไปหา|สายตรวจ)/i.test(text));
   const hasLatestUrine = /(?:ฉี่|ปัสสาวะ).*ล่าสุด|ล่าสุด.*(?:ฉี่|ปัสสาวะ)|ผล.*(?:ฉี่|ปัสสาวะ).*(?:เป็นยังไง|ผ่านบ่|เป็นหยัง)/i.test(text);
   const hasUrineSummary = /ประวัติ.*(ฉี่|ปัสสาวะ)|สรุป.*(ผล.*)?(ฉี่|ปัสสาวะ)|ผลตรวจ.*(ทั้งหมด|กี่ครั้ง|ที่ผ่านมา)/i.test(text);
   const hasPersonSummary = /ข้อมูลพื้นฐาน|รายละเอียด|ข้อมูลเพิ่มเติม|สรุปข้อมูล(ของ|บุคคล)/i.test(text);
-  const collectionUrine = /^(คนที่|ใคร|ผู้เสพที่|ผู้ป่วยที่).*(ฉี่|ปัสสาวะ|ตรวจ).*(ม่วง|บวก|พบสาร|ล่าสุด)/i.test(text);
+  const populationLatestUrine = /รายชื่อ.*(?:ผล(?:ตรวจ)?(?:ฉี่|ปัสสาวะ)).*(?:ล่าสุด|แต่ละคน)|(?:ผล(?:ตรวจ)?(?:ฉี่|ปัสสาวะ)).*(?:ล่าสุด|แต่ละคน).*รายชื่อ/i.test(text);
+  const collectionUrine = /^(?:คนที่|ใคร|ผู้เสพ(?:ที่|รายใด)|ผู้ป่วย(?:ที่|รายใด)).*(?:ฉี่|ปัสสาวะ|ตรวจ|ผล).*?(?:ม่วง|บวก|พบสาร|ล่าสุด)|^(?:คนที่|ใคร).*(?:ผลม่วง|ยังมีชื่อ)/i.test(text);
   const unsupportedRecentCollection = /^(คนที่|ใคร).*(สายตรวจ|เยี่ยม|ไปหา).*(เพิ่ง|ล่าสุด)/i.test(text);
+  const incompleteSummaryRequest = /^(?:ขอ\s*)?(?:จำนวน|กี่คน|สรุป)\s*(?:ของ)?\s*$/i.test(text);
+
+  if (incompleteSummaryRequest) {
+    plan.intent = 'unsupported';
+    delete plan.person_hint;
+  }
 
   // High-confidence collection language is safer and more useful as a
   // deterministic search than treating the whole phrase as a person's name.
+  if (isLocalScopeReference(plan.station_hint)) {
+    delete plan.station_hint;
+    if (isLocalScopeReference(plan.filters?.station)) delete plan.filters.station;
+  }
   if (collectionUrine && (!plan.person_hint || isProhibitedName(plan.person_hint) || /^(คนที่|ใคร)/i.test(plan.person_hint))) {
     plan.intent = 'person_search';
     delete plan.person_hint;
@@ -199,14 +254,18 @@ function normalizePlanForMessage(rawPlan, message) {
     plan.intent = 'unsupported';
     delete plan.person_hint;
   }
-  if (plan.intent === 'unsupported' && !isScopeOverrideAttempt(text)) {
+  if (plan.intent === 'unsupported' && !incompleteSummaryRequest && !isScopeOverrideAttempt(text)) {
     if (/รายชื่อ|ค้นหา|หา(คน|บุคคล)/i.test(text)) plan.intent = 'person_search';
     else if (/กี่คน|จำนวน|สรุป/i.test(text)) plan.intent = 'persons_summary';
   }
   if (plan.intent === 'person_search' && /(จำนวน|กี่คน).*(รายชื่อ|ชื่อ)|รายชื่อ.*(จำนวน|กี่คน)/i.test(text)) {
     plan.intent = 'persons_summary';
   }
-  if (plan.intent === 'unsupported' && !isScopeOverrideAttempt(text)) {
+  if (populationLatestUrine) {
+    plan.intent = 'person_search';
+    plan.include_latest_urine_for_each = true;
+  }
+  if (plan.intent === 'unsupported' && !incompleteSummaryRequest && !isScopeOverrideAttempt(text)) {
     const detectedName = detectPersonNameIntent(text);
     if (detectedName) {
       plan.intent = detectedName.intent === 'latest_urine_test' ? 'latest_urine'
@@ -220,6 +279,13 @@ function normalizePlanForMessage(rawPlan, message) {
   if (!plan.person_hint && !isScopeOverrideAttempt(text) && plan.intent !== 'unsupported') {
     const detectedName = detectPersonNameIntent(text);
     if (detectedName) plan.person_hint = detectedName.name;
+  }
+  const explicitHint = !isScopeOverrideAttempt(text) ? extractExplicitPersonHint(text) : null;
+  if (explicitHint && (plan.intent !== 'person_search' && plan.intent !== 'persons_summary')) {
+    if (plan.intent === 'unsupported') {
+      plan.intent = hasUrine ? 'latest_urine' : /ประวัติ|เยี่ยม/i.test(text) ? 'person_history' : 'person_summary';
+    }
+    if (!plan.person_hint || /^\d+$/.test(plan.person_hint) || /(?:ถูก|มี)$/.test(plan.person_hint)) plan.person_hint = explicitHint;
   }
   if (REQUESTED.includes(plan.intent)) requested.add(plan.intent);
   if (hasVisitCount) requested.add('visit_count');
@@ -251,9 +317,10 @@ async function resolvePerson(plan, toolRouter, currentUser, selectedPersonId) {
     if (combined.resolution !== 'not_found') return combined;
   }
   const first = await resolvePersonByName(plan.person_hint, toolRouter, currentUser, 100, filters);
-  if (first.resolution === 'not_found' && plan.station_hint) {
-    // A station hint can be misspelled or only a colloquial place label. A
-    // retry without that hint remains inside the authenticated station scope.
+  if (first.resolution === 'not_found' && Object.keys(filters).length) {
+    // Model-derived filters are only search hints. Retrying the explicit name
+    // without them remains inside the authenticated station scope and avoids
+    // a false “not found” caused by a malformed station/status hint.
     return resolvePersonByName(plan.person_hint, toolRouter, currentUser, 100, {});
   }
   return first;
@@ -311,6 +378,7 @@ function personPresentation(rows, total, page = 1, pageSize = 20) {
     status: person.status,
     district: person.district,
     subdistrict: person.subdistrict,
+    ...(Object.hasOwn(person, 'latest_urine') ? { latest_urine: person.latest_urine } : {}),
   }));
   return { type: 'person_list', total, returned: items.length, page, pageSize, filters: {}, items };
 }
@@ -350,10 +418,15 @@ async function runIntentPlan(plan, { toolRouter, currentUser, selectedPersonId =
       if (!result.error) emitToolCall(onToolCall, currentUser, 'search_persons', args);
     }
     if (result.error) return resultBase({ answer: 'ไม่สามารถค้นข้อมูลบุคคลตามสิทธิ์ได้', grounded: false, intent, toolsUsed });
+    let rows = result.persons || [];
+    if (plan.include_latest_urine_for_each) {
+      rows = await enrichPeopleWithLatestUrine(rows, toolRouter, currentUser, onToolCall);
+      toolsUsed = [...new Set([...toolsUsed, 'get_urine_history'])];
+    }
     return resultBase({
-      answer: result.total ? `พบบุคคล ${result.total} คนในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง` : 'ไม่พบบุคคลในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง',
+      answer: result.total ? `พบบุคคล ${result.total} คนในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง${plan.include_latest_urine_for_each ? ` พร้อมผลตรวจปัสสาวะล่าสุดของ ${rows.length} คนแรก` : ''}` : 'ไม่พบบุคคลในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง',
       toolsUsed,
-      presentation: personPresentation(result.persons || [], result.total, result.page, result.pageSize),
+      presentation: personPresentation(rows, result.total, result.page, result.pageSize),
       intent,
     });
   }
@@ -409,7 +482,7 @@ async function runIntentPlan(plan, { toolRouter, currentUser, selectedPersonId =
     toolsUsed.push('get_visit_history');
     if (result.error) return resultBase({ answer: 'ไม่สามารถอ่านประวัติการเยี่ยมตามสิทธิ์ได้', grounded: false, intent, toolsUsed });
     if (requested.has('visit_count')) lines.push(`จำนวนครั้งที่เยี่ยม: ${result.visit_count || 0} ครั้ง`);
-    if (requested.has('latest_visit')) lines.push(`เยี่ยมล่าสุด: ${result.latest_visit || 'ไม่มีข้อมูล'}`);
+    if (requested.has('latest_visit')) lines.push(`เยี่ยมล่าสุด: ${formatLatestVisit(result.latest_visit)}`);
     if (requested.has('person_history')) lines.push(`ประวัติการเยี่ยมที่บันทึกไว้ ${Array.isArray(result.data) ? result.data.length : 0} รายการ`);
   }
   if (requested.has('latest_urine') || requested.has('urine_summary')) {
@@ -449,7 +522,7 @@ async function runIntentRouter(message, { requestFn, model = INTENT_MODEL, toolR
   });
   const rawPlan = parseIntentContent(response?.message?.content);
   const plan = normalizePlanForMessage(rawPlan, message);
-  if (isScopeOverrideAttempt(message) && plan.intent !== 'unsupported') {
+  if (isScopeOverrideAttempt(message)) {
     return {
       ...resultBase({
         answer: 'ไม่สามารถเปลี่ยนสิทธิ์หรือขอบเขตสถานีจากข้อความได้ กรุณาใช้ข้อมูลในพื้นที่ที่บัญชีมีสิทธิ์',

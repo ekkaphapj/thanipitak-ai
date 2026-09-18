@@ -21,6 +21,7 @@ const {
   runOneShotAnalysis,
 } = require('./personAnalyzer');
 const { runIntentRouter, INTENT_MODEL } = require('./intentRouter');
+const rag = require('./rag');
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'scb10x/llama3.1-typhoon2-8b-instruct:latest';
@@ -464,6 +465,11 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
         conversation: { topic: topicFromIntent(fastIntent) || incomingTopic },
       };
     }
+  }
+
+  if (process.env.RAG_ENABLED === 'true' && !hasDBIntent(userMessage) && !options.forceQwen) {
+    const found = await rag.answer(userMessage, options.requestFn || postJson, OLLAMA_MODEL);
+    if (found) return { answer: found.answer, toolsUsed: [], grounded: true, databaseIntent: false, retryCount: 0, fastPath: false, executionTier: 3, rag: { sources: found.sources } };
   }
 
   // Experimental no-tool routing mode. The small model emits only a validated

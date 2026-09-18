@@ -120,8 +120,19 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
   test('ordinal references accept Thai list wording without becoming request context', () => {
     assert.strictEqual(ChatContext.ordinalFromMessage('ขอข้อมูลเพิ่มเติมของลำดับที่ 3'), 3);
     assert.strictEqual(ChatContext.ordinalFromMessage('เอาอันดับ 12'), 12);
+    assert.strictEqual(ChatContext.ordinalFromMessage('เลือกคนที่ 2'), 2);
+    assert.strictEqual(ChatContext.ordinalFromMessage('ขอข้อมูลรายการที่ 4'), 4);
     assert.strictEqual(ChatContext.ordinalFromMessage('ขอ 5 อันดับตำบล'), null);
     assert.strictEqual(ChatContext.ordinalFromMessage('ข้อมูลเพิ่มเติม'), null);
+  });
+
+  test('ordinal commands distinguish local selection from information requests', () => {
+    assert.deepStrictEqual(ChatContext.ordinalCommandFromMessage('เลือกคนที่ 2'), { ordinal: 2, action: 'select', matchedText: 'คนที่ 2' });
+    assert.deepStrictEqual(ChatContext.ordinalCommandFromMessage('เลือกรายการที่ 3'), { ordinal: 3, action: 'select', matchedText: 'รายการที่ 3' });
+    assert.deepStrictEqual(ChatContext.ordinalCommandFromMessage('ขอข้อมูลคนที่ 4'), { ordinal: 4, action: 'info', matchedText: 'คนที่ 4' });
+    assert.strictEqual(ChatContext.isClearSelectionCommand('ยกเลิกการเลือก'), true);
+    assert.strictEqual(ChatContext.isClearSelectionCommand('ยกเลิกการเลือกบุคคล'), true);
+    assert.strictEqual(ChatContext.isClearSelectionCommand('ยกเลิกรายการ'), false);
   });
 
   test('reference-list questions recognise list and selected-person wording', () => {

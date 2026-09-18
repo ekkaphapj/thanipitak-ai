@@ -12,11 +12,11 @@ chat logs.
 
 - Branch on both workstations and the Ubuntu pilot:
   `experiment/typhoon25-intent-router`.
-- Latest pushed and deployed commit: `ebb7097 Compact voice assistant widget
-  and acknowledge immediately`. It is pushed to `origin` / GitHub. Earlier
-  relevant commits in this pilot are `c09d29a` (clean voice-turn auto-send),
-  `9f69ce6` (voice clips and sprite animation), `9922d58` and `28d9969`
-  (safe product-knowledge RAG).
+- Latest pushed and deployed commit: `bbf5881 Show voice processing state and
+  prompt followup audio`. It is pushed to `origin` / GitHub. Earlier relevant
+  commits in this pilot are `c09d29a` (clean voice-turn auto-send), `9f69ce6`
+  (voice clips and sprite animation), `9922d58` and `28d9969` (safe
+  product-knowledge RAG).
 - Preserve these untracked, user-owned benchmark artifacts; do not add them to
   a commit unless the user asks: `docs/qwen3-8b-q6-holdout60-*.json`,
   `tmp_make_benchdb.js`, `tmp_s3bench_info.js`.
@@ -110,6 +110,9 @@ chat logs.
   `voice-finish-job.mp3`. The latter
   classification is intentionally conservative and uses known clarification
   presentation/answer patterns; do not make model prose an authority for data.
+- A voice request asking `คุณคือใคร`, `เธอคือใคร`, `แนะนำตัวหน่อย`, or
+  `ช่วยแนะนำตัว` plays `voice-introduce.mp3` after its answer instead of the
+  ordinary completion clip.
 - Mascot mouth animation is CSS sprite animation **only while an audio clip is
   playing**. The six-frame sprite is `frontend/thanipitak-ai-voice-sprite-v2.png`.
   Its non-transparent rectangular source backdrop is clipped to the mascot
@@ -119,7 +122,7 @@ chat logs.
 - Packaged clips are `frontend/voice-hello.mp3`, `voice-greeting-2.mp3`,
   `voice-how-to-use.mp3`, `voice-acknowledge.mp3`, `voice-answer-question.mp3`,
   `voice-not-clear.mp3`, `voice-not-understand-question.mp3`, and
-  `voice-finish-job.mp3`.
+  `voice-finish-job.mp3`, plus `voice-introduce.mp3`.
 - STT audio remains browser → authenticated app proxy → loopback STT only;
   it is not persisted and no transcript/audio audit rows are written. This
   auto-send behavior is explicitly user-requested and replaces older handoff
@@ -282,7 +285,12 @@ Test monitoring **calculates** alerts (`monitoringService.js`, `persist:false` o
 - `conversation.topic` via `ChatContext.buildChatBody(message, selected, topic)`. Never `station_id`/`role` in body.
 - `ขอรายชื่อหน่อย` after a type-specific count lists that type. `ขอรายชื่อทั้งหมด` is all. Mixed types → clarify.
 - `เริ่มใหม่`, logout, source switch clear topic and selection.
-- Lists render **เลือก** (`makeSelectButton`). One-person lists auto-select. Follow-ups send `context.personId`; backend re-authorizes.
+- Lists render **เลือก** (`makeSelectButton`). One-person lists auto-select.
+  With a current numbered list, `เลือกคนที่ N`, `เลือกรายการที่ N`, and
+  `เลือกลำดับที่ N` perform that item's local select action; `ยกเลิกการเลือก`
+  clears it without clearing the list. `ขอข้อมูลคนที่ N` / `ขอข้อมูลรายการที่ N`
+  select that authorized item as context and request its facts. Follow-ups send
+  only `context.personId`; backend re-authorizes.
 
 ### Real registry, visits, monitoring
 

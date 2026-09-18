@@ -107,10 +107,29 @@
   // Ordinal references are resolved only against the most recently rendered
   // list in the browser. They never become an authorization field.
   function ordinalFromMessage(message) {
-    const match = String(message == null ? '' : message).match(/(?:ของ\s*)?(?:ลำดับ|อันดับ)\s*(?:ที่)?\s*(\d{1,3})/);
+    const match = String(message == null ? '' : message).match(/(?:ของ\s*)?(?:ลำดับ|อันดับ|รายการ|คน)\s*(?:ที่)?\s*(\d{1,3})/);
     if (!match) return null;
     const ordinal = Number(match[1]);
     return Number.isSafeInteger(ordinal) && ordinal > 0 ? ordinal : null;
+  }
+
+  // Classifies an ordinal request without turning it into authorization data.
+  // Explicit “เลือก…” means the same as pressing a visible Select button;
+  // “ขอข้อมูล…” retains the request and uses the ordinal only as local UI
+  // context. A bare ordinal remains the historic “request more information”.
+  function ordinalCommandFromMessage(message) {
+    const text = String(message == null ? '' : message).replace(/\s+/g, ' ').trim();
+    const match = text.match(/(?:ของ\s*)?(?:ลำดับ|อันดับ|รายการ|คน)\s*(?:ที่)?\s*(\d{1,3})/);
+    if (!match) return null;
+    const ordinal = Number(match[1]);
+    if (!Number.isSafeInteger(ordinal) || ordinal <= 0) return null;
+    const before = text.slice(0, match.index);
+    const action = /เลือก\s*$/u.test(before) ? 'select' : /ขอ(?:ข้อมูล|รายละเอียด|ประวัติ)\s*$/u.test(before) ? 'info' : 'info';
+    return { ordinal, action, matchedText: match[0] };
+  }
+
+  function isClearSelectionCommand(message) {
+    return /^ยกเลิก\s*การเลือก(?:\s*(?:คน|รายการ|บุคคล))?$/u.test(String(message == null ? '' : message).trim());
   }
 
   function isReferenceListQuestion(message) {
@@ -126,6 +145,8 @@
     indicatorText,
     clearSelection,
     ordinalFromMessage,
+    ordinalCommandFromMessage,
+    isClearSelectionCommand,
     isReferenceListQuestion,
     FORBIDDEN_FIELDS,
   };

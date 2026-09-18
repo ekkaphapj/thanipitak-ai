@@ -29,6 +29,7 @@
     acknowledge: 'voice-acknowledge.mp3',
     notClear: 'voice-not-clear.mp3',
     answerQuestion: 'voice-answer-question.mp3',
+    introduce: 'voice-introduce.mp3',
     notUnderstood: 'voice-not-understand-question.mp3',
     finished: 'voice-finish-job.mp3',
   };
@@ -314,9 +315,15 @@
     return /(?:ไม่เข้าใจ|ยังสรุปไม่ได้|ไม่พบคำสั่ง)/u.test(String((json && json.answer) || ''));
   }
 
-  function finishVoiceTurn(json) {
+  function isVoiceIntroduction(message) {
+    const text = String(message || '').replace(/\s+/g, '');
+    return /(?:คุณ|เธอ)คือใคร|(?:ช่วย)?แนะนำตัว(?:หน่อย)?/u.test(text);
+  }
+
+  function finishVoiceTurn(json, message) {
     if (!state.voiceMode) return;
-    if (answerNeedsFollowup(json)) playVoiceClip('answerQuestion');
+    if (isVoiceIntroduction(message)) playVoiceClip('introduce');
+    else if (answerNeedsFollowup(json)) playVoiceClip('answerQuestion');
     else if (answerIsNotUnderstood(json)) playVoiceClip('notUnderstood');
     else playVoiceClip('finished');
   }
@@ -700,8 +707,9 @@
   }
 
   function resolveOrdinalReference(message) {
-    const ordinal = window.ChatContext.ordinalFromMessage(message);
-    if (ordinal === null) return { message };
+    const command = window.ChatContext.ordinalCommandFromMessage(message);
+    if (!command) return { message };
+    const { ordinal } = command;
     const items = state.referenceList && state.referenceList.items;
     if (!items || !items.length) {
       appendMessage('assistant', 'ไม่มีรายการให้เลือก กรุณาขอรายชื่อหรือรายการก่อน');
@@ -714,11 +722,16 @@
     }
     if (chosen.personId) {
       recordReferenceChild(chosen);
-      applyPersonSelection({ personId: chosen.personId, displayName: chosen.displayName }, false);
-      return { message: String(message).replace(/(?:ของ\s*)?(?:ลำดับ|อันดับ)\s*(?:ที่)?\s*\d{1,3}/, 'คนนี้') };
+      applyPersonSelection({ personId: chosen.personId, displayName: chosen.displayName }, command.action === 'select');
+      if (command.action === 'select') return { handled: true };
+      return { message: String(message).replace(command.matchedText, 'คนนี้') };
     }
     const followup = ordinalPromptForLocation(chosen);
-    if (followup) { recordReferenceChild(chosen); return { message: followup }; }
+    if (followup) {
+      recordReferenceChild(chosen);
+      if (command.action === 'select') appendMessage('assistant', `เลือกแล้ว: ${chosen.displayName} — กำลังเปิดรายการที่เกี่ยวข้อง`);
+      return { message: followup };
+    }
     appendMessage('assistant', `ไม่มีข้อมูลเพิ่มเติมที่เปิดดูได้สำหรับรายการลำดับที่ ${ordinal}`);
     return { handled: true };
   }
@@ -1305,6 +1318,17 @@
       return;
     }
 
+    if (window.ChatContext.isClearSelectionCommand(message)) {
+      appendMessage('user', message);
+      const hadSelection = Boolean(state.selectedPerson);
+      clearSelectedPerson();
+      appendMessage('assistant', hadSelection ? 'ยกเลิกการเลือกแล้ว' : 'ขณะนี้ยังไม่ได้เลือกบุคคลหรือรายการ');
+      $('#chat-input').value = '';
+      autoResizeInput();
+      finishVoiceTurn(null, message);
+      return;
+    }
+
     const ordinalResolution = resolveOrdinalReference(message);
     if (ordinalResolution.handled) { finishVoiceTurn(); return; }
     message = ordinalResolution.message.trim();
@@ -1419,7 +1443,7 @@
           wrap.appendChild(perf);
         }
         scrollToBottom();
-        if (voiceTurn) finishVoiceTurn(json);
+        if (voiceTurn) finishVoiceTurn(json, message);
       })
       .catch(async (err) => {
         if (settled) return;

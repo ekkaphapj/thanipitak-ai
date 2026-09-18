@@ -281,8 +281,9 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
     if (reportRequest.filters.level === 'watch') bits.push('เฝ้าระวัง');
     const scope = bits.length ? bits.join(' • ') : 'บุคคลในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง';
     const files = exportIntent.formats.map((item) => item === 'xlsx' ? 'Excel' : 'PDF').join(' และ ');
-    const answer = exportIntent.confirm
-      ? `ต้องการสร้าง PDF ใช่หรือไม่? ถ้าใช่พิมพ์ "ใช่" หรือกดปุ่มด้านล่าง (จะสร้างของ${scope} ตามสิทธิ์บัญชีนี้)`
+    const needsConfirm = exportIntent.confirm || Boolean(topic);
+    const answer = needsConfirm
+      ? `ต้องการสร้างรายงานของรายการหรือภาพรวมล่าสุดใช่หรือไม่? เลือก 1. ใช่ หรือ 2. ไม่ (จะสร้างของ${scope} ตามสิทธิ์บัญชีนี้)`
       : `พร้อมสร้างรายงาน${files} ของ${scope} ตามสิทธิ์บัญชีนี้ กดดาวน์โหลดด้านล่าง (ตรวจรายชื่อก่อนนำไปใช้)`;
     return {
       answer,
@@ -297,8 +298,8 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
       presentation: {
         type: 'report_offer',
         formats: exportIntent.formats,
-        auto: exportIntent.confirm ? null : exportIntent.auto,
-        confirm: !!exportIntent.confirm,
+        auto: needsConfirm ? null : exportIntent.auto,
+        confirm: needsConfirm,
         reportRequest,
       },
       conversation: { topic: topic || (reportRequest.filters.person_type ? { person_type: reportRequest.filters.person_type } : null) },

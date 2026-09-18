@@ -44,7 +44,8 @@ test('export chat is deterministic and uses conversation topic', async () => {
   assert.equal(out.fastPath, true);
   assert.equal(out.presentation.type, 'report_offer');
   assert.deepEqual(out.presentation.formats, ['xlsx']);
-  assert.equal(out.presentation.auto, 'xlsx');
+  assert.equal(out.presentation.auto, null);
+  assert.equal(out.presentation.confirm, true);
   assert.equal(out.presentation.reportRequest.filters.person_type, 'drug_user');
   db.close();
 });

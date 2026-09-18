@@ -1001,10 +1001,10 @@
   }
 
   function isPdfAffirmative(message) {
-    return /^(?:ได้|ได้ครับ|ได้ค่ะ|ใช่|ใช่ครับ|ใช่ค่ะ|เอา|เอาเลย|สร้างเลย|ทำเลย|ต้องการ|ใช่สร้าง|สร้าง pdf|สร้างpdf)$/iu.test(String(message || '').trim());
+    return /^(?:1|ได้|ได้ครับ|ได้ค่ะ|ใช่|ใช่ครับ|ใช่ค่ะ|เอา|เอาเลย|สร้างเลย|ทำเลย|ต้องการ|ใช่สร้าง|สร้าง pdf|สร้างpdf)$/iu.test(String(message || '').trim());
   }
   function isPdfNegative(message) {
-    return /^(?:ไม่|ไม่เอา|ไม่ต้อง|ไม่ต้องการ|ยังไม่)$/u.test(String(message || '').trim());
+    return /^(?:2|ไม่|ไม่เอา|ไม่ต้อง|ไม่ต้องการ|ยังไม่)$/u.test(String(message || '').trim());
   }
   function renderReportOffer(wrap, presentation) {
     state.pendingSummaryReport = presentation.reportRequest || null;
@@ -1012,12 +1012,12 @@
     box.className = 'person-candidates';
     const title = document.createElement('div');
     title.className = 'pc-title';
-    title.textContent = presentation.confirm ? 'ต้องการสร้าง PDF ใช่หรือไม่?' : 'ดาวน์โหลดรายงานตามสิทธิ์บัญชีนี้';
+    title.textContent = presentation.confirm ? 'ต้องการสร้างรายงานของรายการหรือภาพรวมล่าสุดหรือไม่?' : 'ดาวน์โหลดรายงานตามสิทธิ์บัญชีนี้';
     box.appendChild(title);
     const formats = presentation.formats || ['pdf', 'xlsx'];
     if (formats.includes('pdf')) {
       const pdfBtn = document.createElement('button');
-      pdfBtn.type = 'button'; pdfBtn.className = 'suggest-btn'; pdfBtn.textContent = 'ดาวน์โหลด PDF';
+      pdfBtn.type = 'button'; pdfBtn.className = 'suggest-btn'; pdfBtn.textContent = presentation.confirm ? '1. ใช่ — สร้าง PDF' : 'ดาวน์โหลด PDF';
       pdfBtn.addEventListener('click', () => downloadReport('pdf', presentation.reportRequest));
       box.appendChild(pdfBtn);
     }
@@ -1026,6 +1026,10 @@
       xlsBtn.type = 'button'; xlsBtn.className = 'suggest-btn'; xlsBtn.textContent = 'ดาวน์โหลด Excel';
       xlsBtn.addEventListener('click', () => downloadReport('xlsx', presentation.reportRequest));
       box.appendChild(xlsBtn);
+    }
+    if (presentation.confirm) {
+      const noBtn=document.createElement('button');noBtn.type='button';noBtn.className='suggest-btn';noBtn.textContent='2. ไม่ — ระบุรายงานใหม่';
+      noBtn.addEventListener('click',()=>{state.pendingSummaryReport=null;appendMessage('assistant','ต้องการสร้างรายงาน PDF หรือ Excel ของข้อมูลใดครับ? เช่น “รายงานผู้เสพในตำบลโพนสูง”');});box.appendChild(noBtn);
     }
     hostForPresentation(wrap).appendChild(box);
     if (presentation.auto === 'pdf') downloadReport('pdf', presentation.reportRequest);
@@ -1198,7 +1202,7 @@
       appendMessage('user', message);
       $('#chat-input').value = '';
       state.pendingSummaryReport = null;
-      appendMessage('assistant', 'รับทราบ จะไม่สร้างรายงาน PDF');
+      appendMessage('assistant', 'ต้องการสร้างรายงาน PDF หรือ Excel ของข้อมูลใดครับ? เช่น “รายงานผู้เสพในตำบลโพนสูง”');
       return;
     }
     state.pendingSummaryReport = null;

@@ -189,10 +189,11 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    const bits=[];
    if(reportRequest.filters.person_type)bits.push({psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[reportRequest.filters.person_type]);
    const files=exportIntent.formats.map(item=>item==='xlsx'?'Excel':'PDF').join(' และ ');
-   const answer=exportIntent.confirm
-    ?'ต้องการสร้าง PDF ใช่หรือไม่? ถ้าใช่พิมพ์ "ใช่" หรือกดปุ่มด้านล่าง'
+   const needsConfirm=exportIntent.confirm||Boolean(incomingTopic);
+   const answer=needsConfirm
+    ?'ต้องการสร้างรายงานของรายการหรือภาพรวมล่าสุดใช่หรือไม่? เลือก 1. ใช่ หรือ 2. ไม่'
     :`พร้อมสร้างรายงาน${files} จากทะเบียนจริงตามสิทธิ์บัญชีนี้ กดดาวน์โหลดด้านล่าง (ไม่รวมเลขบัตรและเบอร์โทร)`;
-   return res.json({answer,grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:exportIntent.formats,auto:exportIntent.confirm?null:exportIntent.auto,confirm:!!exportIntent.confirm,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   return res.json({answer,grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:exportIntent.formats,auto:needsConfirm?null:exportIntent.auto,confirm:needsConfirm,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
   const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,incomingTopic);
   const overview=detectOverview(message);

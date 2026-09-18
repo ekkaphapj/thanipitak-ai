@@ -1,5 +1,97 @@
 # Coding agent handoff — current as of 2026-09-17 (session complete)
 
+## Continuation update — 2026-09-18 (RAG + Ubuntu pilot)
+
+This section supersedes older notes where it conflicts. Do **not** put SSH
+passwords, Supabase tokens, or real-person data into this file, commits, tests,
+or chat logs.
+
+### Current code and deployment
+
+- Working branch on Windows and Ubuntu: `experiment/typhoon25-intent-router`.
+  Latest pushed/deployed commit: `936a981 Test real-mode RAG product questions`.
+  Relevant preceding commits: `c11c1b1 Add local knowledge RAG fallback` and
+  `488d7f8 Route real-mode general questions through RAG`.
+- Ubuntu pilot URL: `http://192.168.1.195:3100/ai.html`.  App checkout:
+  `/home/ekkaphap/thanipitak-ai`.  The app runs host-side with `npm start` on
+  port 3100, while Ollama runs in Docker and maps to `127.0.0.1:11434`.
+- Live Node environment was verified as:
+  `STT_ENABLED=false`, `RAG_ENABLED=true`,
+  `OLLAMA_MODEL=typhoon2:8b-q5`,
+  `RAG_EMBEDDING_MODEL=qwen3-embedding:0.6b`, and
+  `OLLAMA_HOST=http://127.0.0.1:11434`.  Voice remains deliberately disabled
+  until storage is expanded.
+- To restart, first identify the exact `node --disable-warning=ExperimentalWarning
+  src/index.js` child PID with `pgrep -af`, terminate only that verified PID,
+  then use a `nohup env ... npm start >/tmp/thanipitak-ai.log 2>&1 &` command.
+  Do not kill broad process groups or Docker indiscriminately.
+
+### RAG implementation and safety boundary
+
+- `src/ai/rag.js` implements local knowledge-only RAG using
+  `qwen3-embedding:0.6b` via Ollama `/api/embed`; it asks the configured chat
+  model to answer only from retrieved snippets. Knowledge chunks cover product
+  purpose, people schema at a high level, recorded monitoring, station scope,
+  reports, and person types.
+- It contains no registry rows, SQL execution, credentials, ID cards, phones,
+  PINs, or write operations. Never relax this boundary: RAG is for help and
+  product knowledge, not an alternate route to real data.
+- `src/ai/gateway.js` uses RAG for non-DB test-mode questions. `src/routes/realDataRoutes.js`
+  now does the same **before** calling the real-registry intent interpreter.
+  This fixes the real-mode bug where “ธานีพิทักษ์คืออะไร” was misclassified as
+  an incomplete registry query and answered with a request for count/list/area.
+- Product-purpose and developer/creator questions have deterministic safe RAG
+  responses. “ใครเป็นคนเพิ่มมา” must not invent a person's name; it says no
+  verified developer identity is in the knowledge base and distinguishes that
+  from a request for a registry person. `tests/rag.test.js` covers both cases;
+  `tests/realData.test.js` covers the real-mode route.
+- RAG is currently a compact built-in knowledge catalog, not a full document
+  ingestion/vector-store pipeline. A next agent can extend it only with
+  sanitized architecture/manual documents and regression tests. Do not ingest
+  raw registry exports, Supabase data, credentials, or sensitive SQL dumps.
+
+### Model state and pending Qwen 3.5 experiment
+
+- Models in use by the live app: keep `typhoon2:8b-q5` (Thai chat) and
+  `qwen3-embedding:0.6b` (RAG embeddings). `qwen3:8b-q6` has the strongest
+  available holdout evidence: on the best guarded 60-case run, correct route
+  100%, grounded answer 98.33%, hallucinated numeric facts 0%, authorization
+  leaks 0%, p95 end-to-end 703 ms. There is no equivalent Typhoon-vs-Qwen
+  comparison benchmark, so do not overclaim an overall winner.
+- User wants to try `hf.co/AtomicChat/Qwen3.5-9B-GGUF:Q4_K_M`. A live attempt
+  with `sudo docker exec ollama ollama pull hf.co/AtomicChat/Qwen3.5-9B-GGUF:Q4_K_M`
+  failed **before download**: Ollama rejected the Hugging Face CDN redirect
+  (“blocked redirect to a different host”). Model name was not the error.
+- Docker Ollama version is `0.34.2`, image `ollama/ollama`, persistent named
+  volume source `/var/lib/docker/volumes/ollama/_data` mounted at
+  `/root/.ollama`. Disk was 98 GB total, 81 GB used, 13 GB free (87%). Do not
+  attempt manual GGUF import with only 13 GB free because it can require a
+  second temporary copy of the ~6.55 GB file.
+- Candidate models user may delete *after explicit confirmation*: `qwen3:8b-q6-nothink`,
+  `qwen3:8b-q6`, `typhoon21-gemma3:4b-q6-fixed`,
+  `typhoon21-gemma3:4b-q6`, and `qwen3:4b` (about 22.3 GB total). Do not delete
+  `typhoon2:8b-q5` or `qwen3-embedding:0.6b` while current app runs.
+- Next safe path, only with user approval: free the confirmed models, update or
+  otherwise fix the Ollama container's Hugging Face redirect support while
+  preserving its named volume, import/pull Qwen 3.5, verify `ollama list`, set
+  `OLLAMA_MODEL` for the Node app, restart it, then run fixed Thai/Isan and
+  authorization regression prompts. Roll back to `typhoon2:8b-q5` if startup,
+  latency, routing, or safety checks regress.
+
+### Validation status
+
+- After RAG changes, focused tests passed: `node --test tests/rag.test.js
+  tests/realData.test.js tests/aiReliability.test.js` (29 passing) and the
+  later route-focused rerun (14 passing). Full `npm test` has **not** been
+  rerun since the RAG/real-route changes; run it before claiming a full green
+  suite.
+- Live RAG verification succeeded using the installed embedding model and
+  `typhoon2:8b-q5` for a scope question, returning only safe knowledge sources.
+  The Qwen 3.5 pull did not succeed and no live Qwen 3.5 test has been run.
+- Preserve untracked local benchmark/research files and temporary scripts:
+  `docs/qwen3-8b-q6-*.json`, `tmp_make_benchdb.js`, and `tmp_s3bench_info.js`.
+  They belong to the user and are not part of the pushed changes.
+
 Read this before changing the app. Dated reports and older capability tables in `README.md` lag. This file is the working picture.
 
 ## Goal and delivery state

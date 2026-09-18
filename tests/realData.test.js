@@ -31,6 +31,34 @@ test('spoken patient ranking counts every server page and preserves psychiatric 
  await request(app).post('/ai/chat').send({message:'ผู้ป่วยจิตเวชมีทั้งหมดกี่คน'});
  assert.equal(calls[0].searchParams.get('type_name'),'ilike.*ผู้ป่วยจิตเวช*');
 });
+test('real registry ranking honors an explicit Top N and returns deterministic numbered rows',async()=>{
+ const app=express();app.use(express.json());
+ const people=[
+  {id:1,tambon:'หนึ่ง',amphoe:'เมือง',province:'นครพนม'},{id:2,tambon:'หนึ่ง',amphoe:'เมือง',province:'นครพนม'},
+  {id:3,tambon:'สอง',amphoe:'เมือง',province:'นครพนม'},{id:4,tambon:'สาม',amphoe:'เมือง',province:'นครพนม'},
+  {id:5,tambon:'สี่',amphoe:'เมือง',province:'นครพนม'},{id:6,tambon:'ห้า',amphoe:'เมือง',province:'นครพนม'},
+  {id:7,tambon:'หก',amphoe:'เมือง',province:'นครพนม'},
+ ];
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,stationName:'สภ.บ้านดุง'};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async url=>{
+  const types=new URL(url).pathname.endsWith('/people_type');
+  return {ok:true,status:200,headers:new Headers({'content-range':types?'0-0/1':'0-6/7'}),json:async()=>types?[{type_id:9}]:people};
+ }}));
+ const res=await request(app).post('/ai/chat').send({message:'ขอ 5 อันดับตำบลที่มีผู้ป่วยเยอะที่สุด'});
+ assert.equal(res.status,200);assert.match(res.body.answer,/5 อันดับตำบลมากที่สุด/);
+ for(const index of [1,2,3,4,5])assert.match(res.body.answer,new RegExp(`${index}\\. ตำบล`));
+ assert.equal((res.body.answer.match(/^\d+\. ตำบล/gm)||[]).length,5,'Top 5 must return exactly five areas');
+ assert.match(res.body.answer,/1\. ตำบลหนึ่ง.*2 คน/);
+});
+test('real registry failures have safe categories and never expose upstream details',async()=>{
+ const app=express();app.use(express.json());
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async()=>({ok:false,status:403,headers:new Headers(),json:async()=>({message:'private upstream detail'})})}));
+ const denied=await request(app).post('/ai/chat').send({message:'ผู้ป่วยมีกี่คน'});
+ assert.equal(denied.status,403);assert.equal(denied.body.code,'REAL_ACCESS_DENIED');assert.equal(denied.body.error,'บัญชีนี้ไม่มีสิทธิ์อ่านข้อมูลจริงในขอบเขตที่ร้องขอ');
+ const failedApp=express();failedApp.use(express.json());
+ failedApp.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async()=>{throw new Error('raw database record: Somchai');}}));
+ const failed=await request(failedApp).post('/ai/chat').send({message:'ผู้ป่วยมีกี่คน'});
+ assert.equal(failed.status,502);assert.equal(failed.body.code,'REAL_READ_FAILED');assert.ok(!JSON.stringify(failed.body).includes('Somchai'));
+});
 test('real registry reads bind authenticated station and token, without source writes',async()=>{
  const calls=[];const app=express();app.use(express.json());
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='real-user';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{calls.push({url,opts});return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{id:1,first_name:'ตัวอย่าง',last_name:'ทดสอบ',tambon:'ตัวอย่าง'}]};}}));

@@ -7,14 +7,32 @@ const {detectExportIntent,reportRequestFromExport}=require('../ai/exportIntent')
 const {writeSummaryPdf,writeSummaryExcel,safeReportRequest}=require('../services/reportService');
 const fs=require('fs');
 const {parseStationId,applyPeopleStationScope,personInOwnStation}=require('../services/stationScope');
+
+function realFailure(error) {
+ const code=error&&error.code;
+ if(code==='REAL_ACCESS_DENIED'||/สิทธิ์สถานี/.test(error?.message||''))return {status:403,code:'REAL_ACCESS_DENIED',error:'บัญชีนี้ไม่มีสิทธิ์อ่านข้อมูลจริงในขอบเขตที่ร้องขอ'};
+ if(code==='REAL_UNAVAILABLE'||error?.name==='TimeoutError'||error?.name==='AbortError')return {status:503,code:'REAL_UNAVAILABLE',error:'เชื่อมต่อข้อมูลจริงไม่ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง'};
+ if(code==='REAL_DATA_UNVERIFIABLE'||/ข้อมูลไม่ครบ|จำนวนข้อมูลที่ตรวจสอบได้|ข้อมูลเปลี่ยนระหว่างนับ/.test(error?.message||''))return {status:502,code:'REAL_DATA_UNVERIFIABLE',error:'ข้อมูลจริงตอบกลับไม่ครบหรือกำลังเปลี่ยนแปลง จึงยังสรุปผลไม่ได้'};
+ return {status:502,code:'REAL_READ_FAILED',error:'ไม่สามารถอ่านข้อมูลจริงได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง'};
+}
+
+function topNFromMessage(message) {
+ const matched=String(message||'').match(/(?:ขอ\s*)?(\d{1,2})\s*อันดับ/);
+ if(!matched)return null;
+ const value=Number(matched[1]);
+ return Number.isSafeInteger(value)&&value>=1&&value<=20 ? value : null;
+}
+
 function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent}={}) {
  const router=express.Router();router.use(authenticate);
  async function rows(req,table,params) {
-  const response=await request(`${url}/rest/v1/${table}?${params}`,{headers:{apikey:key,Authorization:`Bearer ${req.realToken}`,Prefer:'count=exact'},signal:AbortSignal.timeout(15000)});
-  if(!response.ok) throw new Error('ไม่สามารถอ่านข้อมูลจริงตามสิทธิ์ผู้ใช้ได้');
+  let response;
+  try { response=await request(`${url}/rest/v1/${table}?${params}`,{headers:{apikey:key,Authorization:`Bearer ${req.realToken}`,Prefer:'count=exact'},signal:AbortSignal.timeout(15000)}); }
+  catch(error) { error.code=error?.name==='TimeoutError'||error?.name==='AbortError'?'REAL_UNAVAILABLE':'REAL_READ_FAILED';throw error; }
+  if(!response.ok) { const error=new Error('real registry request failed');error.code=[401,403].includes(response.status)?'REAL_ACCESS_DENIED':response.status>=500||response.status===429?'REAL_UNAVAILABLE':'REAL_READ_FAILED';throw error; }
   const data=await response.json();
   const count=response.headers.get('content-range')?.split('/')[1];
-  if(!Array.isArray(data)|| !/^\d+$/.test(count||''))throw new Error('ฐานข้อมูลไม่ส่งจำนวนข้อมูลที่ตรวจสอบได้');
+  if(!Array.isArray(data)|| !/^\d+$/.test(count||'')){const error=new Error('unverifiable registry response');error.code='REAL_DATA_UNVERIFIABLE';throw error;}
   return {data,total:Number(count)};
  }
  async function search(req,filters={},page=1,aggregate=false,pageSize=20) {
@@ -146,6 +164,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    return res.json({answer,grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:exportIntent.formats,auto:exportIntent.confirm?null:exportIntent.auto,confirm:!!exportIntent.confirm,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
   const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,incomingTopic);
+  const topN=topNFromMessage(message);
   const conversation={topic:topicFromIntent(intent)||incomingTopic};
   if(personId && !isCollectionQuestion(message,intent,ranking,summary,personId)) {
    try {
@@ -154,7 +173,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     const dossier=await registry.readDossier(req,personId,found);
     const recorded=registry.formatDossier(dossier,message);
     return res.json({answer:recorded||formatSelectedPerson(found.person,found.typeName,found.stationName,message),grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_person_read'}],meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
-   } catch(e) { return res.status(502).json({error:e.message}); }
+   } catch(e) { const failure=realFailure(e);return res.status(failure.status).json(failure); }
   }
   const monitor=monitoringQuestion(message);
   if(monitor) {
@@ -163,7 +182,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     const result=await registry.listRecordedMonitoring(req,{level:monitor.level,personType:monitor.person_types[0]||null,page:monitor.page||1});
     const items=result.items.map(item=>({person_id:item.person_id,full_name:item.full_name,subdistrict:item.subdistrict,district:item.district,person_type:monitor.person_types[0]||null}));
     return res.json({answer:registry.formatMonitoringList(result,monitor.level),grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:result.page,pageSize:result.pageSize,filters:{person_type:monitor.person_types[0]||null},items},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
-   } catch(e) { return res.status(502).json({error:e.message}); }
+   } catch(e) { const failure=realFailure(e);return res.status(failure.status).json(failure); }
   }
   if(intent?.intent==='lookup_clarify')return res.json({answer:intent.answer,grounded:false,dataSource:'real',presentation:intent.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   if(intent?.intent==='group_persons' && {subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด'}[intent.groupBy]){
@@ -194,11 +213,15 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
      const key=JSON.stringify(column==='tambon'?[province,district,name]:column==='amphoe'?[province,name]:[name]);
      const group=groups.get(key)||{name,province,district,count:0};group.count++;groups.set(key,group);
     }
-    const sorted=[...groups.values()].sort((a,b)=>/น้อย/.test(ranking[2])?a.count-b.count:b.count-a.count);
-    const winners=showAll?sorted:sorted.filter(g=>g.count===sorted[0]?.count);
+    const sorted=[...groups.values()].sort((a,b)=>{
+     const difference=/น้อย/.test(ranking[2])?a.count-b.count:b.count-a.count;
+     return difference||a.name.localeCompare(b.name,'th');
+    });
+    const winners=topN!==null?sorted.slice(0,topN):showAll?sorted:sorted.filter(g=>g.count===sorted[0]?.count);
     const category={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[filters.person_type]||'บุคคล';
     const scope=req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง';
-    const answer=`ข้อมูลจริง • ${scope}\nนับ${category}จากทะเบียนทั้งหมด ${result.total} คน\n`+(showAll?`เรียง${/น้อย/.test(ranking[2])?'น้อยไปมาก':'มากไปน้อย'}\n`:'')+(winners.length?winners.map(g=>`${ranking[1]}${g.name} ${column==='tambon'?g.district:''} ${column!=='province'?g.province:''} มี${category}${showAll?'':ranking[2]} ${g.count} คน`).join('\n'):'ไม่พบข้อมูลพื้นที่ที่จัดอันดับได้')+(!showAll&&winners.length>1?'\nมีหลายพื้นที่จำนวนเท่ากัน':'')+(missing?`\nอีก ${missing} คนไม่ระบุ${ranking[1]} จึงไม่รวมในอันดับ`:'')+(/น้อย/.test(ranking[2])?'\nอันดับนี้รวมเฉพาะพื้นที่ที่มีบุคคลในทะเบียน':'');
+    const heading=topN!==null?`${topN} อันดับ${ranking[1]}${/น้อย/.test(ranking[2])?'น้อยที่สุด':'มากที่สุด'}`:'';
+    const answer=`ข้อมูลจริง • ${scope}\nนับ${category}จากทะเบียนทั้งหมด ${result.total} คน\n`+(showAll||topN!==null?`${heading||`เรียง${/น้อย/.test(ranking[2])?'น้อยไปมาก':'มากไปน้อย'}`}\n`:'')+(winners.length?winners.map((g,index)=>`${topN!==null?`${index+1}. `:''}${ranking[1]}${g.name} ${column==='tambon'?g.district:''} ${column!=='province'?g.province:''} มี${category}${showAll||topN!==null?'':ranking[2]} ${g.count} คน`).join('\n'):'ไม่พบข้อมูลพื้นที่ที่จัดอันดับได้')+(!showAll&&topN===null&&winners.length>1?'\nมีหลายพื้นที่จำนวนเท่ากัน':'')+(missing?`\nอีก ${missing} คนไม่ระบุ${ranking[1]} จึงไม่รวมในอันดับ`:'')+(/น้อย/.test(ranking[2])?'\nอันดับนี้รวมเฉพาะพื้นที่ที่มีบุคคลในทะเบียน':'');
     return res.json({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_area_count'}],conversation,meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
    }
    const page=intent?.page||1;const result=await search(req,filters,page);
@@ -210,7 +233,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     :`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา`;
    const presentation=countOnly?undefined:{type:'person_list',total:result.total,returned:items.length,page,pageSize:20,filters:{person_type:filters.person_type||null,province:filters.province||null,district:filters.district||null,subdistrict:filters.subdistrict||null},items};
    res.json({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation,conversation,meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
-  }catch(e){res.status(502).json({error:e.message});}
+  }catch(e){const failure=realFailure(e);res.status(failure.status).json(failure);}
  });
  async function collectPeople(req,filters,cap=200){
   const first=await search(req,filters,1);
@@ -262,7 +285,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     station_id:person.station_id,
    }));
    return res.json({data,meta:{total:result.total,page,limit}});
-  }catch(e){return res.status(502).json({error:e.message});}
+  }catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
  });
  router.post('/reports/summary.pdf',async(req,res)=>{
   try{

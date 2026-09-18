@@ -64,9 +64,15 @@ or chat logs.
   (“blocked redirect to a different host”). Model name was not the error.
 - Docker Ollama version is `0.34.2`, image `ollama/ollama`, persistent named
   volume source `/var/lib/docker/volumes/ollama/_data` mounted at
-  `/root/.ollama`. Disk was 98 GB total, 81 GB used, 13 GB free (87%). Do not
-  attempt manual GGUF import with only 13 GB free because it can require a
-  second temporary copy of the ~6.55 GB file.
+  `/root/.ollama`. Before the Qwen 3.5 pull attempt, disk was 98 GB total,
+  81 GB used, 13 GB free (87%). Immediately after its failed redirect attempt,
+  the root filesystem reported 95 GB used, 0 GB available (100%); inodes remain
+  plentiful. Treat the failed/partial pull as a likely space consumer and
+  inspect Docker/Ollama disk usage before any `git pull`, model import, or
+  container update. The Ubuntu checkout could not pull documentation commit
+  `73dbc41` because the filesystem was full. Do not attempt manual GGUF import
+  with only 13 GB free because it can require a second temporary copy of the
+  ~6.55 GB file.
 - Candidate models user may delete *after explicit confirmation*: `qwen3:8b-q6-nothink`,
   `qwen3:8b-q6`, `typhoon21-gemma3:4b-q6-fixed`,
   `typhoon21-gemma3:4b-q6`, and `qwen3:4b` (about 22.3 GB total). Do not delete

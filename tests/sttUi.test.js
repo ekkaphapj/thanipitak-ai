@@ -21,3 +21,12 @@ test('micErrorMessage distinguishes size, duration, busy, and unavailable', () =
   assert.match(VoiceInput.micErrorMessage('STT_LOW_CONFIDENCE'), /พูดใหม่อีกครั้ง/);
   assert.equal(VoiceInput.micErrorMessage(null, 401), 'กรุณาเข้าสู่ระบบใหม่');
 });
+
+test('list UI supports numbered ordinal follow-ups and safe empty-list feedback', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const aiJs = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'ai.js'), 'utf8');
+  assert.match(aiJs, /ขอข้อมูลเพิ่มเติมของลำดับที่/);
+  assert.match(aiJs, /ไม่มีรายการให้เลือก/);
+  assert.match(aiJs, /renderLocationSummary/);
+});

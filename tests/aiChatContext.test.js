@@ -115,6 +115,13 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
     assert.ok(!JSON.stringify(body).includes('station_id'));
     assert.ok(!JSON.stringify(body).includes('admin'));
   });
+
+  test('ordinal references accept Thai list wording without becoming request context', () => {
+    assert.strictEqual(ChatContext.ordinalFromMessage('ขอข้อมูลเพิ่มเติมของลำดับที่ 3'), 3);
+    assert.strictEqual(ChatContext.ordinalFromMessage('เอาอันดับ 12'), 12);
+    assert.strictEqual(ChatContext.ordinalFromMessage('ขอ 5 อันดับตำบล'), null);
+    assert.strictEqual(ChatContext.ordinalFromMessage('ข้อมูลเพิ่มเติม'), null);
+  });
 });
 
 describe('STEP 2.5 frontend wiring (static)', () => {
@@ -138,7 +145,7 @@ describe('STEP 2.5 frontend wiring (static)', () => {
     assert.ok(AI_JS.includes("makeSelectButton({ personId: item.person_id, displayName: item.full_name })"));
     assert.ok(AI_JS.includes('/api/people?'));
     assert.ok(AI_JS.includes('รายชื่อหน้าเดิมยังอยู่'));
-    assert.ok(AI_JS.includes('กดปุ่มเลือก เพื่อถามข้อมูลคนนั้นต่อ'));
+    assert.ok(AI_JS.includes('ขอข้อมูลเพิ่มเติมของลำดับที่'));
     assert.ok(AI_JS.includes("btn.textContent = on ? 'เลือกแล้ว' : 'เลือก'"));
     assert.ok(AI_JS.includes('คำถามถัดไปจะดึงข้อมูลคนนี้'));
     assert.ok(AI_JS.includes('pl-selected'));

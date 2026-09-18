@@ -17,6 +17,7 @@
     selectedPerson: null,
     conversationTopic: null,
     pendingSummaryReport: null,
+    ordinalItems: null,
   };
 
   const SUGGESTIONS = [
@@ -425,6 +426,7 @@
     clearSelectedPerson();
     state.conversationTopic = null;
     state.pendingSummaryReport = null;
+    state.ordinalItems = null;
     removeTypingIndicator();
     $('#chat-input').value = '';
     autoResizeInput();
@@ -505,6 +507,37 @@
     return wrap.querySelector('.bubble') || wrap;
   }
 
+  function rememberOrdinalItems(items) {
+    state.ordinalItems = Array.isArray(items) && items.length ? items : null;
+  }
+
+  function ordinalPromptForLocation(item) {
+    return item && item.followup ? item.followup : null;
+  }
+
+  function resolveOrdinalReference(message) {
+    const ordinal = window.ChatContext.ordinalFromMessage(message);
+    if (ordinal === null) return { message };
+    const items = state.ordinalItems;
+    if (!items || !items.length) {
+      appendMessage('assistant', 'ไม่มีรายการให้เลือก กรุณาขอรายชื่อหรือรายการก่อน');
+      return { handled: true };
+    }
+    const chosen = items.find((item) => item.ordinal === ordinal);
+    if (!chosen) {
+      appendMessage('assistant', `ไม่มีรายการลำดับที่ ${ordinal} ให้เลือก (รายการล่าสุดมี ${items.length} รายการ)`);
+      return { handled: true };
+    }
+    if (chosen.personId) {
+      applyPersonSelection({ personId: chosen.personId, displayName: chosen.displayName }, false);
+      return { message: String(message).replace(/(?:ของ\s*)?(?:ลำดับ|อันดับ)\s*(?:ที่)?\s*\d{1,3}/, 'คนนี้') };
+    }
+    const followup = ordinalPromptForLocation(chosen);
+    if (followup) return { message: followup };
+    appendMessage('assistant', `ไม่มีข้อมูลเพิ่มเติมที่เปิดดูได้สำหรับรายการลำดับที่ ${ordinal}`);
+    return { handled: true };
+  }
+
   function renderPersonList(wrap, presentation) {
     const ctx = {
       page: presentation.page || 1,
@@ -518,7 +551,7 @@
 
     const title = document.createElement('div');
     title.className = 'pc-title';
-    title.textContent = 'กดปุ่มเลือก เพื่อถามข้อมูลคนนั้นต่อ';
+    title.textContent = 'กดเลือก หรือพิมพ์ “ขอข้อมูลเพิ่มเติมของลำดับที่ …”';
     box.appendChild(title);
 
     const rangeText = document.createElement('div');
@@ -544,15 +577,19 @@
       list.innerHTML = '';
       const rows = items || [];
       if (!rows.length) {
+        rememberOrdinalItems(null);
         const empty = document.createElement('div');
         empty.className = 'pc-empty';
         empty.textContent = 'ไม่มีข้อมูล';
         list.appendChild(empty);
         return;
       }
-      rows.forEach((raw) => {
+      const ordinalItems = [];
+      rows.forEach((raw, index) => {
         const item = normalizeItem(raw);
         if (!item.person_id) return;
+        const ordinal = (ctx.page - 1) * ctx.pageSize + index + 1;
+        ordinalItems.push({ ordinal, personId: item.person_id, displayName: item.full_name || 'ไม่ระบุชื่อ' });
         const row = document.createElement('div');
         row.className = 'pc-row';
         row.setAttribute('data-person-id', String(item.person_id));
@@ -561,7 +598,7 @@
         info.className = 'pc-info';
         const name = document.createElement('span');
         name.className = 'pc-name';
-        name.textContent = item.full_name || 'ไม่ระบุชื่อ';
+        name.textContent = `${ordinal}. ${item.full_name || 'ไม่ระบุชื่อ'}`;
         const tag = document.createElement('span');
         tag.className = 'pc-tag';
         tag.textContent = [TYPE_AI_LABEL[item.person_type] || item.person_type, item.subdistrict || item.district].filter(Boolean).join(' • ');
@@ -569,6 +606,7 @@
         row.append(info, makeSelectButton({ personId: item.person_id, displayName: item.full_name }));
         list.appendChild(row);
       });
+      rememberOrdinalItems(ordinalItems);
     }
 
     function updateRange() {
@@ -658,7 +696,9 @@
     const list = document.createElement('div');
     list.className = 'pc-list';
     const candidates = (presentation && presentation.candidates) || [];
-    for (const c of candidates) {
+    const ordinalItems = [];
+    for (const [index, c] of candidates.entries()) {
+      ordinalItems.push({ ordinal: index + 1, personId: c.personId, displayName: c.displayName || 'ไม่ระบุชื่อ' });
       const row = document.createElement('div');
       row.className = 'pc-row';
       row.setAttribute('data-person-id', String(c.personId));
@@ -666,7 +706,7 @@
       info.className = 'pc-info';
       const nameSpan = document.createElement('span');
       nameSpan.className = 'pc-name';
-      nameSpan.textContent = c.displayName || '';
+      nameSpan.textContent = `${index + 1}. ${c.displayName || ''}`;
       const tagSpan = document.createElement('span');
       tagSpan.className = 'pc-tag';
       const pType = TYPE_AI_LABEL[c.personType] || c.personType || '';
@@ -678,6 +718,7 @@
       row.appendChild(makeSelectButton({ personId: c.personId, displayName: c.displayName }));
       list.appendChild(row);
     }
+    rememberOrdinalItems(ordinalItems);
     if (candidates.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'pc-empty';
@@ -692,13 +733,16 @@
   function renderMonitoring(wrap, presentation) {
     const box=document.createElement('div');box.className='person-candidates';
     const items=presentation.items||[];
-    for(const person of items) {
+    const ordinalItems=[];
+    for(const [index, person] of items.entries()) {
+      ordinalItems.push({ordinal:index+1,personId:person.personId,displayName:person.displayName||'ไม่ระบุชื่อ'});
       const row=document.createElement('div');row.className='pc-row';
       row.setAttribute('data-person-id', String(person.personId));
-      const label=document.createElement('span');label.textContent=`${person.displayName} • ${person.level}`;
+      const label=document.createElement('span');label.textContent=`${index+1}. ${person.displayName} • ${person.level}`;
       row.append(label, makeSelectButton({personId:person.personId,displayName:person.displayName}));
       box.appendChild(row);
     }
+    rememberOrdinalItems(ordinalItems);
     // A one-person result is unambiguous. Keep it as the chat context so a
     // natural follow-up such as “เพราะอะไร” answers that person directly.
     if (items.length === 1) {
@@ -721,15 +765,41 @@
     const groupBy = (presentation.filters || {}).group_by;
     const label = { province: 'จังหวัด', station: 'สภ.', district: 'อำเภอ', subdistrict: 'ตำบล' }[groupBy] || 'พื้นที่';
     const box = document.createElement('div'); box.className = 'person-candidates';
-    for (const item of (presentation.locationSummary || [])) {
+    const ordinalItems=[];
+    for (const [index, item] of (presentation.locationSummary || []).entries()) {
       const row = document.createElement('div'); row.className = 'pc-row';
       const locationName = String(item.name || '').startsWith(label) ? item.name : label + item.name;
-      const info = document.createElement('span'); info.textContent = `${locationName} • ${item.count} คน`;
+      const info = document.createElement('span'); info.textContent = `${index + 1}. ${locationName} • ${item.count} คน`;
+      const type=TYPE_AI_LABEL[(presentation.filters || {}).person_types?.[0]] || 'บุคคล';
+      const level=(presentation.filters || {}).level === 'high' ? 'เสี่ยงสูง' : (presentation.filters || {}).level === 'watch' ? 'เฝ้าระวัง' : '';
+      ordinalItems.push({ordinal:index+1,followup:`ขอรายชื่อ${type}ใน${locationName}${level?`ที่${level}`:''}`});
       const button = document.createElement('button'); button.type = 'button'; button.className = 'pc-btn'; button.textContent = 'ดูรายชื่อ';
       button.addEventListener('click', () => sendMessage(`${TYPE_AI_LABEL[(presentation.filters || {}).person_types?.[0]] || 'บุคคล'} ใน${locationName} ที่${(presentation.filters || {}).level === 'high' ? 'เสี่ยงสูง' : 'ต้องเฝ้าระวัง'}มีใครบ้าง`));
       row.append(info, button); box.appendChild(row);
     }
+    rememberOrdinalItems(ordinalItems);
     wrap.appendChild(box);
+  }
+
+  function renderLocationSummary(wrap, presentation) {
+    const groupBy=presentation.groupBy || 'subdistrict';
+    const label={province:'จังหวัด',station:'สภ.',district:'อำเภอ',subdistrict:'ตำบล'}[groupBy] || 'พื้นที่';
+    const filters=presentation.filters || {};
+    const type=TYPE_AI_LABEL[filters.person_type] || 'บุคคล';
+    const box=document.createElement('div');box.className='person-candidates';
+    const ordinalItems=[];
+    for(const [index,item] of (presentation.items || []).entries()) {
+      const locationName=String(item.name||'').startsWith(label)?item.name:label+item.name;
+      const row=document.createElement('div');row.className='pc-row';
+      const info=document.createElement('span');info.textContent=`${index+1}. ${locationName} • ${item.count||0} คน`;
+      const button=document.createElement('button');button.type='button';button.className='pc-btn';button.textContent='ดูรายชื่อ';
+      const followup=`ขอรายชื่อ${type}ใน${locationName}`;
+      button.addEventListener('click',()=>sendMessage(followup));
+      ordinalItems.push({ordinal:index+1,followup});
+      row.append(info,button);box.appendChild(row);
+    }
+    rememberOrdinalItems(ordinalItems);
+    hostForPresentation(wrap).appendChild(box);
   }
 
   function renderSummaryChoices(wrap, presentation) {
@@ -768,6 +838,7 @@
 
   function renderSummaryResult(wrap, presentation) {
     state.pendingSummaryReport = presentation.reportRequest || null;
+    rememberOrdinalItems(null);
     const box = document.createElement('div');
     box.className = 'person-candidates';
     const create = document.createElement('button');
@@ -786,17 +857,20 @@
       title.className = 'pc-title';
       title.textContent = 'รายชื่อ — กดเลือกเพื่อถามข้อมูลคนนั้นต่อ';
       box.appendChild(title);
-      for (const item of items) {
+      const ordinalItems=[];
+      for (const [index, item] of items.entries()) {
         const personId = item.person_id || item.personId;
         if (!personId) continue;
         const row = document.createElement('div');
         row.className = 'pc-row';
         row.setAttribute('data-person-id', String(personId));
         const info = document.createElement('span');
-        info.textContent = item.full_name + (item.level ? ' • ' + item.level : '');
+        info.textContent = `${index + 1}. ${item.full_name}` + (item.level ? ' • ' + item.level : '');
         row.append(info, makeSelectButton({ personId, displayName: item.full_name }));
         box.appendChild(row);
+        ordinalItems.push({ordinal:index+1,personId,displayName:item.full_name||'ไม่ระบุชื่อ'});
       }
+      rememberOrdinalItems(ordinalItems);
     }
     wrap.appendChild(box);
   }
@@ -968,8 +1042,12 @@
 
   function sendMessage(overrideText) {
     if (state.mic === 'recording' || state.mic === 'uploading') return;
-    const message = (overrideText !== undefined ? overrideText : $('#chat-input').value || '').trim();
+    let message = (overrideText !== undefined ? overrideText : $('#chat-input').value || '').trim();
     if (!message || state.sending) return;
+
+    const ordinalResolution = resolveOrdinalReference(message);
+    if (ordinalResolution.handled) return;
+    message = ordinalResolution.message.trim();
 
     if (isStartOverCommand(message)) {
       resetConversation();
@@ -1044,6 +1122,7 @@
           wrap.insertBefore(tools, wrap.querySelector('.msg-time'));
         }
 
+        if (!json.presentation || !['person_list','person_candidates','monitoring_list','monitoring_location_summary','location_summary','summary_result'].includes(json.presentation.type)) rememberOrdinalItems(null);
         if (json.presentation && json.presentation.type === 'person_list') {
           renderPersonList(wrap, json.presentation);
         }
@@ -1055,6 +1134,7 @@
         }
         if (json.presentation && json.presentation.type === 'monitoring_list') renderMonitoring(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'monitoring_location_summary') renderMonitoringLocationSummary(wrap,json.presentation);
+        if (json.presentation && json.presentation.type === 'location_summary') renderLocationSummary(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_result') renderSummaryResult(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'report_offer') renderReportOffer(wrap, json.presentation);

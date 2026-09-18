@@ -44,7 +44,7 @@ test('real registry ranking honors an explicit Top N and returns deterministic n
   return {ok:true,status:200,headers:new Headers({'content-range':types?'0-0/1':'0-6/7'}),json:async()=>types?[{type_id:9}]:people};
  }}));
  const res=await request(app).post('/ai/chat').send({message:'ขอ 5 อันดับตำบลที่มีผู้ป่วยเยอะที่สุด'});
- assert.equal(res.status,200);assert.equal(res.body.meta.fastPath,true);assert.equal(res.body.meta.ollamaCalls,0);assert.match(res.body.answer,/5 อันดับตำบลมากที่สุด/);
+ assert.equal(res.status,200);assert.equal(res.body.meta.fastPath,true);assert.equal(res.body.meta.ollamaCalls,0);assert.equal(res.body.presentation.type,'location_summary');assert.equal(res.body.presentation.items.length,5);assert.match(res.body.answer,/5 อันดับตำบลมากที่สุด/);
  for(const index of [1,2,3,4,5])assert.match(res.body.answer,new RegExp(`${index}\\. ตำบล`));
  assert.equal((res.body.answer.match(/^\d+\. ตำบล/gm)||[]).length,5,'Top 5 must return exactly five areas');
  assert.match(res.body.answer,/1\. ตำบลหนึ่ง.*2 คน/);

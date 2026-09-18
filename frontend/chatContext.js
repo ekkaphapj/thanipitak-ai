@@ -104,6 +104,15 @@
     return null;
   }
 
+  // Ordinal references are resolved only against the most recently rendered
+  // list in the browser. They never become an authorization field.
+  function ordinalFromMessage(message) {
+    const match = String(message == null ? '' : message).match(/(?:ของ\s*)?(?:ลำดับ|อันดับ)\s*(?:ที่)?\s*(\d{1,3})/);
+    if (!match) return null;
+    const ordinal = Number(match[1]);
+    return Number.isSafeInteger(ordinal) && ordinal > 0 ? ordinal : null;
+  }
+
   return {
     validPersonId,
     normalizeSelectedPerson,
@@ -111,6 +120,7 @@
     buildChatBody,
     indicatorText,
     clearSelection,
+    ordinalFromMessage,
     FORBIDDEN_FIELDS,
   };
 });

@@ -524,6 +524,7 @@
   }
 
   function hostForPresentation(wrap) {
+    if (wrap.classList.contains('msg-overview')) return wrap;
     return wrap.querySelector('.bubble') || wrap;
   }
 
@@ -867,28 +868,62 @@
   }
 
   function renderOverview(wrap, presentation) {
-    const box = document.createElement('div');
-    box.className = 'person-candidates overview-card';
-    const title = document.createElement('div'); title.className = 'pc-title';
-    title.textContent = `ภาพรวม • ${presentation.scopeLabel || 'พื้นที่ที่มีสิทธิ์เข้าถึง'}`;
-    box.appendChild(title);
-    const totals = document.createElement('div'); totals.className = 'overview-totals';
-    totals.textContent = `บุคคลเป้าหมาย ${presentation.total || 0} คน • เสี่ยงสูง ${presentation.highRisk || 0} คน • เฝ้าระวัง ${presentation.watch || 0} คน`;
-    box.appendChild(totals);
-    const types = document.createElement('div'); types.className = 'overview-types';
-    types.textContent = (presentation.byType || []).map(item => `${item.label} ${item.count} คน`).join(' • ');
-    box.appendChild(types);
-    const label = presentation.groupBy === 'station' ? 'สภ.' : 'ตำบล';
-    for (const [heading, items] of [[`5 อันดับ${label}มากที่สุด`, presentation.top], [`5 อันดับ${label}น้อยที่สุด`, presentation.bottom]]) {
-      const section = document.createElement('div'); section.className = 'overview-ranking';
-      const h = document.createElement('div'); h.className = 'pc-title'; h.textContent = heading; section.appendChild(h);
-      if (!items || !items.length) {
-        const empty = document.createElement('div'); empty.className = 'pc-empty'; empty.textContent = `ไม่มี${label}ที่มีรายการให้จัดอันดับ`; section.appendChild(empty);
-      } else {
-        items.forEach((item, index) => { const row = document.createElement('div'); row.className = 'pc-row'; row.textContent = `${index + 1}. ${label}${item.name} • ${item.count} คน`; section.appendChild(row); });
-      }
-      box.appendChild(section);
+    const box = document.createElement('section');
+    box.className = 'overview-card';
+    const hero = document.createElement('header'); hero.className = 'overview-hero';
+    const eyebrow = document.createElement('span'); eyebrow.className = 'overview-eyebrow'; eyebrow.textContent = 'สรุปข้อมูลภาพรวม';
+    const title = document.createElement('h2'); title.textContent = presentation.scopeLabel || 'พื้นที่ที่มีสิทธิ์เข้าถึง';
+    const note = document.createElement('p'); note.textContent = 'ข้อมูลตามขอบเขตสิทธิ์ของบัญชี • อ้างอิงข้อมูลปัจจุบัน';
+    hero.append(eyebrow, title, note); box.appendChild(hero);
+
+    const metrics = document.createElement('div'); metrics.className = 'overview-metrics';
+    const metricRows = [
+      ['บุคคลเป้าหมาย', presentation.total || 0, 'คน', 'total'],
+      ['เสี่ยงสูง', presentation.highRisk || 0, 'คน', 'high'],
+      ['เฝ้าระวัง', presentation.watch || 0, 'คน', 'watch'],
+    ];
+    for (const [label, value, unit, tone] of metricRows) {
+      const metric = document.createElement('div'); metric.className = `overview-metric ${tone}`;
+      const labelEl = document.createElement('span'); labelEl.textContent = label;
+      const valueEl = document.createElement('strong'); valueEl.textContent = value;
+      const unitEl = document.createElement('small'); unitEl.textContent = unit;
+      metric.append(labelEl, valueEl, unitEl); metrics.appendChild(metric);
     }
+    box.appendChild(metrics);
+
+    const types = document.createElement('section'); types.className = 'overview-types';
+    const typesTitle = document.createElement('h3'); typesTitle.textContent = 'จำแนกตามประเภทบุคคล'; types.appendChild(typesTitle);
+    const typeGrid = document.createElement('div'); typeGrid.className = 'overview-type-grid';
+    for (const item of (presentation.byType || [])) {
+      const cell = document.createElement('div'); cell.className = 'overview-type-cell';
+      const label = document.createElement('span'); label.textContent = item.label;
+      const count = document.createElement('strong'); count.textContent = `${item.count} คน`;
+      cell.append(label, count); typeGrid.appendChild(cell);
+    }
+    types.appendChild(typeGrid); box.appendChild(types);
+
+    const label = presentation.groupBy === 'station' ? 'สภ.' : 'ตำบล';
+    const rankings = document.createElement('div'); rankings.className = 'overview-rankings';
+    for (const [heading, items, tone] of [[`5 อันดับ${label}มากที่สุด`, presentation.top, 'top'], [`5 อันดับ${label}น้อยที่สุด`, presentation.bottom, 'bottom']]) {
+      const section = document.createElement('section'); section.className = `overview-ranking ${tone}`;
+      const h = document.createElement('h3'); h.textContent = heading; section.appendChild(h);
+      if (!items || !items.length) {
+        const empty = document.createElement('div'); empty.className = 'overview-empty'; empty.textContent = `ไม่มี${label}ที่มีรายการให้จัดอันดับ`; section.appendChild(empty);
+      } else {
+        items.forEach((item, index) => {
+          const row = document.createElement('div'); row.className = 'overview-rank-row';
+          const rank = document.createElement('span'); rank.className = 'overview-rank-number'; rank.textContent = index + 1;
+          const name = document.createElement('span'); name.className = 'overview-rank-name'; name.textContent = `${label}${item.name}`;
+          const count = document.createElement('strong'); count.textContent = `${item.count} คน`;
+          row.append(rank, name, count); section.appendChild(row);
+        });
+      }
+      rankings.appendChild(section);
+    }
+    box.appendChild(rankings);
+    const disclaimer = document.createElement('p'); disclaimer.className = 'overview-disclaimer';
+    disclaimer.textContent = 'เสี่ยงสูงและเฝ้าระวังอ้างอิงผลเยี่ยมล่าสุดและรายงานผู้ดูแล ไม่ใช่การวินิจฉัยหรือการทำนาย';
+    box.appendChild(disclaimer);
     hostForPresentation(wrap).appendChild(box);
   }
 
@@ -1208,7 +1243,12 @@
           });
         }
 
-        const wrap = appendMessage('assistant', json.answer || '');
+        const isOverview = json.presentation && json.presentation.type === 'overview';
+        const wrap = appendMessage('assistant', isOverview ? '' : (json.answer || ''));
+        if (isOverview) {
+          wrap.classList.add('msg-overview');
+          wrap.querySelector('.bubble')?.remove();
+        }
 
         const toolNames = (Array.isArray(json.toolsUsed) ? json.toolsUsed : [])
           .map((t) => (t && t.name ? t.name : t))

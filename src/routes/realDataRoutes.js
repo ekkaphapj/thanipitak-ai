@@ -215,7 +215,9 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     }
     const sorted=[...groups.values()].sort((a,b)=>{
      const difference=/น้อย/.test(ranking[2])?a.count-b.count:b.count-a.count;
-     return difference||a.name.localeCompare(b.name,'th');
+     // Do not rely on optional ICU locale data being installed on the server.
+     // Code-point ordering is deterministic across the supported Node runtimes.
+     return difference||(a.name===b.name?0:(a.name<b.name?-1:1));
     });
     const winners=topN!==null?sorted.slice(0,topN):showAll?sorted:sorted.filter(g=>g.count===sorted[0]?.count);
     const category={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[filters.person_type]||'บุคคล';

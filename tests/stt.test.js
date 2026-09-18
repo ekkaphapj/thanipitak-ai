@@ -184,7 +184,10 @@ test('stt html includes hold-to-talk mic button', () => {
   const html = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'ai.html'), 'utf8');
   assert.match(html, /id="mic-btn"/);
   assert.match(html, /voiceInput\.js/);
+  assert.match(html, /thanipitak-ai-mascot\.png/);
   const js = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'ai.js'), 'utf8');
   assert.match(js, /pointerdown/);
   assert.match(js, /loadSttStatus/);
+  assert.match(js, /รับคำสั่งแล้ว กำลังประมวลผล/);
+  assert.match(js, /sendMessage\(autoSendMessage\)/);
 });

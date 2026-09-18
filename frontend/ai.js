@@ -319,6 +319,7 @@
       setMicStatus(VoiceInput.micErrorMessage('EMPTY_TRANSCRIPT'), true);
       return;
     }
+    let autoSendMessage = null;
     try {
       const json = await transcribeAudio(blob);
       const text = json && json.transcript;
@@ -326,10 +327,17 @@
         setMicStatus(VoiceInput.micErrorMessage('EMPTY_TRANSCRIPT'), true);
       } else {
         const input = $('#chat-input');
+        const typedBeforeTranscript = input.value.trim();
         input.value = VoiceInput.applyTranscript(input.value, text);
         autoResizeInput();
-        input.focus();
-        setMicStatus('ตรวจข้อความแล้วกดส่ง', false);
+        // Send a clean voice turn immediately. Never silently combine a
+        // transcript with text the user had already typed.
+        if (typedBeforeTranscript) {
+          input.focus();
+          setMicStatus('พบข้อความที่พิมพ์ค้างอยู่ กรุณาตรวจแล้วกดส่ง', false);
+        } else {
+          autoSendMessage = String(text).trim();
+        }
       }
     } catch (err) {
       if (err && err.status === 401) {
@@ -341,6 +349,10 @@
     }
     state.mic = state.sttAvailable ? 'idle' : 'unavailable';
     updateSendDisabled();
+    if (autoSendMessage) {
+      setMicStatus('รับคำสั่งแล้ว กำลังประมวลผล…', false);
+      sendMessage(autoSendMessage);
+    }
   }
 
   async function startRecording(event) {

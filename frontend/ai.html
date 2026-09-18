@@ -89,10 +89,13 @@
     <footer class="chat-input-area">
       <div class="input-row">
         <textarea id="chat-input" aria-label="คำถามถึงผู้ช่วย AI" rows="1" placeholder="เช่น ตำบลไหนมีผู้ป่วยจิตเวชเสี่ยงสูงบ้าง" maxlength="2000"></textarea>
-        <button id="mic-btn" class="mic-btn" type="button" aria-label="กดค้างเพื่อพูด" aria-pressed="false" title="กดค้างแล้วพูด">ไมค์</button>
+        <button id="mic-btn" class="mic-btn" type="button" aria-label="กดค้างเพื่อพูด ระบบจะส่งคำสั่งอัตโนมัติ" aria-pressed="false" title="กดค้างแล้วพูด ระบบจะส่งคำสั่งอัตโนมัติ">ไมค์</button>
         <button id="send-btn" class="send-btn">ส่ง</button>
       </div>
-      <p id="mic-status" class="mic-status" role="status"></p>
+      <div class="voice-assistant">
+        <img class="voice-mascot" src="thanipitak-ai-mascot.png" alt="" aria-hidden="true">
+        <p id="mic-status" class="mic-status" role="status"></p>
+      </div>
       <div class="input-actions">
         <button id="clear-btn" class="clear-btn" type="button">ล้างการสนทนา</button>
         <span>ตรวจสอบข้อมูลอ้างอิงก่อนนำรายงานไปใช้</span>

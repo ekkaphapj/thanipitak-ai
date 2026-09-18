@@ -28,6 +28,7 @@
     howToUse: 'voice-how-to-use.mp3',
     acknowledge: 'voice-acknowledge.mp3',
     notClear: 'voice-not-clear.mp3',
+    answerQuestion: 'voice-answer-question.mp3',
     notUnderstood: 'voice-not-understand-question.mp3',
     finished: 'voice-finish-job.mp3',
   };
@@ -303,15 +304,21 @@
     $('#chat-input').focus();
   }
 
-  function answerNeedsClarification(json) {
+  function answerNeedsFollowup(json) {
     const answer = String((json && json.answer) || '');
     const type = json && json.presentation && json.presentation.type;
-    return type === 'summary_choices' || type === 'person_candidates' || /(?:ไม่เข้าใจ|กรุณาระบุ|กรุณาเลือก|ขอรายละเอียด|ยังสรุปไม่ได้|ไม่พบคำสั่ง)/u.test(answer);
+    return type === 'summary_choices' || type === 'person_candidates' || type === 'report_offer' || /(?:กรุณาระบุ|กรุณาเลือก|ขอรายละเอียด|ต้องการ.+หรือไม่)/u.test(answer);
+  }
+
+  function answerIsNotUnderstood(json) {
+    return /(?:ไม่เข้าใจ|ยังสรุปไม่ได้|ไม่พบคำสั่ง)/u.test(String((json && json.answer) || ''));
   }
 
   function finishVoiceTurn(json) {
     if (!state.voiceMode) return;
-    playVoiceClip(answerNeedsClarification(json) ? 'notUnderstood' : 'finished');
+    if (answerNeedsFollowup(json)) playVoiceClip('answerQuestion');
+    else if (answerIsNotUnderstood(json)) playVoiceClip('notUnderstood');
+    else playVoiceClip('finished');
   }
 
   async function loadSttStatus() {
@@ -391,7 +398,7 @@
     const recorder = micCtl.recorder;
     state.mic = 'uploading';
     updateSendDisabled();
-    setMicStatus('กำลังแปลงเสียงเป็นข้อความ…', false);
+    setMicStatus('กำลังประมวลผลเสียง…', false);
     const blob = await new Promise((resolve) => {
       if (!recorder) return resolve(null);
       recorder.addEventListener('stop', () => {

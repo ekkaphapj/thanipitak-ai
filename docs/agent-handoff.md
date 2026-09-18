@@ -101,9 +101,13 @@ chat logs.
   For a recognized clean voice turn it then auto-sends the transcript. If
   typed text already exists, it never silently combines it with STT; it leaves
   it for the user to review.
-- Empty/low-confidence speech plays `voice-not-clear.mp3`. A structured answer
-  that requires a clarification plays `voice-not-understand-question.mp3`.
-  A normal completed answer plays `voice-finish-job.mp3`. The latter
+- While STT runs, a small non-obscuring widget status says
+  `กำลังประมวลผลเสียง…`. Empty/low-confidence speech plays
+  `voice-not-clear.mp3`. A structured answer that asks the officer for a
+  follow-up/choice (for example report confirmation) plays
+  `voice-answer-question.mp3`; an actually unrecognized question plays
+  `voice-not-understand-question.mp3`. A normal completed answer plays
+  `voice-finish-job.mp3`. The latter
   classification is intentionally conservative and uses known clarification
   presentation/answer patterns; do not make model prose an authority for data.
 - Mascot mouth animation is CSS sprite animation **only while an audio clip is
@@ -113,8 +117,9 @@ chat logs.
   old/checkerboard sprite and the previous compact logo asset remain tracked
   for history but are not used by the current widget.
 - Packaged clips are `frontend/voice-hello.mp3`, `voice-greeting-2.mp3`,
-  `voice-how-to-use.mp3`, `voice-acknowledge.mp3`, `voice-not-clear.mp3`,
-  `voice-not-understand-question.mp3`, and `voice-finish-job.mp3`.
+  `voice-how-to-use.mp3`, `voice-acknowledge.mp3`, `voice-answer-question.mp3`,
+  `voice-not-clear.mp3`, `voice-not-understand-question.mp3`, and
+  `voice-finish-job.mp3`.
 - STT audio remains browser → authenticated app proxy → loopback STT only;
   it is not persisted and no transcript/audio audit rows are written. This
   auto-send behavior is explicitly user-requested and replaces older handoff

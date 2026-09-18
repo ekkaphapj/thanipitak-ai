@@ -1,4 +1,135 @@
-# Coding agent handoff — current as of 2026-09-17 (session complete)
+# Coding agent handoff — current as of 2026-09-19
+
+## Current continuation — September 2026 voice pilot (read first)
+
+This section supersedes older statements below, in particular older references
+to Typhoon as the live chat model, disabled STT, HTTP-only pilot URLs, and the
+former no-auto-send STT rule. Do not put SSH passwords, real-person data,
+Supabase tokens, or private certificates in this document, commits, tests, or
+chat logs.
+
+### Git and deployed revision
+
+- Branch on both workstations and the Ubuntu pilot:
+  `experiment/typhoon25-intent-router`.
+- Latest pushed and deployed commit: `ebb7097 Compact voice assistant widget
+  and acknowledge immediately`. It is pushed to `origin` / GitHub. Earlier
+  relevant commits in this pilot are `c09d29a` (clean voice-turn auto-send),
+  `9f69ce6` (voice clips and sprite animation), `9922d58` and `28d9969`
+  (safe product-knowledge RAG).
+- Preserve these untracked, user-owned benchmark artifacts; do not add them to
+  a commit unless the user asks: `docs/qwen3-8b-q6-holdout60-*.json`,
+  `tmp_make_benchdb.js`, `tmp_s3bench_info.js`.
+
+### Ubuntu pilot: live state and restart procedure
+
+- Pilot application URL: `https://192.168.1.195/ai.html`. It is served by Caddy
+  on 443 and reverse-proxied to host Node on port 3100. A curl check with
+  `-k` returned HTTP 200 after the latest deploy.
+- Caddy config is `/etc/caddy/Caddyfile` and currently uses
+  `https://192.168.1.195 { tls internal; reverse_proxy 127.0.0.1:3100 }`.
+  Therefore it is encrypted but uses Caddy's internal root CA. A new browser
+  will show an untrusted-certificate warning until the root CA is installed.
+  **Do not claim universal browser trust.** To remove client installation, get
+  an organization-controlled DNS name and arrange a public Let’s Encrypt path
+  (or distribute an organization CA through IT/AD-GPO). Do not invent a DNS
+  name or expose this pilot publicly without user/IT approval.
+- App checkout: `/home/ekkaphap/thanipitak-ai`. Ollama runs in Docker and is
+  exposed only at `127.0.0.1:11434`. Current root filesystem has adequate free
+  space after the disk expansion; do not assume the older disk-full notes
+  below are still current.
+- Live Node was restarted with:
+  `HOST=0.0.0.0`, `PORT=3100`, `STT_ENABLED=true`,
+  `STT_URL=http://127.0.0.1:8178`, `RAG_ENABLED=true`,
+  `RAG_EMBEDDING_MODEL=qwen3-embedding:0.6b`,
+  `OLLAMA_HOST=http://127.0.0.1:11434`, `OLLAMA_MODEL=qwen3:8b-q6`, and
+  `REPORT_FONT_PATH=/usr/share/fonts/truetype/tlwg/Garuda.ttf`.
+- To deploy a later frontend/server change: `git pull --ff-only`; use
+  `pgrep -af 'node.*src/index.js'`; terminate only the verified Node child
+  (not Docker or a broad process group); then restart `npm start` with the
+  same environment values above, logging to `/dev/shm/thanipitak-ai.log`.
+  Check Caddy URL and `/health` at `127.0.0.1:8178` afterwards.
+- STT server runs locally from `.venv-stt` using
+  `scripts/stt-server.py`, bound to loopback port 8178. It reports model
+  `Vinxscribe/biodatlab-whisper-th-medium-faster`. Do not expose it directly
+  to the LAN/Internet.
+
+### Model decision and evidence
+
+- Primary chat/routing model is **`qwen3:8b-q6`**. Keep
+  `qwen3-embedding:0.6b` for RAG embeddings.
+- Existing 60-case holdout evidence for Qwen 3 Q6: guarded routing 100%,
+  grounded answers 98.33%, zero authorization leaks and zero hallucinated
+  numeric facts, p95 about 703ms. This is the strongest available comparison.
+- `qwen35:9b-q6` was installed and evaluated, but is not primary: guarded
+  routing 80%, grounded answers 93.33%, no leaks/hallucinations, p95 about
+  862ms, with first cold request about 24.7s. Do not delete models without the
+  user's explicit request. Model inventory must be checked live with
+  `sudo docker exec ollama ollama list` before deletion.
+
+### RAG: safe knowledge catalogue, not registry retrieval
+
+- `src/ai/rag.js` is a compact built-in catalogue, embedded through the local
+  `qwen3-embedding:0.6b` endpoint. It is used before registry interpretation
+  for non-registry questions in both test (`src/ai/gateway.js`) and real mode
+  (`src/routes/realDataRoutes.js`).
+- It includes safe product purpose, supported target groups, development and
+  deployment history provided by the user, benefits, Shield+ relationship,
+  usage guidance, and voice/privacy explanations. It contains no registry
+  rows, SQL execution, credentials, ID cards, phone numbers, PINs or service
+  role keys.
+- User-provided source facts in the catalogue: developed by
+  พ.ต.ท.ดร.เอกภาพ จุลโนนยาง; first developed/used around February 2569 for
+  Udon Thani provincial police in the stated commanders’ period; subsequent
+  use at Tha Uthen and province-wide Roi Et; supports field officers and can
+  connect to Shield+ without widening authorization. Never invent additional
+  historic or personal facts.
+
+### Voice showcase UX (current requested behavior)
+
+- `frontend/ai.html`, `frontend/ai.js`, and `frontend/ai-refresh.css` now show
+  a compact fixed voice widget at bottom-right. It has only the mascot, a
+  close control, and a press-and-hold talk control; it deliberately has no
+  full-screen overlay or large panel that obscures registry information.
+- The main composer opens it through the button labelled
+  **ผู้ช่วยเอไอธานีพิทักษ์**. On first entry in a browser session it plays
+  `voice-hello.mp3`, `voice-greeting-2.mp3`, then `voice-how-to-use.mp3`.
+  On later entries it plays only the how-to-use clip. Audio starts due to a
+  user click, satisfying normal browser autoplay rules.
+- Press/hold captures audio. Once capture ends and there is usable audio, it
+  immediately plays `voice-acknowledge.mp3` while STT is running concurrently.
+  For a recognized clean voice turn it then auto-sends the transcript. If
+  typed text already exists, it never silently combines it with STT; it leaves
+  it for the user to review.
+- Empty/low-confidence speech plays `voice-not-clear.mp3`. A structured answer
+  that requires a clarification plays `voice-not-understand-question.mp3`.
+  A normal completed answer plays `voice-finish-job.mp3`. The latter
+  classification is intentionally conservative and uses known clarification
+  presentation/answer patterns; do not make model prose an authority for data.
+- Mascot mouth animation is CSS sprite animation **only while an audio clip is
+  playing**. The six-frame sprite is `frontend/thanipitak-ai-voice-sprite-v2.png`.
+  Its non-transparent rectangular source backdrop is clipped to the mascot
+  circle by CSS, so it has no visible rectangular background in the UI. The
+  old/checkerboard sprite and the previous compact logo asset remain tracked
+  for history but are not used by the current widget.
+- Packaged clips are `frontend/voice-hello.mp3`, `voice-greeting-2.mp3`,
+  `voice-how-to-use.mp3`, `voice-acknowledge.mp3`, `voice-not-clear.mp3`,
+  `voice-not-understand-question.mp3`, and `voice-finish-job.mp3`.
+- STT audio remains browser → authenticated app proxy → loopback STT only;
+  it is not persisted and no transcript/audio audit rows are written. This
+  auto-send behavior is explicitly user-requested and replaces older handoff
+  text saying “never auto-send”.
+
+### Latest validation
+
+- `npm test` passed **306 tests, 25 suites, 0 failures** after the latest
+  compact-widget/acknowledge timing update. `node --check frontend/ai.js` and
+  focused `node --test tests/stt.test.js` also passed.
+- Live Ubuntu checks after deployment: Node child running, Caddy served the
+  new `ai.html` and sprite with HTTP 200, and local STT health returned OK.
+- Browser visual/permission testing still requires a human browser session
+  with an accepted HTTPS trust path and microphone permission. Do not claim
+  WER accuracy solely from mocked STT tests.
 
 ## Continuation update — 2026-09-18 (RAG + Ubuntu pilot)
 

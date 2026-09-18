@@ -412,6 +412,9 @@
       playVoiceClip('notClear');
       return;
     }
+    // Begin the acknowledgement as soon as speech capture ends. Transcription
+    // proceeds concurrently, so the officer is not left waiting in silence.
+    const acknowledgement = state.voiceMode ? playVoiceClip('acknowledge') : Promise.resolve();
     let autoSendMessage = null;
     try {
       const json = await transcribeAudio(blob);
@@ -446,7 +449,7 @@
     updateSendDisabled();
     if (autoSendMessage) {
       setMicStatus('รับคำสั่งแล้ว กำลังประมวลผล…', false);
-      await playVoiceSequence(['acknowledge']);
+      await acknowledgement;
       sendMessage(autoSendMessage, { voice: true });
     }
   }
@@ -1497,7 +1500,6 @@
     bindMicButton();
     $('#voice-assistant-btn').addEventListener('click', () => { openVoiceAssistant(); });
     $('#voice-assistant-close').addEventListener('click', closeVoiceAssistant);
-    document.querySelector('[data-voice-close]').addEventListener('click', closeVoiceAssistant);
     setInterval(() => {
       if (state.token && state.sttAvailable !== true && state.mic !== 'recording' && state.mic !== 'uploading') {
         loadSttStatus();

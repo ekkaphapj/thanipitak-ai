@@ -195,9 +195,9 @@ test('stt html includes hold-to-talk mic button', () => {
   assert.match(js, /voice-finish-job\.mp3/);
   assert.match(js, /openVoiceAssistant/);
   const css = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'ai-refresh.css'), 'utf8');
-  assert.match(css, /thanipitak-ai-voice-sprite\.png/);
+  assert.match(css, /thanipitak-ai-voice-sprite-v2\.png/);
   assert.match(css, /voice-mouth/);
-  for (const asset of ['thanipitak-ai-voice-sprite.png', 'voice-hello.mp3', 'voice-greeting-2.mp3', 'voice-how-to-use.mp3', 'voice-acknowledge.mp3', 'voice-not-clear.mp3', 'voice-not-understand-question.mp3', 'voice-finish-job.mp3']) {
+  for (const asset of ['thanipitak-ai-voice-sprite-v2.png', 'voice-hello.mp3', 'voice-greeting-2.mp3', 'voice-how-to-use.mp3', 'voice-acknowledge.mp3', 'voice-not-clear.mp3', 'voice-not-understand-question.mp3', 'voice-finish-job.mp3']) {
     assert.equal(fs.existsSync(require('path').join(__dirname, '..', 'frontend', asset)), true, asset + ' is packaged');
   }
 });

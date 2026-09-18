@@ -99,22 +99,17 @@
     </footer>
   </main>
 
-  <section id="voice-assistant-panel" class="voice-assistant-panel hidden" role="dialog" aria-modal="true" aria-labelledby="voice-assistant-title">
-    <div class="voice-assistant-backdrop" data-voice-close></div>
+  <section id="voice-assistant-panel" class="voice-assistant-panel hidden" aria-label="โหมดสั่งงานด้วยเสียง">
     <div class="voice-assistant-sheet">
       <button id="voice-assistant-close" class="voice-assistant-close" type="button" aria-label="ปิดโหมดสั่งงานด้วยเสียง">×</button>
       <div id="voice-speaker" class="voice-speaker" aria-hidden="true">
         <div class="voice-mascot-sprite"></div>
       </div>
-      <div class="voice-assistant-copy">
-        <p class="voice-kicker">ผู้ช่วยเอไอธานีพิทักษ์</p>
-        <h2 id="voice-assistant-title">พร้อมรับคำสั่งค่ะ</h2>
-        <p id="mic-status" class="mic-status" role="status">กดค้างเพื่อพูดได้เลย</p>
-      </div>
       <button id="mic-btn" class="voice-hold-btn" type="button" aria-label="กดค้างเพื่อพูด" aria-pressed="false">
         <span class="voice-mic-icon" aria-hidden="true">●</span>
         <span>กดค้างเพื่อพูด</span>
       </button>
+      <p id="mic-status" class="voice-status" role="status"></p>
     </div>
   </section>
 

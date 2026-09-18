@@ -89,12 +89,8 @@
     <footer class="chat-input-area">
       <div class="input-row">
         <textarea id="chat-input" aria-label="คำถามถึงผู้ช่วย AI" rows="1" placeholder="เช่น ตำบลไหนมีผู้ป่วยจิตเวชเสี่ยงสูงบ้าง" maxlength="2000"></textarea>
-        <button id="mic-btn" class="mic-btn" type="button" aria-label="กดค้างเพื่อพูด ระบบจะส่งคำสั่งอัตโนมัติ" aria-pressed="false" title="กดค้างแล้วพูด ระบบจะส่งคำสั่งอัตโนมัติ">ไมค์</button>
+        <button id="voice-assistant-btn" class="voice-assistant-btn" type="button" aria-haspopup="dialog" aria-controls="voice-assistant-panel">ผู้ช่วยเอไอธานีพิทักษ์</button>
         <button id="send-btn" class="send-btn">ส่ง</button>
-      </div>
-      <div class="voice-assistant">
-        <img class="voice-mascot" src="thanipitak-ai-mascot.png" alt="" aria-hidden="true">
-        <p id="mic-status" class="mic-status" role="status"></p>
       </div>
       <div class="input-actions">
         <button id="clear-btn" class="clear-btn" type="button">ล้างการสนทนา</button>
@@ -102,6 +98,25 @@
       </div>
     </footer>
   </main>
+
+  <section id="voice-assistant-panel" class="voice-assistant-panel hidden" role="dialog" aria-modal="true" aria-labelledby="voice-assistant-title">
+    <div class="voice-assistant-backdrop" data-voice-close></div>
+    <div class="voice-assistant-sheet">
+      <button id="voice-assistant-close" class="voice-assistant-close" type="button" aria-label="ปิดโหมดสั่งงานด้วยเสียง">×</button>
+      <div id="voice-speaker" class="voice-speaker" aria-hidden="true">
+        <div class="voice-mascot-sprite"></div>
+      </div>
+      <div class="voice-assistant-copy">
+        <p class="voice-kicker">ผู้ช่วยเอไอธานีพิทักษ์</p>
+        <h2 id="voice-assistant-title">พร้อมรับคำสั่งค่ะ</h2>
+        <p id="mic-status" class="mic-status" role="status">กดค้างเพื่อพูดได้เลย</p>
+      </div>
+      <button id="mic-btn" class="voice-hold-btn" type="button" aria-label="กดค้างเพื่อพูด" aria-pressed="false">
+        <span class="voice-mic-icon" aria-hidden="true">●</span>
+        <span>กดค้างเพื่อพูด</span>
+      </button>
+    </div>
+  </section>
 
 </div>
 

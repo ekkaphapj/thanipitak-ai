@@ -19,7 +19,20 @@
     pendingSummaryReport: null,
     ordinalItems: null,
     referenceList: null,
+    voiceMode: false,
   };
+
+  const VOICE_CLIPS = {
+    hello: 'voice-hello.mp3',
+    greeting: 'voice-greeting-2.mp3',
+    howToUse: 'voice-how-to-use.mp3',
+    acknowledge: 'voice-acknowledge.mp3',
+    notClear: 'voice-not-clear.mp3',
+    notUnderstood: 'voice-not-understand-question.mp3',
+    finished: 'voice-finish-job.mp3',
+  };
+  let activeVoiceAudio = null;
+  let activeVoiceStop = null;
 
   const SUGGESTIONS = [
     'มีใครบ้างที่ต้องเฝ้าระวัง พร้อมเหตุผล',
@@ -213,6 +226,8 @@
       mic.disabled = state.sending || state.mic === 'uploading';
       mic.setAttribute('aria-pressed', String(state.mic === 'recording'));
     }
+    const voiceButton = $('#voice-assistant-btn');
+    if (voiceButton) voiceButton.disabled = state.sending;
   }
 
   function setMicStatus(text, isError) {
@@ -220,6 +235,83 @@
     if (!el) return;
     el.textContent = text || '';
     el.classList.toggle('is-error', Boolean(isError));
+  }
+
+  function setMascotSpeaking(speaking) {
+    $('#voice-speaker')?.classList.toggle('is-speaking', Boolean(speaking));
+  }
+
+  function stopVoiceAudio() {
+    if (activeVoiceAudio) {
+      activeVoiceAudio.pause();
+      activeVoiceAudio.currentTime = 0;
+    }
+    if (activeVoiceStop) activeVoiceStop();
+    activeVoiceAudio = null;
+    activeVoiceStop = null;
+    setMascotSpeaking(false);
+  }
+
+  function playVoiceClip(name) {
+    const source = VOICE_CLIPS[name];
+    if (!source || !state.voiceMode) return Promise.resolve();
+    stopVoiceAudio();
+    return new Promise((resolve) => {
+      const audio = new Audio(source);
+      activeVoiceAudio = audio;
+      let completed = false;
+      const done = () => {
+        if (completed) return;
+        completed = true;
+        if (activeVoiceAudio === audio) activeVoiceAudio = null;
+        if (activeVoiceStop === done) activeVoiceStop = null;
+        setMascotSpeaking(false);
+        resolve();
+      };
+      activeVoiceStop = done;
+      audio.addEventListener('ended', done, { once: true });
+      audio.addEventListener('error', done, { once: true });
+      setMascotSpeaking(true);
+      audio.play().catch(done);
+    });
+  }
+
+  async function playVoiceSequence(names) {
+    for (const name of names) await playVoiceClip(name);
+  }
+
+  async function openVoiceAssistant() {
+    if (state.sending) return;
+    state.voiceMode = true;
+    $('#voice-assistant-panel').classList.remove('hidden');
+    document.body.classList.add('voice-mode-open');
+    setMicStatus(state.sttAvailable === false ? VoiceInput.micErrorMessage('STT_UNAVAILABLE') : 'กดค้างปุ่มด้านล่างแล้วพูดได้เลย', state.sttAvailable === false);
+    const greeted = sessionStorage.getItem('tp_voice_assistant_greeted') === '1';
+    if (greeted) await playVoiceSequence(['howToUse']);
+    else {
+      sessionStorage.setItem('tp_voice_assistant_greeted', '1');
+      await playVoiceSequence(['hello', 'greeting', 'howToUse']);
+    }
+  }
+
+  function closeVoiceAssistant() {
+    abortMic();
+    stopVoiceAudio();
+    state.voiceMode = false;
+    $('#voice-assistant-panel').classList.add('hidden');
+    document.body.classList.remove('voice-mode-open');
+    $('#chat-input').focus();
+  }
+
+  function answerNeedsClarification(json) {
+    const answer = String((json && json.answer) || '');
+    const type = json && json.presentation && json.presentation.type;
+    return type === 'summary_choices' || type === 'person_candidates' || /(?:ไม่เข้าใจ|กรุณาระบุ|กรุณาเลือก|ขอรายละเอียด|ยังสรุปไม่ได้|ไม่พบคำสั่ง)/u.test(answer);
+  }
+
+  function finishVoiceTurn(json) {
+    if (!state.voiceMode) return;
+    playVoiceClip(answerNeedsClarification(json) ? 'notUnderstood' : 'finished');
   }
 
   async function loadSttStatus() {
@@ -317,6 +409,7 @@
       state.mic = 'idle';
       updateSendDisabled();
       setMicStatus(VoiceInput.micErrorMessage('EMPTY_TRANSCRIPT'), true);
+      playVoiceClip('notClear');
       return;
     }
     let autoSendMessage = null;
@@ -325,6 +418,7 @@
       const text = json && json.transcript;
       if (!text) {
         setMicStatus(VoiceInput.micErrorMessage('EMPTY_TRANSCRIPT'), true);
+        playVoiceClip('notClear');
       } else {
         const input = $('#chat-input');
         const typedBeforeTranscript = input.value.trim();
@@ -346,17 +440,21 @@
       }
       const code = err && err.json && err.json.code;
       setMicStatus(VoiceInput.micErrorMessage(code, err && err.status), true);
+      if (code === 'EMPTY_TRANSCRIPT' || code === 'STT_LOW_CONFIDENCE') playVoiceClip('notClear');
     }
     state.mic = state.sttAvailable ? 'idle' : 'unavailable';
     updateSendDisabled();
     if (autoSendMessage) {
       setMicStatus('รับคำสั่งแล้ว กำลังประมวลผล…', false);
-      sendMessage(autoSendMessage);
+      await playVoiceSequence(['acknowledge']);
+      sendMessage(autoSendMessage, { voice: true });
     }
   }
 
   async function startRecording(event) {
     if (state.sending || state.mic === 'recording' || state.mic === 'uploading') return;
+    // A user who starts speaking may interrupt the introduction or completion cue.
+    stopVoiceAudio();
     micCtl.held = true;
     if (state.sttAvailable !== true) {
       setMicStatus('กำลังเชื่อมต่อระบบแปลงเสียง…', false);
@@ -1181,10 +1279,11 @@
     return 'เกิดข้อผิดพลาด กรุณาลองใหม่';
   }
 
-  function sendMessage(overrideText) {
+  function sendMessage(overrideText, options = {}) {
     if (state.mic === 'recording' || state.mic === 'uploading') return;
     let message = (overrideText !== undefined ? overrideText : $('#chat-input').value || '').trim();
     if (!message || state.sending) return;
+    const voiceTurn = options.voice === true;
 
     if (window.ChatContext.isReferenceListQuestion(message)) {
       appendMessage('user', message);
@@ -1192,15 +1291,17 @@
       else renderReferenceSnapshot();
       $('#chat-input').value = '';
       autoResizeInput();
+      finishVoiceTurn();
       return;
     }
 
     const ordinalResolution = resolveOrdinalReference(message);
-    if (ordinalResolution.handled) return;
+    if (ordinalResolution.handled) { finishVoiceTurn(); return; }
     message = ordinalResolution.message.trim();
 
     if (isStartOverCommand(message)) {
       resetConversation();
+      finishVoiceTurn();
       return;
     }
 
@@ -1208,6 +1309,7 @@
       appendMessage('user', message);
       $('#chat-input').value = '';
       createSummaryPdf();
+      finishVoiceTurn();
       return;
     }
     if (state.pendingSummaryReport && isPdfNegative(message)) {
@@ -1215,6 +1317,7 @@
       $('#chat-input').value = '';
       state.pendingSummaryReport = null;
       appendMessage('assistant', 'ต้องการสร้างรายงาน PDF หรือ Excel ของข้อมูลใดครับ? เช่น “รายงานผู้เสพในตำบลโพนสูง”');
+      finishVoiceTurn({ answer: 'กรุณาระบุข้อมูลสำหรับรายงาน' });
       return;
     }
     state.pendingSummaryReport = null;
@@ -1306,6 +1409,7 @@
           wrap.appendChild(perf);
         }
         scrollToBottom();
+        if (voiceTurn) finishVoiceTurn(json);
       })
       .catch(async (err) => {
         if (settled) return;
@@ -1314,6 +1418,7 @@
         removeTypingIndicator();
         const msg = await messageForError(err);
         appendMessage('assistant', msg, { error: true });
+        if (voiceTurn) playVoiceClip('notUnderstood');
       })
       .finally(() => {
         settled = true;
@@ -1390,6 +1495,9 @@
     });
 
     bindMicButton();
+    $('#voice-assistant-btn').addEventListener('click', () => { openVoiceAssistant(); });
+    $('#voice-assistant-close').addEventListener('click', closeVoiceAssistant);
+    document.querySelector('[data-voice-close]').addEventListener('click', closeVoiceAssistant);
     setInterval(() => {
       if (state.token && state.sttAvailable !== true && state.mic !== 'recording' && state.mic !== 'uploading') {
         loadSttStatus();

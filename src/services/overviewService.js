@@ -10,9 +10,13 @@ const GROUP_LABELS = { station: 'สภ.', subdistrict: 'ตำบล' };
 function detectOverview(message) {
   const text = String(message || '').replace(/\s+/g, ' ').trim();
   if (!/(?:ข้อมูล)?ภาพรวม|ภาพรวมข้อมูล|สรุปภาพรวม/.test(text)) return null;
-  if (/จังหวัด|ภ\.จว\.?/.test(text)) return { requestedScope: 'province' };
-  if (/สภ\.?|สถานี/.test(text)) return { requestedScope: 'station' };
-  return { requestedScope: 'current' };
+  const person_type=/ผู้ป่วยจิตเวช|จิตเวช|ผู้ป่วย/.test(text)?'psychiatric':/ผู้เสพ|ผู้ใช้ยา|ยาเสพติด/.test(text)?'drug_user':/ผู้ค้า|ผู้จำหน่าย/.test(text)?'dealer':/ผู้พ้นโทษ|พ้นโทษ/.test(text)?'released':null;
+  const subdistrict=text.match(/ตำบล\s*([^\s,]+)/u)?.[1];
+  const district=text.match(/(?:อำเภอ|เขต)\s*([^\s,]+)/u)?.[1];
+  const filters={};if(person_type)filters.person_type=person_type;if(subdistrict&&!/^(?:ไหน|ใด|ต่างๆ)$/u.test(subdistrict))filters.subdistrict=subdistrict;if(district)filters.district=district;
+  if (/จังหวัด|ภ\.จว\.?/.test(text)) return { requestedScope: 'province',filters };
+  if (/สภ\.?|สถานี/.test(text)) return { requestedScope: 'station',filters };
+  return { requestedScope: 'current',filters };
 }
 
 function sortedGroups(groups, direction) {
@@ -43,19 +47,28 @@ function createOverviewService(db) {
   const monitoring = createMonitoringService(db);
   const persons = createPersonService(db);
 
-  function summarize(user, requestedScope = 'current') {
+  function summarize(user, request = {}) {
+    const requestedScope=typeof request==='string'?request:(request.requestedScope||'current');
+    const filters=(typeof request==='object'&&request.filters)||{};
+    if(filters.subdistrict&&!filters.district){
+      const matches=persons.groupByLocation(user,{groupBy:'subdistrict'}).groups.filter(row=>row.name===filters.subdistrict);
+      if(matches.length>1){
+        const choices=matches.slice(0,5).map((row,index)=>({label:`${index+1}. ตำบล${row.name} อำเภอ${row.district||'ไม่ระบุ'} จังหวัด${row.province||'ไม่ระบุ'}`,message:`ขอภาพรวม${filters.person_type?TYPE_LABELS[filters.person_type]:''} ตำบล${row.name} อำเภอ${row.district}`}));
+        return {answer:'พบชื่อตำบลซ้ำ กรุณาเลือกพื้นที่ที่ต้องการ',presentation:{type:'summary_choices',choices,pendingOverview:true}};
+      }
+    }
     const groupBy = requestedScope === 'province' || (!user.stationId && requestedScope === 'current') ? 'station' : 'subdistrict';
-    const group = persons.groupByLocation(user, { groupBy });
-    const stats = statistics.getStatistics(user);
-    const high = monitoring.list(user, { level: 'high', pageSize: 1 });
-    const watch = monitoring.list(user, { level: 'watch', pageSize: 1 });
-    const byType = Object.entries(TYPE_LABELS).map(([type, label]) => ({ type, label, count: Number(stats[type]) || 0 }));
-    const scopeLabel = user.stationName || (user.stationId ? `สภ. ${user.stationId}` : 'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง');
+    const group = persons.groupByLocation(user, { groupBy,...filters });
+    const summary=persons.summarizePersons(user,{...filters,limit:1,offset:0});
+    const high = monitoring.list(user, { ...filters,level: 'high', pageSize: 1 });
+    const watch = monitoring.list(user, { ...filters,level: 'watch', pageSize: 1 });
+    const byType = Object.entries(TYPE_LABELS).map(([type, label]) => ({ type, label, count: Number(summary.byType[type]) || 0 }));
+    const scopeLabel = filters.subdistrict?`ตำบล${filters.subdistrict}${filters.district?` อำเภอ${filters.district}`:''}`:(user.stationName || (user.stationId ? `สภ. ${user.stationId}` : 'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง'));
     const data = {
       scopeLabel,
       requestedScope,
       groupBy,
-      total: Number(stats.total) || 0,
+      total: Number(summary.total) || 0,filters,
       byType,
       highRisk: Number(high.total) || 0,
       watch: Number(watch.total) || 0,

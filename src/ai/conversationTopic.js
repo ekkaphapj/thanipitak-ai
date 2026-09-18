@@ -84,6 +84,7 @@ function topicFromIntent(intentResult) {
   if (!intentResult || !intentResult.intent) return null;
   if (intentResult.intent === 'lookup_clarify' || intentResult.intent === 'search_incomplete') return null;
   const topic = {};
+  if (intentResult.intent === 'overview') Object.assign(topic, intentResult.filters || {});
   const type = COUNT_TYPE[intentResult.intent] || LIST_TYPE[intentResult.intent] || intentResult.filters?.person_type;
   if (VALID_TYPES.includes(type)) topic.person_type = type;
   if (intentResult.intent === 'statistics_summary') {

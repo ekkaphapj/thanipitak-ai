@@ -507,8 +507,8 @@ test('list fast path: Thai modifier variants → search_persons + NO Ollama + <1
     const { app, ollamaCalls } = makeSpyApp(ctx);
     const token = await login(app);
     const mustFast = [
-      ['ขอรายชื่อ', 'list_all', 100],
-      ['รายชื่อ', 'list_all', 100],
+      ['ขอรายชื่อทั้งหมด', 'list_all', 100],
+      ['รายชื่อทั้งหมด', 'list_all', 100],
       ['ขอรายชื่อผู้ค้า', 'list_dealer', 27],
       ['ขอรายชื่อเฉพาะผู้ค้า', 'list_dealer', 27],
       ['ขอรายชื่อผู้ค้าทั้งหมด', 'list_dealer', 27],

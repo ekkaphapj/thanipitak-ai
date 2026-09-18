@@ -312,6 +312,19 @@ function detectFastPathIntent(message, topic) {
   }
 
   if (wantsList) {
+    if (!topic && /^(?:ขอ|แสดง)?\s*รายชื่อ(?:หน่อย|ด้วย|ครับ|ค่ะ)?$/.test(text)) {
+      return {intent:'lookup_clarify',page,answer:'ต้องการรายชื่อแบบใดครับ? เลือกได้เลย',presentation:{type:'summary_choices',choices:[
+        {label:'1. รายชื่อทั้งหมด',message:'ขอรายชื่อทั้งหมด'},
+        {label:'2. แยกประเภทบุคคล',message:'ขอรายชื่อแยกตามประเภทบุคคล'},
+        {label:'3. แยกตามพื้นที่',message:'ขอรายชื่อแยกตามพื้นที่'},
+      ]}};
+    }
+    if (/รายชื่อ.*แยก.*ประเภท/.test(text)) {
+      return {intent:'lookup_clarify',page,answer:'กรุณาเลือกประเภทบุคคล',presentation:{type:'summary_choices',choices:Object.entries(TYPE_LABELS).map(([type,label])=>({label:`รายชื่อ${label}`,message:`ขอรายชื่อ${label}`}))}};
+    }
+    if (/รายชื่อ.*แยก.*พื้นที่/.test(text)) {
+      return {intent:'lookup_clarify',page,answer:'กรุณาระบุพื้นที่ เช่น “ขอรายชื่อในตำบลโพนสูง” หรือ “ขอรายชื่อในอำเภอบ้านดุง”'};
+    }
     if (types.length > 1) {
       return {
         intent: 'lookup_clarify',
@@ -383,7 +396,7 @@ function renderGroupAnswer(result, options) {
 
 async function runFastPath(intent, currentUser, toolRouter, options = {}) {
   if (intent === 'overview') {
-    const args = { requestedScope: options.requestedScope || 'current' };
+    const args = { requestedScope: options.requestedScope || 'current', filters: options.filters || {} };
     const result = await toolRouter.execute('get_overview', args, currentUser);
     if (result.error || !result.answer) return { ok: false };
     return { ok: true, answer: result.answer, toolsUsed: ['get_overview'], toolArgs: args, grounded: true, presentation: result.presentation };

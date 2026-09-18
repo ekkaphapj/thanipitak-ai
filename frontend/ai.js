@@ -881,6 +881,7 @@
       ['บุคคลเป้าหมาย', presentation.total || 0, 'คน', 'total'],
       ['เสี่ยงสูง', presentation.highRisk || 0, 'คน', 'high'],
       ['เฝ้าระวัง', presentation.watch || 0, 'คน', 'watch'],
+      ['ปกติ / ไม่เข้าเกณฑ์สี', Math.max(0, (presentation.total || 0) - (presentation.highRisk || 0) - (presentation.watch || 0)), 'คน', 'normal'],
     ];
     for (const [label, value, unit, tone] of metricRows) {
       const metric = document.createElement('div'); metric.className = `overview-metric ${tone}`;

@@ -85,7 +85,7 @@ test('real registry failures have safe categories and never expose upstream deta
 test('real registry reads bind authenticated station and token, without source writes',async()=>{
  const calls=[];const app=express();app.use(express.json());
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='real-user';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{calls.push({url,opts});return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{id:1,first_name:'ตัวอย่าง',last_name:'ทดสอบ',tambon:'ตัวอย่าง'}]};}}));
- const response=await request(app).post('/ai/chat').send({message:'ขอรายชื่อ',station_id:999});
+ const response=await request(app).post('/ai/chat').send({message:'ขอรายชื่อทั้งหมด',station_id:999});
  assert.equal(response.status,200);assert.equal(response.body.dataSource,'real');assert.equal(calls.length,1);
  assert.equal(response.body.presentation.type,'person_list');
  assert.equal(response.body.presentation.items[0].person_id,1);
@@ -98,7 +98,7 @@ test('station-assigned admin still lists only their own station',async()=>{
   const u=new URL(url);calls.push(u);
   return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[{id:1,first_name:'ก',last_name:'ข',station_id:2,tambon:'ท่าอุเทน'},{id:2,first_name:'ค',last_name:'ง',station_id:2,tambon:'ท่าอุเทน'}]};
  }}));
- const res=await request(app).post('/ai/chat').send({message:'ขอรายชื่อ'});
+ const res=await request(app).post('/ai/chat').send({message:'ขอรายชื่อทั้งหมด'});
  assert.equal(res.status,200);
  assert.equal(new URL(calls[0]).searchParams.get('station_id'),'eq.2');
  assert.ok(res.body.presentation.items.every(item=>item.full_name));

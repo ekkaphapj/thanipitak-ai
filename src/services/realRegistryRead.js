@@ -128,13 +128,16 @@ function createRealRegistryRead(rows) {
     return null;
   }
 
-  async function listRecordedMonitoring(req, { level, personType, page = 1, pageSize = 20 } = {}) {
+  async function listRecordedMonitoring(req, { level, personType, district, subdistrict, page = 1, pageSize = 20 } = {}) {
     const peopleParams = new URLSearchParams({
       select: 'id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status',
       order: 'first_name.asc,id.asc',
       limit: '1000',
     });
     applyPeopleStationScope(req.user, peopleParams);
+    const clean=value=>String(value||'').replace(/[%*(),]/g,'').slice(0,100);
+    if(district)peopleParams.set('amphoe',`ilike.*${clean(district)}*`);
+    if(subdistrict)peopleParams.set('tambon',`ilike.*${clean(subdistrict)}*`);
     if (personType) {
       const terms = { psychiatric: 'ผู้ป่วยจิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'พ้นโทษ' };
       const types = await rows(req, 'people_type', new URLSearchParams({ select: 'type_id', type_name: `ilike.*${terms[personType]}*`, limit: '1000' }));

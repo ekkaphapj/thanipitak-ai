@@ -37,7 +37,7 @@ function createToolRouter(db) {
     try {
       switch (toolName) {
         case 'summarize_persons': return summaries.summarize(currentUser, args);
-        case 'get_overview': return overview.summarize(currentUser, args?.requestedScope);
+        case 'get_overview': return overview.summarize(currentUser, args || {});
         case 'get_monitoring_persons': return createMonitoringService(db).list(currentUser,args);
         case 'get_statistics': {
           const result = statistics.getStatistics(currentUser);

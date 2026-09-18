@@ -144,8 +144,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   return {person,typeName,stationName};
  }
- async function realOverview(req,requestedScope) {
-  const found=await search(req,{},1,true);
+ async function realOverview(req,requestedScope,filters={}) {
+  const found=await search(req,filters,1,true);
   const typeIds=[...new Set(found.data.map(row=>row.type_id).filter(Boolean))];
   const types=typeIds.length ? await rows(req,'people_type',new URLSearchParams({select:'type_id,type_name',type_id:`in.(${typeIds.join(',')})`,limit:'1000'})) : {data:[]};
   const typeById=new Map(types.data.map(row=>[String(row.type_id),String(row.type_name||'')]));
@@ -164,11 +164,11 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   const sort=(direction)=>[...groups.values()].sort((a,b)=>{const diff=direction==='asc'?a.count-b.count:b.count-a.count;return diff||(a.name===b.name?0:(a.name<b.name?-1:1));}).slice(0,5);
   const [high,watch]=await Promise.all([
-   registry.listRecordedMonitoring(req,{level:'high',pageSize:1}),
-   registry.listRecordedMonitoring(req,{level:'watch',pageSize:1}),
+   registry.listRecordedMonitoring(req,{level:'high',personType:filters.person_type,district:filters.district,subdistrict:filters.subdistrict,pageSize:1}),
+   registry.listRecordedMonitoring(req,{level:'watch',personType:filters.person_type,district:filters.district,subdistrict:filters.subdistrict,pageSize:1}),
   ]);
   const data={scopeLabel:req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง',requestedScope,groupBy,total:found.total,
-   byType:Object.entries(TYPE_LABELS).map(([type,label])=>({type,label,count:counts[type]})),highRisk:high.total,watch:watch.total,top:sort('desc'),bottom:sort('asc')};
+   filters,byType:Object.entries(TYPE_LABELS).map(([type,label])=>({type,label,count:counts[type]})),highRisk:high.total,watch:watch.total,top:sort('desc'),bottom:sort('asc')};
   return {answer:formatOverview(data),presentation:{type:'overview',...data}};
  }
  const registry=createRealRegistryRead(rows);
@@ -205,7 +205,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   const conversation={topic:topicFromIntent(intent)||incomingTopic};
   if(overview){
-   try { const result=await realOverview(req,overview.requestedScope);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_overview_read'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+   try { const result=await realOverview(req,overview.requestedScope,overview.filters);conversation.topic=sanitizeTopic(overview.filters);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_overview_read'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
    catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
   }
   if(personId && !isCollectionQuestion(message,intent,ranking,summary,personId)) {

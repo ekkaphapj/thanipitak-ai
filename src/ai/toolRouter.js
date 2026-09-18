@@ -4,6 +4,7 @@ const { createFollowupService } = require('../services/followupService');
 const personRepo = require('../repositories/personRepo');
 const {createMonitoringService}=require('../services/monitoringService');
 const {createSummaryService}=require('../services/summaryService');
+const {createOverviewService}=require('../services/overviewService');
 
 const ALLOWED_TOOLS = new Set([
   'get_statistics',
@@ -15,6 +16,7 @@ const ALLOWED_TOOLS = new Set([
   'get_overdue_followups',
   'get_monitoring_persons',
   'summarize_persons',
+  'get_overview',
 ]);
 
 const SEARCH_PAGE_DEFAULT = 20;
@@ -25,6 +27,7 @@ function createToolRouter(db) {
   const statistics = createStatisticsService(db);
   const followups = createFollowupService(db);
   const summaries = createSummaryService(db);
+  const overview = createOverviewService(db);
 
   async function execute(toolName, args, currentUser) {
     if (!ALLOWED_TOOLS.has(toolName)) {
@@ -34,6 +37,7 @@ function createToolRouter(db) {
     try {
       switch (toolName) {
         case 'summarize_persons': return summaries.summarize(currentUser, args);
+        case 'get_overview': return overview.summarize(currentUser, args?.requestedScope);
         case 'get_monitoring_persons': return createMonitoringService(db).list(currentUser,args);
         case 'get_statistics': {
           const result = statistics.getStatistics(currentUser);

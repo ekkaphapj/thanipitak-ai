@@ -2,6 +2,7 @@
 
 const { detectLocationGroup, normalizeSpokenConnectors } = require('./spokenGeo');
 const { mergeTopicFilters, wantsExplicitAllList, listClarify } = require('./conversationTopic');
+const { detectOverview } = require('../services/overviewService');
 
 const PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
@@ -233,6 +234,9 @@ function detectFastPathIntent(message, topic) {
   const lower = text.toLowerCase();
   if (HARD_COMPLEX_TERMS.some((term) => lower.includes(term))) return null;
 
+  const overview = detectOverview(text);
+  if (overview) return { intent: 'overview', page: 1, ...overview };
+
   const spokenSearch = detectSpokenPersonSearch(text);
   if (spokenSearch) return { ...spokenSearch, page: 1 };
 
@@ -378,6 +382,12 @@ function renderGroupAnswer(result, options) {
 }
 
 async function runFastPath(intent, currentUser, toolRouter, options = {}) {
+  if (intent === 'overview') {
+    const args = { requestedScope: options.requestedScope || 'current' };
+    const result = await toolRouter.execute('get_overview', args, currentUser);
+    if (result.error || !result.answer) return { ok: false };
+    return { ok: true, answer: result.answer, toolsUsed: ['get_overview'], toolArgs: args, grounded: true, presentation: result.presentation };
+  }
   if (intent === 'lookup_clarify') {
     return {
       ok: true,

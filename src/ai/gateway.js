@@ -439,6 +439,7 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
       mentionedTypes: fastIntent.mentionedTypes,
       answer: fastIntent.answer,
       presentation: fastIntent.presentation,
+      requestedScope: fastIntent.requestedScope,
     });
     if (fastResult.ok) {
       if (onToolCall && fastResult.toolsUsed.length > 0) {

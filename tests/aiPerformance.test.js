@@ -47,6 +47,27 @@ async function login(app, username = 'station1_off') {
 
 // ── P1–P5: count / statistics fast paths ──
 
+test('overview requests are deterministic, include recorded-risk totals, and keep station scope', async () => {
+  const ctx = make();
+  try {
+    const { app, ollamaCalls } = makeSpyApp(ctx);
+    const token = await login(app, 'station2_off');
+    const res = await request(app).post('/api/ai/chat').set('Authorization', `Bearer ${token}`)
+      .send({ message: 'ขอภาพรวม สภ.' }).timeout(10000);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.meta.fastPath, true);
+    assert.deepEqual(res.body.toolsUsed, [{ name: 'get_overview' }]);
+    assert.equal(res.body.presentation.type, 'overview');
+    assert.equal(res.body.presentation.groupBy, 'subdistrict');
+    assert.equal(res.body.presentation.total, ctx.db.prepare('SELECT COUNT(*) c FROM persons WHERE station_id=2').get().c);
+    assert.ok(Array.isArray(res.body.presentation.byType));
+    assert.ok(Number.isInteger(res.body.presentation.highRisk));
+    assert.ok(Number.isInteger(res.body.presentation.watch));
+    assert.ok(res.body.answer.includes('5 อันดับตำบล'));
+    assert.equal(ollamaCalls(), 0);
+  } finally { ctx.cleanup(); }
+});
+
 test('P1: "มีผู้ป่วยจิตเวชกี่คน" → fastPath + get_statistics + 37 + NO Ollama', async () => {
   const ctx = make();
   try {

@@ -866,6 +866,32 @@
     hostForPresentation(wrap).appendChild(box);
   }
 
+  function renderOverview(wrap, presentation) {
+    const box = document.createElement('div');
+    box.className = 'person-candidates overview-card';
+    const title = document.createElement('div'); title.className = 'pc-title';
+    title.textContent = `ภาพรวม • ${presentation.scopeLabel || 'พื้นที่ที่มีสิทธิ์เข้าถึง'}`;
+    box.appendChild(title);
+    const totals = document.createElement('div'); totals.className = 'overview-totals';
+    totals.textContent = `บุคคลเป้าหมาย ${presentation.total || 0} คน • เสี่ยงสูง ${presentation.highRisk || 0} คน • เฝ้าระวัง ${presentation.watch || 0} คน`;
+    box.appendChild(totals);
+    const types = document.createElement('div'); types.className = 'overview-types';
+    types.textContent = (presentation.byType || []).map(item => `${item.label} ${item.count} คน`).join(' • ');
+    box.appendChild(types);
+    const label = presentation.groupBy === 'station' ? 'สภ.' : 'ตำบล';
+    for (const [heading, items] of [[`5 อันดับ${label}มากที่สุด`, presentation.top], [`5 อันดับ${label}น้อยที่สุด`, presentation.bottom]]) {
+      const section = document.createElement('div'); section.className = 'overview-ranking';
+      const h = document.createElement('div'); h.className = 'pc-title'; h.textContent = heading; section.appendChild(h);
+      if (!items || !items.length) {
+        const empty = document.createElement('div'); empty.className = 'pc-empty'; empty.textContent = `ไม่มี${label}ที่มีรายการให้จัดอันดับ`; section.appendChild(empty);
+      } else {
+        items.forEach((item, index) => { const row = document.createElement('div'); row.className = 'pc-row'; row.textContent = `${index + 1}. ${label}${item.name} • ${item.count} คน`; section.appendChild(row); });
+      }
+      box.appendChild(section);
+    }
+    hostForPresentation(wrap).appendChild(box);
+  }
+
   function renderSummaryChoices(wrap, presentation) {
     const box = document.createElement('div');
     box.className = 'person-candidates';
@@ -1206,6 +1232,7 @@
         if (json.presentation && json.presentation.type === 'monitoring_list') renderMonitoring(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'monitoring_location_summary') renderMonitoringLocationSummary(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'location_summary') renderLocationSummary(wrap,json.presentation);
+        if (json.presentation && json.presentation.type === 'overview') renderOverview(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_result') renderSummaryResult(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'report_offer') renderReportOffer(wrap, json.presentation);

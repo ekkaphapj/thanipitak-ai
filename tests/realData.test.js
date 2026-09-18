@@ -49,6 +49,29 @@ test('real registry ranking honors an explicit Top N and returns deterministic n
  assert.equal((res.body.answer.match(/^\d+\. ตำบล/gm)||[]).length,5,'Top 5 must return exactly five areas');
  assert.match(res.body.answer,/1\. ตำบลหนึ่ง.*2 คน/);
 });
+test('real overview is scoped, includes recorded risk totals, and ranks station or subdistrict',async()=>{
+ const app=express();app.use(express.json());
+ const people=[
+  {id:1,station_id:77,type_id:9,tambon:'ก'},{id:2,station_id:77,type_id:5,tambon:'ก'},
+  {id:3,station_id:77,type_id:9,tambon:'ข'},{id:4,station_id:77,type_id:7,tambon:'ค'},
+ ];
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,stationName:'สภ.บ้านดุง'};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async url=>{
+  const u=new URL(url); const path=u.pathname;
+  if(path.endsWith('/people_type')) return {ok:true,headers:new Headers({'content-range':'0-2/3'}),json:async()=>[{type_id:9,type_name:'ผู้ป่วยจิตเวช'},{type_id:5,type_name:'ผู้เสพ'},{type_id:7,type_name:'ผู้ค้า'}]};
+  if(path.endsWith('/stations')) return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{station_id:77,station_name:'สภ.บ้านดุง'}]};
+  if(path.endsWith('/visits')) return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[{id:1,person_id:1,visit_status:'เสี่ยงสูง',visit_date:'2026-09-01'},{id:2,person_id:2,visit_status:'เฝ้าระวัง',visit_date:'2026-09-01'}]};
+  if(path.endsWith('/person_report_status')) return {ok:true,headers:new Headers({'content-range':'0--1/0'}),json:async()=>[]};
+  assert.equal(u.searchParams.get('station_id'),'eq.77');
+  return {ok:true,headers:new Headers({'content-range':'0-3/4'}),json:async()=>people};
+ }}));
+ const station=await request(app).post('/ai/chat').send({message:'ภาพรวม สภ.'});
+ assert.equal(station.status,200);assert.equal(station.body.presentation.type,'overview');assert.equal(station.body.presentation.groupBy,'subdistrict');
+ assert.equal(station.body.presentation.total,4);assert.equal(station.body.presentation.highRisk,1);assert.equal(station.body.presentation.watch,1);
+ assert.match(station.body.answer,/ผู้ป่วยจิตเวช 2 คน/);assert.match(station.body.answer,/5 อันดับตำบล/);
+ const province=await request(app).post('/ai/chat').send({message:'ภาพรวมจังหวัด'});
+ assert.equal(province.status,200);assert.equal(province.body.presentation.groupBy,'station');
+ assert.match(province.body.answer,/สภ\.บ้านดุง/);
+});
 test('real registry failures have safe categories and never expose upstream details',async()=>{
  const app=express();app.use(express.json());
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async()=>({ok:false,status:403,headers:new Headers(),json:async()=>({message:'private upstream detail'})})}));

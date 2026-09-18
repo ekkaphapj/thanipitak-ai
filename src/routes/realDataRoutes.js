@@ -7,6 +7,7 @@ const {detectExportIntent,reportRequestFromExport}=require('../ai/exportIntent')
 const {writeSummaryPdf,writeSummaryExcel,safeReportRequest}=require('../services/reportService');
 const fs=require('fs');
 const {parseStationId,applyPeopleStationScope,personInOwnStation}=require('../services/stationScope');
+const {detectOverview,formatOverview,TYPE_LABELS}=require('../services/overviewService');
 
 function realFailure(error) {
  const code=error&&error.code;
@@ -66,7 +67,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if(scoped.length!==found.data.length) return {data:scoped,total:scoped.length};
    return found;
   }
-  p.set('select','id,province,amphoe,tambon');p.set('order','id.asc');p.set('limit','1000');
+  p.set('select','id,province,amphoe,tambon,type_id,station_id');p.set('order','id.asc');p.set('limit','1000');
   const all=[];const seen=new Set();let total=null;
   do {
    p.set('offset',String(all.length));
@@ -143,6 +144,33 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   return {person,typeName,stationName};
  }
+ async function realOverview(req,requestedScope) {
+  const found=await search(req,{},1,true);
+  const typeIds=[...new Set(found.data.map(row=>row.type_id).filter(Boolean))];
+  const types=typeIds.length ? await rows(req,'people_type',new URLSearchParams({select:'type_id,type_name',type_id:`in.(${typeIds.join(',')})`,limit:'1000'})) : {data:[]};
+  const typeById=new Map(types.data.map(row=>[String(row.type_id),String(row.type_name||'')]));
+  const typeFor=name=>/จิตเวช/.test(name)?'psychiatric':/ผู้เสพ|ใช้ยา/.test(name)?'drug_user':/ผู้ค้า|จำหน่าย/.test(name)?'dealer':/พ้นโทษ|เรือนจำ/.test(name)?'released':null;
+  const counts={psychiatric:0,drug_user:0,dealer:0,released:0};
+  for(const person of found.data){const type=typeFor(typeById.get(String(person.type_id))||'');if(type)counts[type]++;}
+  const groupBy=requestedScope==='province'||(!req.user.stationId&&requestedScope==='current')?'station':'subdistrict';
+  const stationIds=[...new Set(found.data.map(row=>Number(row.station_id)).filter(Number.isFinite))];
+  const stations=groupBy==='station'&&stationIds.length ? await rows(req,'stations',new URLSearchParams({select:'station_id,station_name',station_id:`in.(${stationIds.join(',')})`,limit:'1000'})) : {data:[]};
+  const stationNames=new Map(stations.data.map(row=>[Number(row.station_id),row.station_name]));
+  const groups=new Map();
+  for(const person of found.data){
+   const name=(groupBy==='station'?stationNames.get(Number(person.station_id)):person.tambon)||'';
+   if(!String(name).trim())continue;
+   const group=groups.get(name)||{name,count:0};group.count++;groups.set(name,group);
+  }
+  const sort=(direction)=>[...groups.values()].sort((a,b)=>{const diff=direction==='asc'?a.count-b.count:b.count-a.count;return diff||(a.name===b.name?0:(a.name<b.name?-1:1));}).slice(0,5);
+  const [high,watch]=await Promise.all([
+   registry.listRecordedMonitoring(req,{level:'high',pageSize:1}),
+   registry.listRecordedMonitoring(req,{level:'watch',pageSize:1}),
+  ]);
+  const data={scopeLabel:req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง',requestedScope,groupBy,total:found.total,
+   byType:Object.entries(TYPE_LABELS).map(([type,label])=>({type,label,count:counts[type]})),highRisk:high.total,watch:watch.total,top:sort('desc'),bottom:sort('asc')};
+  return {answer:formatOverview(data),presentation:{type:'overview',...data}};
+ }
  const registry=createRealRegistryRead(rows);
  router.get('/ai/status',(req,res)=>res.json({available:true,model:'ข้อมูลจริง • อ่านจาก Supabase'}));
  router.post('/ai/chat',async(req,res)=>{
@@ -167,6 +195,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    return res.json({answer,grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:exportIntent.formats,auto:exportIntent.confirm?null:exportIntent.auto,confirm:!!exportIntent.confirm,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
   const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,incomingTopic);
+  const overview=detectOverview(message);
   const topN=topNFromMessage(message);
   // “ขอ 5 อันดับตำบล…” is a complete, deterministic grouping request even
   // when the general spoken-language fast path does not recognise its wording.
@@ -175,6 +204,10 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if(area)ranking=[message,area[1],/น้อย/.test(message)?'น้อยสุด':'มากสุด'];
   }
   const conversation={topic:topicFromIntent(intent)||incomingTopic};
+  if(overview){
+   try { const result=await realOverview(req,overview.requestedScope);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_overview_read'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+   catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
+  }
   if(personId && !isCollectionQuestion(message,intent,ranking,summary,personId)) {
    try {
     const found=await readSelectedPerson(req,personId);

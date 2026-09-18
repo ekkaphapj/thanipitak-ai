@@ -18,6 +18,7 @@
     conversationTopic: null,
     pendingSummaryReport: null,
     ordinalItems: null,
+    referenceList: null,
   };
 
   const SUGGESTIONS = [
@@ -427,6 +428,8 @@
     state.conversationTopic = null;
     state.pendingSummaryReport = null;
     state.ordinalItems = null;
+    state.referenceList = null;
+    renderReferenceListBar();
     removeTypingIndicator();
     $('#chat-input').value = '';
     autoResizeInput();
@@ -449,6 +452,23 @@
       bar.classList.add('hidden');
       label.textContent = '';
     }
+  }
+
+  function renderReferenceListBar() {
+    const bar = $('#reference-list-bar');
+    const label = $('#reference-list-label');
+    const detail = $('#reference-list-detail');
+    const reference = state.referenceList;
+    if (!reference || !reference.items.length) {
+      bar.classList.add('hidden');
+      label.textContent = '';
+      detail.textContent = '';
+      return;
+    }
+    bar.classList.remove('hidden');
+    label.textContent = `กำลังอ้างอิง: ${reference.label}`;
+    const children = reference.children || [];
+    detail.textContent = `${reference.items.length} รายการ${children.length ? ` • รายการย่อย: ${children.map((item) => `${item.ordinal}. ${item.displayName}`).join(', ')}` : ''}`;
   }
 
   function selectPerson(raw) {
@@ -507,18 +527,61 @@
     return wrap.querySelector('.bubble') || wrap;
   }
 
-  function rememberOrdinalItems(items) {
+  function rememberOrdinalItems(items, label) {
     state.ordinalItems = Array.isArray(items) && items.length ? items : null;
+    if (!state.ordinalItems) {
+      state.referenceList = null;
+    } else {
+      state.referenceList = { label: label || 'รายการล่าสุด', items: state.ordinalItems, children: [] };
+    }
+    renderReferenceListBar();
+  }
+
+  function recordReferenceChild(item) {
+    if (!state.referenceList || !item) return;
+    const children = state.referenceList.children || (state.referenceList.children = []);
+    if (!children.some((child) => child.ordinal === item.ordinal)) children.push({ ordinal: item.ordinal, displayName: item.displayName || `รายการที่ ${item.ordinal}` });
+    renderReferenceListBar();
+  }
+
+  function renderReferenceSnapshot() {
+    const reference = state.referenceList;
+    if (!reference || !reference.items.length) {
+      appendMessage('assistant', 'ขณะนี้ไม่มีรายการที่กำลังอ้างอิง');
+      return;
+    }
+    const wrap = appendMessage('assistant', `กำลังอ้างอิง ${reference.label}`);
+    const box = document.createElement('div'); box.className = 'person-candidates';
+    const list = document.createElement('div'); list.className = 'pc-list';
+    reference.items.forEach((item) => {
+      const row = document.createElement('div'); row.className = 'pc-row';
+      const label = document.createElement('span'); label.textContent = `${item.ordinal}. ${item.displayName || 'ไม่ระบุรายการ'}`;
+      row.appendChild(label); list.appendChild(row);
+    });
+    box.appendChild(list);
+    if (reference.children && reference.children.length) {
+      const title = document.createElement('div'); title.className = 'pc-title'; title.textContent = 'รายการย่อยที่อ้างถึง'; box.appendChild(title);
+      const children = document.createElement('div'); children.className = 'pc-list';
+      reference.children.forEach((item) => { const row = document.createElement('div'); row.className = 'pc-row'; const label = document.createElement('span'); label.textContent = `↳ ${item.ordinal}. ${item.displayName}`; row.appendChild(label); children.appendChild(row); });
+      box.appendChild(children);
+    }
+    hostForPresentation(wrap).appendChild(box); scrollToBottom();
   }
 
   function ordinalPromptForLocation(item) {
     return item && item.followup ? item.followup : null;
   }
 
+  function referenceLabelForPeople(filters, fallback) {
+    const type = TYPE_AI_LABEL[filters && filters.person_type];
+    const place = filters && (filters.subdistrict ? `ตำบล${filters.subdistrict}` : filters.district ? `อำเภอ${filters.district}` : filters.province ? `จังหวัด${filters.province}` : null);
+    return [fallback || 'รายชื่อ', type, place].filter(Boolean).join(' • ');
+  }
+
   function resolveOrdinalReference(message) {
     const ordinal = window.ChatContext.ordinalFromMessage(message);
     if (ordinal === null) return { message };
-    const items = state.ordinalItems;
+    const items = state.referenceList && state.referenceList.items;
     if (!items || !items.length) {
       appendMessage('assistant', 'ไม่มีรายการให้เลือก กรุณาขอรายชื่อหรือรายการก่อน');
       return { handled: true };
@@ -529,11 +592,12 @@
       return { handled: true };
     }
     if (chosen.personId) {
+      recordReferenceChild(chosen);
       applyPersonSelection({ personId: chosen.personId, displayName: chosen.displayName }, false);
       return { message: String(message).replace(/(?:ของ\s*)?(?:ลำดับ|อันดับ)\s*(?:ที่)?\s*\d{1,3}/, 'คนนี้') };
     }
     const followup = ordinalPromptForLocation(chosen);
-    if (followup) return { message: followup };
+    if (followup) { recordReferenceChild(chosen); return { message: followup }; }
     appendMessage('assistant', `ไม่มีข้อมูลเพิ่มเติมที่เปิดดูได้สำหรับรายการลำดับที่ ${ordinal}`);
     return { handled: true };
   }
@@ -606,7 +670,7 @@
         row.append(info, makeSelectButton({ personId: item.person_id, displayName: item.full_name }));
         list.appendChild(row);
       });
-      rememberOrdinalItems(ordinalItems);
+      rememberOrdinalItems(ordinalItems, referenceLabelForPeople(ctx.filter, 'รายชื่อที่แสดง'));
     }
 
     function updateRange() {
@@ -718,7 +782,7 @@
       row.appendChild(makeSelectButton({ personId: c.personId, displayName: c.displayName }));
       list.appendChild(row);
     }
-    rememberOrdinalItems(ordinalItems);
+    rememberOrdinalItems(ordinalItems, 'รายชื่อที่ชื่อซ้ำ');
     if (candidates.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'pc-empty';
@@ -742,7 +806,7 @@
       row.append(label, makeSelectButton({personId:person.personId,displayName:person.displayName}));
       box.appendChild(row);
     }
-    rememberOrdinalItems(ordinalItems);
+    rememberOrdinalItems(ordinalItems, 'รายชื่อเฝ้าระวัง/เสี่ยงสูง');
     // A one-person result is unambiguous. Keep it as the chat context so a
     // natural follow-up such as “เพราะอะไร” answers that person directly.
     if (items.length === 1) {
@@ -772,12 +836,12 @@
       const info = document.createElement('span'); info.textContent = `${index + 1}. ${locationName} • ${item.count} คน`;
       const type=TYPE_AI_LABEL[(presentation.filters || {}).person_types?.[0]] || 'บุคคล';
       const level=(presentation.filters || {}).level === 'high' ? 'เสี่ยงสูง' : (presentation.filters || {}).level === 'watch' ? 'เฝ้าระวัง' : '';
-      ordinalItems.push({ordinal:index+1,followup:`ขอรายชื่อ${type}ใน${locationName}${level?`ที่${level}`:''}`});
+      ordinalItems.push({ordinal:index+1,displayName:locationName,followup:`ขอรายชื่อ${type}ใน${locationName}${level?`ที่${level}`:''}`});
       const button = document.createElement('button'); button.type = 'button'; button.className = 'pc-btn'; button.textContent = 'ดูรายชื่อ';
       button.addEventListener('click', () => sendMessage(`${TYPE_AI_LABEL[(presentation.filters || {}).person_types?.[0]] || 'บุคคล'} ใน${locationName} ที่${(presentation.filters || {}).level === 'high' ? 'เสี่ยงสูง' : 'ต้องเฝ้าระวัง'}มีใครบ้าง`));
       row.append(info, button); box.appendChild(row);
     }
-    rememberOrdinalItems(ordinalItems);
+    rememberOrdinalItems(ordinalItems, `รายการ${label}เฝ้าระวัง/เสี่ยงสูง`);
     wrap.appendChild(box);
   }
 
@@ -795,10 +859,10 @@
       const button=document.createElement('button');button.type='button';button.className='pc-btn';button.textContent='ดูรายชื่อ';
       const followup=`ขอรายชื่อ${type}ใน${locationName}`;
       button.addEventListener('click',()=>sendMessage(followup));
-      ordinalItems.push({ordinal:index+1,followup});
+      ordinalItems.push({ordinal:index+1,displayName:locationName,followup});
       row.append(info,button);box.appendChild(row);
     }
-    rememberOrdinalItems(ordinalItems);
+    rememberOrdinalItems(ordinalItems, `รายการ${label}`);
     hostForPresentation(wrap).appendChild(box);
   }
 
@@ -838,7 +902,6 @@
 
   function renderSummaryResult(wrap, presentation) {
     state.pendingSummaryReport = presentation.reportRequest || null;
-    rememberOrdinalItems(null);
     const box = document.createElement('div');
     box.className = 'person-candidates';
     const create = document.createElement('button');
@@ -870,7 +933,7 @@
         box.appendChild(row);
         ordinalItems.push({ordinal:index+1,personId,displayName:item.full_name||'ไม่ระบุชื่อ'});
       }
-      rememberOrdinalItems(ordinalItems);
+      rememberOrdinalItems(ordinalItems, referenceLabelForPeople(presentation.filters || {}, 'รายชื่อจากสรุป'));
     }
     wrap.appendChild(box);
   }
@@ -1045,6 +1108,15 @@
     let message = (overrideText !== undefined ? overrideText : $('#chat-input').value || '').trim();
     if (!message || state.sending) return;
 
+    if (window.ChatContext.isReferenceListQuestion(message)) {
+      appendMessage('user', message);
+      if (/บุคคล/.test(message) && state.selectedPerson) appendMessage('assistant', `กำลังอ้างอิงบุคคล: ${state.selectedPerson.displayName}`);
+      else renderReferenceSnapshot();
+      $('#chat-input').value = '';
+      autoResizeInput();
+      return;
+    }
+
     const ordinalResolution = resolveOrdinalReference(message);
     if (ordinalResolution.handled) return;
     message = ordinalResolution.message.trim();
@@ -1122,7 +1194,6 @@
           wrap.insertBefore(tools, wrap.querySelector('.msg-time'));
         }
 
-        if (!json.presentation || !['person_list','person_candidates','monitoring_list','monitoring_location_summary','location_summary','summary_result'].includes(json.presentation.type)) rememberOrdinalItems(null);
         if (json.presentation && json.presentation.type === 'person_list') {
           renderPersonList(wrap, json.presentation);
         }
@@ -1228,6 +1299,9 @@
       localStorage.removeItem(TOKEN_KEY);
       clearSelectedPerson();
       state.conversationTopic = null;
+      state.ordinalItems = null;
+      state.referenceList = null;
+      renderReferenceListBar();
       showLogin();
     });
 

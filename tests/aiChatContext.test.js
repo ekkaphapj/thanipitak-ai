@@ -102,6 +102,7 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
     // Logout path must clear the selection.
     assert.ok(AI_JS.includes("$('#logout-btn').addEventListener('click'"), 'logout handler exists');
     assert.ok(AI_JS.includes('clearSelectedPerson'), 'logout clears selection');
+    assert.ok(AI_JS.includes('state.referenceList = null'), 'logout clears the in-memory reference list');
   });
 
   test('indicator text is rendered from the selection', () => {
@@ -121,6 +122,13 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
     assert.strictEqual(ChatContext.ordinalFromMessage('เอาอันดับ 12'), 12);
     assert.strictEqual(ChatContext.ordinalFromMessage('ขอ 5 อันดับตำบล'), null);
     assert.strictEqual(ChatContext.ordinalFromMessage('ข้อมูลเพิ่มเติม'), null);
+  });
+
+  test('reference-list questions recognise list and selected-person wording', () => {
+    assert.strictEqual(ChatContext.isReferenceListQuestion('กำลังอ้างอิงรายการไหน'), true);
+    assert.strictEqual(ChatContext.isReferenceListQuestion('กำลังอ้างอิงบุคคลไหน'), true);
+    assert.strictEqual(ChatContext.isReferenceListQuestion('ขอรายชื่อที่กำลังอ้างอิงอีกครั้ง'), true);
+    assert.strictEqual(ChatContext.isReferenceListQuestion('ขอรายชื่อผู้เสพ'), false);
   });
 });
 

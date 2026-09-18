@@ -113,6 +113,11 @@
     return Number.isSafeInteger(ordinal) && ordinal > 0 ? ordinal : null;
   }
 
+  function isReferenceListQuestion(message) {
+    const text = String(message == null ? '' : message).replace(/\s+/g, '').trim();
+    return /กำลังอ้างอิง(?:รายการ|บุคคล)?(?:ไหน)?/.test(text) || /(?:ขอ|แสดง)?(?:รายชื่อ|รายการ)ที่กำลังอ้างอิง(?:อีกครั้ง)?/.test(text);
+  }
+
   return {
     validPersonId,
     normalizeSelectedPerson,
@@ -121,6 +126,7 @@
     indicatorText,
     clearSelection,
     ordinalFromMessage,
+    isReferenceListQuestion,
     FORBIDDEN_FIELDS,
   };
 });

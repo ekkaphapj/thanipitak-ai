@@ -29,4 +29,6 @@ test('list UI supports numbered ordinal follow-ups and safe empty-list feedback'
   assert.match(aiJs, /ขอข้อมูลเพิ่มเติมของลำดับที่/);
   assert.match(aiJs, /ไม่มีรายการให้เลือก/);
   assert.match(aiJs, /renderLocationSummary/);
+  assert.match(aiJs, /reference-list-bar/);
+  assert.match(aiJs, /กำลังอ้างอิง/);
 });

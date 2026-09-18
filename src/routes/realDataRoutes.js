@@ -168,6 +168,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,incomingTopic);
   const topN=topNFromMessage(message);
+  // “ขอ 5 อันดับตำบล…” is a complete, deterministic grouping request even
+  // when the general spoken-language fast path does not recognise its wording.
+  if(!ranking&&topN!==null){
+   const area=/(ตำบล|อำเภอ|จังหวัด)/.exec(message);
+   if(area)ranking=[message,area[1],/น้อย/.test(message)?'น้อยสุด':'มากสุด'];
+  }
   const conversation={topic:topicFromIntent(intent)||incomingTopic};
   if(personId && !isCollectionQuestion(message,intent,ranking,summary,personId)) {
    try {

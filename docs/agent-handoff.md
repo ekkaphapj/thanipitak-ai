@@ -526,6 +526,12 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
 - Verified from an external browser path: `https://files.policeshield4.com/files/`
   returns the Cloudflare Access sign-in page before it can reach Copyparty.
   After Access login, Copyparty also requires its separate local account.
+- The `files.policeshield4.com` route has the Tunnel HTTP origin setting
+  `httpHostHeader: files.policeshield4.com`.  Keep that setting: Copyparty
+  validates the browser Origin against its received Host header, and the default
+  loopback host (`127.0.0.1:3923`) causes its login POST to fail with
+  `rejected by cors-check`.  Do not weaken Copyparty's CSRF/CORS protections to
+  work around this mismatch.
 - External SSH clients need cloudflared installed and should use
   `ssh -o ProxyCommand="cloudflared access ssh --hostname ssh.policeshield4.com" ekkaphap@ssh.policeshield4.com`.
   Prefer an SSH key in `~ekkaphap/.ssh/authorized_keys`; do not expose port 22

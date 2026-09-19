@@ -171,6 +171,50 @@
     box.appendChild(empty);
   }
 
+  function isUsageGuideQuestion(message) {
+    const text = String(message || '').replace(/\s+/g, '');
+    return /(?:วิธ[ีิ]ใช้|วิธีการใช้|สอน(?:การ)?ใช้งาน?(?:ให้)?หน่อย|สอนใช้หน่อย|ใช้ยังไง|ต้องถามอะไรบ้าง|ถามอะไรได้บ้าง)/u.test(text);
+  }
+
+  function renderUsageGuide() {
+    const wrap = appendMessage('assistant', '');
+    wrap.classList.add('msg-usage-guide');
+    wrap.querySelector('.bubble')?.remove();
+    const card = document.createElement('section');
+    card.className = 'usage-guide-card';
+    const head = document.createElement('div');
+    head.className = 'usage-guide-head';
+    head.innerHTML = '<span class="usage-guide-kicker">คู่มือด่วน</span><h2>ใช้งานผู้ช่วยเอไอธานีพิทักษ์อย่างไร</h2><p>ถามด้วยภาษาพูดได้เลย ระบบจะแสดงเฉพาะข้อมูลในสิทธิ์ของผู้ใช้</p>';
+    const grid = document.createElement('div');
+    grid.className = 'usage-guide-grid';
+    const sections = [
+      ['ดูภาพรวม', ['“ขอภาพรวม สภ.”', '“ขอภาพรวมผู้เสพ ตำบลโพนสูง”']],
+      ['ขอรายชื่อและเลือกคน', ['“ขอรายชื่อผู้เสพ”', '“เลือกคนที่ 2” หรือ “ขอข้อมูลคนที่สอง”']],
+      ['ติดตามรายการเดิม', ['“กำลังอ้างอิงรายการไหน”', '“ยกเลิกการเลือก”']],
+      ['รายงาน', ['“ทำเป็น PDF” หรือ “ทำเป็น Excel”', 'ระบบจะถามยืนยันก่อนสร้างรายงาน']],
+      ['สั่งด้วยเสียง', ['กด “ผู้ช่วยเอไอธานีพิทักษ์”', 'กดค้างปุ่มไมค์ พูดจบแล้วปล่อยปุ่ม']],
+      ['ข้อควรทราบ', ['ไม่ต้องพิมพ์ข้อมูลอ่อนไหวเกินจำเป็น', 'หากยังไม่แน่ใจ ระบบจะถามให้ระบุเพิ่ม']],
+    ];
+    for (const [title, items] of sections) {
+      const section = document.createElement('div');
+      section.className = 'usage-guide-section';
+      const h3 = document.createElement('h3'); h3.textContent = title;
+      const list = document.createElement('ul');
+      for (const item of items) { const li = document.createElement('li'); li.textContent = item; list.appendChild(li); }
+      section.append(h3, list); grid.appendChild(section);
+    }
+    const examples = document.createElement('div');
+    examples.className = 'usage-guide-examples';
+    const title = document.createElement('strong'); title.textContent = 'ลองถามได้ทันที'; examples.appendChild(title);
+    for (const prompt of ['ขอภาพรวม สภ.', 'ขอรายชื่อผู้เสพ', 'ผู้ป่วยจิตเวชที่เสี่ยงสูงมีใครบ้าง']) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'suggest-btn'; button.textContent = prompt;
+      button.addEventListener('click', () => sendMessage(prompt)); examples.appendChild(button);
+    }
+    card.append(head, grid, examples);
+    wrap.insertBefore(card, wrap.querySelector('.msg-time'));
+    scrollToBottom();
+  }
+
   function removeTypingIndicator() {
     const existing = document.querySelector('#typing-row');
     if (existing) existing.remove();
@@ -453,8 +497,10 @@
         // Send a clean voice turn immediately. Never silently combine a
         // transcript with text the user had already typed.
         if (typedBeforeTranscript) {
-          input.focus();
-          setMicStatus('พบข้อความที่พิมพ์ค้างอยู่ กรุณาตรวจแล้วกดส่ง', false);
+          if (!state.voiceMode) input.focus();
+          setMicStatus(state.voiceMode
+            ? 'พบข้อความที่พิมพ์ค้างอยู่ • ปิดโหมดเสียงเพื่อกลับไปตรวจและส่งข้อความเดิม'
+            : 'พบข้อความที่พิมพ์ค้างอยู่ กรุณาตรวจแล้วกดส่ง', false);
         } else {
           autoSendMessage = String(text).trim();
         }
@@ -1316,6 +1362,15 @@
     let message = (overrideText !== undefined ? overrideText : $('#chat-input').value || '').trim();
     if (!message || state.sending) return;
     const voiceTurn = options.voice === true;
+
+    if (isUsageGuideQuestion(message)) {
+      appendMessage('user', message);
+      $('#chat-input').value = '';
+      autoResizeInput();
+      renderUsageGuide();
+      finishVoiceTurn(null, message);
+      return;
+    }
 
     if (window.ChatContext.isReferenceListQuestion(message)) {
       appendMessage('user', message);

@@ -143,11 +143,16 @@ chat logs.
 - Mobile styles hide the sidebar, place the normal text composer into a
   touch-friendly two-row layout, and lift the compact mascot above the voice
   status dock.
+- Usage-help wording (`วิธีใช้`, the common misspelling `วิธิใช้`, `สอนใช้หน่อย`,
+  `ใช้ยังไง`, and `ต้องถามอะไรบ้าง`) renders a local guide template directly in
+  the browser. It offers safe examples and does not call Ollama or registry
+  endpoints. If a voice turn finds an existing typed draft, it must preserve it
+  and say to close voice mode before reviewing or sending that draft.
 
 ### Latest validation
 
-- `npm test` passed **307 tests, 25 suites, 0 failures** after the latest
-  voice-dock, Thai-ordinal, and mobile-layout update. `node --check
+- `npm test` passed **308 tests, 25 suites, 0 failures** after the latest
+  usage-guide and voice-draft-status update. `node --check
   frontend/ai.js` and focused context/STT tests also passed.
 - Live Ubuntu checks after deployment: Node child running, Caddy served the
   new `ai.html` and sprite with HTTP 200, and local STT health returned OK.

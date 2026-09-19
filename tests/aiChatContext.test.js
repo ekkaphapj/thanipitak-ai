@@ -189,6 +189,14 @@ describe('STEP 2.5 frontend wiring (static)', () => {
     assert.ok(AI_JS.includes('if (items.length === 1)'), 'single monitoring result is detected');
     assert.ok(AI_JS.includes('selectPerson({ personId: person.personId, displayName: person.displayName })'), 'single monitoring result is selected');
   });
+
+  test('usage questions render locally without sending registry data to the model', () => {
+    assert.ok(AI_JS.includes('function isUsageGuideQuestion(message)'));
+    assert.ok(AI_JS.includes('function renderUsageGuide()'));
+    assert.ok(AI_JS.includes("if (isUsageGuideQuestion(message))"));
+    assert.ok(AI_JS.includes('ใช้งานผู้ช่วยเอไอธานีพิทักษ์อย่างไร'));
+    assert.ok(AI_JS.includes('ปิดโหมดเสียงเพื่อกลับไปตรวจและส่งข้อความเดิม'));
+  });
 });
 
 describe('STEP 2.5 end-to-end via real HTTP app (no Ollama needed)', () => {

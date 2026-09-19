@@ -486,7 +486,7 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
   first access.  Verify locally without printing credentials by reading that
   file inside a root shell and requesting `http://127.0.0.1:3923/files/`.
 
-### Secure external access — pending Cloudflare Access setup
+### Secure external access — original plan (superseded by completed setup below)
 
 - Do **not** expose SMB/445, the Copyparty loopback port, or unauthenticated SSH
   directly to the Internet.  SSH currently listens on LAN interfaces, has
@@ -507,3 +507,26 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
   Completing these two hostnames requires the owner's Cloudflare dashboard
   login (or a scoped Cloudflare API token); do not invent DNS entries, policies,
   or a public port-forward.
+
+### Secure external access — completed 2026-09-19
+
+- Zero Trust Free is active for the Cloudflare account. The existing remotely
+  managed `thanipitak-ai` tunnel (`77fac5b3-dc81-4bf4-aa11-b7d4a9e11c2c`) now
+  has these published routes: `ai.policeshield4.com` →
+  `http://127.0.0.1:3100`, `files.policeshield4.com` →
+  `http://127.0.0.1:3923`, and `ssh.policeshield4.com` →
+  `ssh://127.0.0.1:22`. Cloudflare created the DNS records; do not create
+  duplicate local DNS or port-forward rules.
+- Cloudflare Access applications **ThaniPitak Files** and **ThaniPitak SSH**
+  protect the two new hostnames. Both reuse the named allow policy
+  `Allow Ekapap - ThaniPitak Files`; it contains one exact authenticated email
+  selector for the owner's Google/Cloudflare identity. Do not replace it with
+  `Everyone`, `Login Methods`, or a broad email-domain selector without explicit
+  approval.
+- Verified from an external browser path: `https://files.policeshield4.com/files/`
+  returns the Cloudflare Access sign-in page before it can reach Copyparty.
+  After Access login, Copyparty also requires its separate local account.
+- External SSH clients need cloudflared installed and should use
+  `ssh -o ProxyCommand="cloudflared access ssh --hostname ssh.policeshield4.com" ekkaphap@ssh.policeshield4.com`.
+  Prefer an SSH key in `~ekkaphap/.ssh/authorized_keys`; do not expose port 22
+  by router forwarding or create an unauthenticated tunnel.

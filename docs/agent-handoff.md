@@ -413,3 +413,97 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
 ## Publishing
 
 `npm ci`, `npm test`, `npm start`. Untracked: `.env`, SQLite, `.venv-stt`, Whisper weights, `output/pdf`, runtime logs, real-person exports. Do not commit those. GitHub push is code only — not a production deploy.
+
+## Continuation update — 2026-09-19 (current operational state)
+
+### Source and validation
+
+- Current pushed branch is **`experiment/typhoon25-intent-router`**.  Do not
+  merge it into `main`.  Latest application commits, in order, are:
+  `0affec0` (ordinal selection + introduction audio), `2d955ca` (voice-mode
+  status/mobile controls), and `461128a` (in-app usage guide).
+- Last full test after those UI/routing changes: **308 tests, 25 suites, 0
+  failures**.  It used mocked Supabase where real-source tests apply; it is not
+  evidence of live RLS or live registry results.
+- Keep the untracked Qwen benchmark JSON files and `tmp_*.js` scripts listed at
+  the top of this file.  They are user-owned research, not release artifacts.
+
+### Voice UI delivered
+
+- Voice mode is the compact lower-right assistant, not a blocking modal.
+  Entering it hides the normal composer and moves status into the composer
+  location; closing restores typed input.  While speech is transcribed/answered
+  it shows an animated three-bar working state, then `พร้อมรับคำสั่งต่อไป`.
+- The browser auto-sends a successfully transcribed voice prompt.  The
+  acknowledge clip starts as recording ends (before transcription completes).
+  First entry per browser session plays hello → greeting → how-to-use; later
+  entries play how-to-use.  Follow-up prompts, unclear audio, unsupported
+  questions, completion, and “who are you” have separate clips.
+- `chatContext.js` recognizes Arabic/Thai digits and Thai number words in
+  `เลือกคนที่ N`, `เลือกรายการที่ N`, `เลือกลำดับที่ N`, and the corresponding
+  `ขอข้อมูล...`; it performs the same local select action as the numbered
+  button.  `ยกเลิกการเลือก` clears only selection.  The API always
+  re-authorizes a person ID server-side.
+
+### Ubuntu pilot server (operational, not production claim)
+
+- Repository checkout: `/home/ekkaphap/thanipitak-ai`.  The Node AI app runs on
+  port 3100.  Its current deployment uses `OLLAMA_MODEL=qwen3:8b-q6`,
+  `RAG_ENABLED=true`, `RAG_EMBEDDING_MODEL=qwen3-embedding:0.6b`, and loopback
+  STT `STT_URL=http://127.0.0.1:8178`.
+- STT is the `thanipitak-stt.service` systemd service using
+  `Vinxscribe/biodatlab-whisper-th-medium-faster` on `127.0.0.1:8178`.
+- A dashboard-managed Cloudflare Tunnel service named `thanipitak-ai` publishes
+  **`https://ai.policeshield4.com/ai.html`** → `http://127.0.0.1:3100`.
+  Its ingress configuration is Cloudflare-dashboard managed; do not assume a
+  local config edit changes it.  The Node process must be restarted after model
+  or env changes.  The latest code deployment at this update was `461128a`.
+
+### New SATA storage and file access
+
+- The user explicitly authorized formatting the previously blank `/dev/sda`.
+  It is now one ext4 partition labelled `THANIPITAK_FILES`, persistently mounted
+  at `/srv/thanipitak-files` through `/etc/fstab`; approximately **445 GB** is
+  available.  Do not reformat, repartition, or delete this mount.
+- `/srv/thanipitak-files/shared` is the shared folder, group `file-share`, mode
+  `2770`; Unix user `ekkaphap` is a member.  Samba is installed and `smbd` is
+  enabled.  The authenticated LAN share is `ThaniPitakFiles`, restricted to
+  Samba user `ekkaphap`, with read/write/create/delete permissions.  It listens
+  on TCP 445.  No guest share exists and SMB must never be put through a
+  Cloudflare Tunnel.
+- A Samba password still must be set interactively by an authorized server
+  operator: `sudo smbpasswd -a ekkaphap`.  Windows LAN clients then use
+  `\\192.168.1.138\ThaniPitakFiles` (or the server's current DHCP address) and
+  the `ekkaphap` Samba credential.  The server also presently has Wi-Fi
+  addresses on `192.168.1.123` and `192.168.0.186`; verify with
+  `ip -4 -o addr show scope global` before giving a client address.
+- Copyparty (`copyparty/ac`) is running as Docker container
+  `thanipitak-files`, port **`127.0.0.1:3923` only**, with its web root at the
+  same shared folder mounted as `/files`.  It has a distinct `ekkaphap` web
+  login.  Its initial password is deliberately not in Git, logs, or this file;
+  the server owner can retrieve it locally with
+  `sudo cat /root/thanipitak-files.initial-password` and should change it after
+  first access.  Verify locally without printing credentials by reading that
+  file inside a root shell and requesting `http://127.0.0.1:3923/files/`.
+
+### Secure external access — pending Cloudflare Access setup
+
+- Do **not** expose SMB/445, the Copyparty loopback port, or unauthenticated SSH
+  directly to the Internet.  SSH currently listens on LAN interfaces, has
+  public-key auth enabled and password auth enabled; do not turn password auth
+  off until the owner has confirmed a working key path.
+- To finish external browser files, add dashboard-managed tunnel ingress:
+  `files.policeshield4.com` → `http://127.0.0.1:3923`; then create a Cloudflare
+  Zero Trust **Self-hosted** Access application for that hostname and an
+  Allow-only policy for the owner's identity.  Never route this hostname before
+  the Access policy is in place.
+- To finish external SSH, add ingress `ssh.policeshield4.com` →
+  `ssh://localhost:22`, create a separate Allow-only Access application, and on
+  each external client install `cloudflared` then use:
+  `ssh -o ProxyCommand="cloudflared access ssh --hostname ssh.policeshield4.com" ekkaphap@ssh.policeshield4.com`.
+  Prefer adding that client's public key to `~ekkaphap/.ssh/authorized_keys`;
+  keep SSH behind Access even if password login remains temporarily enabled.
+- The tunnel's current dashboard token/config only publishes the AI hostname.
+  Completing these two hostnames requires the owner's Cloudflare dashboard
+  login (or a scoped Cloudflare API token); do not invent DNS entries, policies,
+  or a public port-forward.

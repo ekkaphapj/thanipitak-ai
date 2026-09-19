@@ -23,9 +23,10 @@ chat logs.
 
 ### Ubuntu pilot: live state and restart procedure
 
-- Pilot application URL: `https://192.168.1.195/ai.html`. It is served by Caddy
-  on 443 and reverse-proxied to host Node on port 3100. A curl check with
-  `-k` returned HTTP 200 after the latest deploy.
+- Pilot application URL: `https://ai.policeshield4.com/ai.html`. It is served
+  through the named Cloudflare Tunnel `thanipitak-ai`, with an Ubuntu
+  `cloudflared` system service. The tunnel's dashboard ingress points to
+  `http://127.0.0.1:3100`; never expose the STT port through the tunnel.
 - Caddy config is `/etc/caddy/Caddyfile` and currently uses
   `https://192.168.1.195 { tls internal; reverse_proxy 127.0.0.1:3100 }`.
   Therefore it is encrypted but uses Caddy's internal root CA. A new browser
@@ -51,8 +52,9 @@ chat logs.
   Check Caddy URL and `/health` at `127.0.0.1:8178` afterwards.
 - STT server runs locally from `.venv-stt` using
   `scripts/stt-server.py`, bound to loopback port 8178. It reports model
-  `Vinxscribe/biodatlab-whisper-th-medium-faster`. Do not expose it directly
-  to the LAN/Internet.
+  `Vinxscribe/biodatlab-whisper-th-medium-faster`. The Ubuntu
+  `thanipitak-stt.service` starts it automatically after boot. Do not expose it
+  directly to the LAN/Internet.
 
 ### Model decision and evidence
 
@@ -101,6 +103,11 @@ chat logs.
   For a recognized clean voice turn it then auto-sends the transcript. If
   typed text already exists, it never silently combines it with STT; it leaves
   it for the user to review.
+- While voice mode is open, the normal typed composer is hidden. Its former
+  location becomes an accessible status dock: listening/transcription/chat
+  processing uses a moving three-bar indicator, and a completed turn says
+  `พร้อมรับคำสั่งต่อไป`. The mascot stays above that dock so it does not cover
+  the status. Closing voice mode restores the typed composer.
 - While STT runs, a small non-obscuring widget status says
   `กำลังประมวลผลเสียง…`. Empty/low-confidence speech plays
   `voice-not-clear.mp3`. A structured answer that asks the officer for a
@@ -127,12 +134,21 @@ chat logs.
   it is not persisted and no transcript/audio audit rows are written. This
   auto-send behavior is explicitly user-requested and replaces older handoff
   text saying “never auto-send”.
+- Ordinal list commands work identically for typed and voice turns. In
+  particular, the browser resolves Arabic digits, Thai digits, and common Thai
+  number words such as `เลือกคนที่หนึ่ง`, `เลือกลำดับที่สิบสอง`, and
+  `ขอข้อมูลรายการที่ ๔` only against the most recently rendered authorized
+  list. `ยกเลิกการเลือกครับ` is also accepted. These values remain local UI
+  context; the backend still re-authorizes a selected person id.
+- Mobile styles hide the sidebar, place the normal text composer into a
+  touch-friendly two-row layout, and lift the compact mascot above the voice
+  status dock.
 
 ### Latest validation
 
-- `npm test` passed **306 tests, 25 suites, 0 failures** after the latest
-  compact-widget/acknowledge timing update. `node --check frontend/ai.js` and
-  focused `node --test tests/stt.test.js` also passed.
+- `npm test` passed **307 tests, 25 suites, 0 failures** after the latest
+  voice-dock, Thai-ordinal, and mobile-layout update. `node --check
+  frontend/ai.js` and focused context/STT tests also passed.
 - Live Ubuntu checks after deployment: Node child running, Caddy served the
   new `ai.html` and sprite with HTTP 200, and local STT health returned OK.
 - Browser visual/permission testing still requires a human browser session

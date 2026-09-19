@@ -130,8 +130,13 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
     assert.deepStrictEqual(ChatContext.ordinalCommandFromMessage('เลือกคนที่ 2'), { ordinal: 2, action: 'select', matchedText: 'คนที่ 2' });
     assert.deepStrictEqual(ChatContext.ordinalCommandFromMessage('เลือกรายการที่ 3'), { ordinal: 3, action: 'select', matchedText: 'รายการที่ 3' });
     assert.deepStrictEqual(ChatContext.ordinalCommandFromMessage('ขอข้อมูลคนที่ 4'), { ordinal: 4, action: 'info', matchedText: 'คนที่ 4' });
+    assert.strictEqual(ChatContext.ordinalFromMessage('เลือกคนที่หนึ่ง'), 1);
+    assert.strictEqual(ChatContext.ordinalFromMessage('เลือกลำดับที่สิบสองครับ'), 12);
+    assert.deepStrictEqual(ChatContext.ordinalCommandFromMessage('เลือกคนที่สอง'), { ordinal: 2, action: 'select', matchedText: 'คนที่สอง' });
+    assert.deepStrictEqual(ChatContext.ordinalCommandFromMessage('ขอข้อมูลรายการที่ ๔'), { ordinal: 4, action: 'info', matchedText: 'รายการที่ ๔' });
     assert.strictEqual(ChatContext.isClearSelectionCommand('ยกเลิกการเลือก'), true);
     assert.strictEqual(ChatContext.isClearSelectionCommand('ยกเลิกการเลือกบุคคล'), true);
+    assert.strictEqual(ChatContext.isClearSelectionCommand('ยกเลิกการเลือกครับ'), true);
     assert.strictEqual(ChatContext.isClearSelectionCommand('ยกเลิกรายการ'), false);
   });
 

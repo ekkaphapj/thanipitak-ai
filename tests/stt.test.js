@@ -184,6 +184,7 @@ test('stt html includes hold-to-talk mic button', () => {
   const html = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'ai.html'), 'utf8');
   assert.match(html, /id="mic-btn"/);
   assert.match(html, /id="voice-assistant-btn"/);
+  assert.match(html, /id="voice-command-status"/);
   assert.match(html, /ผู้ช่วยเอไอธานีพิทักษ์/);
   assert.match(html, /voiceInput\.js/);
   const js = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'ai.js'), 'utf8');
@@ -195,11 +196,14 @@ test('stt html includes hold-to-talk mic button', () => {
   assert.match(js, /voice-answer-question\.mp3/);
   assert.match(js, /voice-introduce\.mp3/);
   assert.match(js, /voice-finish-job\.mp3/);
-  assert.match(js, /กำลังประมวลผลเสียง/);
+  assert.match(js, /กำลังแปลงเสียงเป็นข้อความ/);
+  assert.match(js, /พร้อมรับคำสั่งต่อไป/);
   assert.match(js, /openVoiceAssistant/);
   const css = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'ai-refresh.css'), 'utf8');
   assert.match(css, /thanipitak-ai-voice-sprite-v2\.png/);
   assert.match(css, /voice-mouth/);
+  assert.match(css, /voice-command-status/);
+  assert.match(css, /voice-mode-open \.input-row/);
   for (const asset of ['thanipitak-ai-voice-sprite-v2.png', 'voice-hello.mp3', 'voice-greeting-2.mp3', 'voice-how-to-use.mp3', 'voice-acknowledge.mp3', 'voice-answer-question.mp3', 'voice-introduce.mp3', 'voice-not-clear.mp3', 'voice-not-understand-question.mp3', 'voice-finish-job.mp3']) {
     assert.equal(fs.existsSync(require('path').join(__dirname, '..', 'frontend', asset)), true, asset + ' is packaged');
   }

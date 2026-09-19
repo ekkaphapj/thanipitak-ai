@@ -104,13 +104,42 @@
     return null;
   }
 
+  const THAI_DIGITS = { '๐': '0', '๑': '1', '๒': '2', '๓': '3', '๔': '4', '๕': '5', '๖': '6', '๗': '7', '๘': '8', '๙': '9' };
+  const THAI_UNITS = { 'ศูนย์': 0, 'หนึ่ง': 1, 'เอ็ด': 1, 'สอง': 2, 'สาม': 3, 'สี่': 4, 'ห้า': 5, 'หก': 6, 'เจ็ด': 7, 'แปด': 8, 'เก้า': 9 };
+  const THAI_TENS = { 'สิบ': 10, 'ยี่สิบ': 20, 'สามสิบ': 30, 'สี่สิบ': 40, 'ห้าสิบ': 50, 'หกสิบ': 60, 'เจ็ดสิบ': 70, 'แปดสิบ': 80, 'เก้าสิบ': 90 };
+
+  function parseOrdinalValue(value) {
+    const raw = String(value == null ? '' : value).replace(/[๐-๙]/g, (digit) => THAI_DIGITS[digit]).trim();
+    if (/^\d{1,3}$/.test(raw)) return Number(raw);
+    const word = raw.replace(/^(?:ที่)?/, '');
+    for (const [tensWord, tensValue] of Object.entries(THAI_TENS).sort((a, b) => b[0].length - a[0].length)) {
+      if (!word.startsWith(tensWord)) continue;
+      const suffix = word.slice(tensWord.length);
+      if (!suffix) return tensValue;
+      for (const [unitWord, unitValue] of Object.entries(THAI_UNITS).sort((a, b) => b[0].length - a[0].length)) {
+        if (suffix.startsWith(unitWord)) return tensValue + unitValue;
+      }
+      return null;
+    }
+    for (const [unitWord, unitValue] of Object.entries(THAI_UNITS).sort((a, b) => b[0].length - a[0].length)) {
+      if (word.startsWith(unitWord)) return unitValue;
+    }
+    return null;
+  }
+
+  function ordinalMatch(message) {
+    const text = String(message == null ? '' : message).replace(/\s+/g, ' ').trim();
+    const match = text.match(/(?:ของ\s*)?(?:ลำดับ|อันดับ|รายการ|คน)\s*(?:ที่)?\s*([0-9๐-๙]+|[ก-๙]+)/u);
+    if (!match) return null;
+    const ordinal = parseOrdinalValue(match[1]);
+    return Number.isSafeInteger(ordinal) && ordinal > 0 ? { ordinal, matchedText: match[0], index: match.index, text } : null;
+  }
+
   // Ordinal references are resolved only against the most recently rendered
   // list in the browser. They never become an authorization field.
   function ordinalFromMessage(message) {
-    const match = String(message == null ? '' : message).match(/(?:ของ\s*)?(?:ลำดับ|อันดับ|รายการ|คน)\s*(?:ที่)?\s*(\d{1,3})/);
-    if (!match) return null;
-    const ordinal = Number(match[1]);
-    return Number.isSafeInteger(ordinal) && ordinal > 0 ? ordinal : null;
+    const match = ordinalMatch(message);
+    return match ? match.ordinal : null;
   }
 
   // Classifies an ordinal request without turning it into authorization data.
@@ -118,18 +147,15 @@
   // “ขอข้อมูล…” retains the request and uses the ordinal only as local UI
   // context. A bare ordinal remains the historic “request more information”.
   function ordinalCommandFromMessage(message) {
-    const text = String(message == null ? '' : message).replace(/\s+/g, ' ').trim();
-    const match = text.match(/(?:ของ\s*)?(?:ลำดับ|อันดับ|รายการ|คน)\s*(?:ที่)?\s*(\d{1,3})/);
+    const match = ordinalMatch(message);
     if (!match) return null;
-    const ordinal = Number(match[1]);
-    if (!Number.isSafeInteger(ordinal) || ordinal <= 0) return null;
-    const before = text.slice(0, match.index);
+    const before = match.text.slice(0, match.index);
     const action = /เลือก\s*$/u.test(before) ? 'select' : /ขอ(?:ข้อมูล|รายละเอียด|ประวัติ)\s*$/u.test(before) ? 'info' : 'info';
-    return { ordinal, action, matchedText: match[0] };
+    return { ordinal: match.ordinal, action, matchedText: match.matchedText };
   }
 
   function isClearSelectionCommand(message) {
-    return /^ยกเลิก\s*การเลือก(?:\s*(?:คน|รายการ|บุคคล))?$/u.test(String(message == null ? '' : message).trim());
+    return /^ยกเลิก\s*การเลือก(?:\s*(?:คน|รายการ|บุคคล))?(?:\s*(?:ครับ|ค่ะ|คะ|หน่อย|ที|นะ))?$/u.test(String(message == null ? '' : message).trim());
   }
 
   function isReferenceListQuestion(message) {

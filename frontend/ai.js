@@ -232,11 +232,15 @@
     if (voiceButton) voiceButton.disabled = state.sending;
   }
 
-  function setMicStatus(text, isError) {
+  function setMicStatus(text, isError, working = false) {
     const el = $('#mic-status');
     if (!el) return;
     el.textContent = text || '';
-    el.classList.toggle('is-error', Boolean(isError));
+    const dock = $('#voice-command-status');
+    if (dock) {
+      dock.classList.toggle('is-error', Boolean(isError));
+      dock.classList.toggle('is-working', Boolean(working));
+    }
   }
 
   function setMascotSpeaking(speaking) {
@@ -287,7 +291,7 @@
     state.voiceMode = true;
     $('#voice-assistant-panel').classList.remove('hidden');
     document.body.classList.add('voice-mode-open');
-    setMicStatus(state.sttAvailable === false ? VoiceInput.micErrorMessage('STT_UNAVAILABLE') : 'กดค้างปุ่มด้านล่างแล้วพูดได้เลย', state.sttAvailable === false);
+    setMicStatus(state.sttAvailable === false ? VoiceInput.micErrorMessage('STT_UNAVAILABLE') : 'พร้อมรับคำสั่งแล้ว • กดค้างปุ่มไมค์เพื่อพูด', state.sttAvailable === false);
     const greeted = sessionStorage.getItem('tp_voice_assistant_greeted') === '1';
     if (greeted) await playVoiceSequence(['howToUse']);
     else {
@@ -321,11 +325,16 @@
   }
 
   function finishVoiceTurn(json, message) {
-    if (!state.voiceMode) return;
-    if (isVoiceIntroduction(message)) playVoiceClip('introduce');
-    else if (answerNeedsFollowup(json)) playVoiceClip('answerQuestion');
-    else if (answerIsNotUnderstood(json)) playVoiceClip('notUnderstood');
-    else playVoiceClip('finished');
+    if (!state.voiceMode) return Promise.resolve();
+    let clip = 'finished';
+    if (isVoiceIntroduction(message)) clip = 'introduce';
+    else if (answerNeedsFollowup(json)) clip = 'answerQuestion';
+    else if (answerIsNotUnderstood(json)) clip = 'notUnderstood';
+    return playVoiceClip(clip).finally(() => {
+      if (state.voiceMode && state.mic !== 'recording' && state.mic !== 'uploading' && !state.sending) {
+        setMicStatus('พร้อมรับคำสั่งต่อไป', false);
+      }
+    });
   }
 
   async function loadSttStatus() {
@@ -334,7 +343,7 @@
       const json = await api('/api/stt/status');
       state.sttAvailable = json.available === true;
       state.mic = state.sttAvailable ? 'idle' : 'unavailable';
-      setMicStatus(state.sttAvailable ? 'กดค้างไมค์เพื่อพูด' : VoiceInput.micErrorMessage('STT_UNAVAILABLE'), !state.sttAvailable);
+      setMicStatus(state.sttAvailable ? 'พร้อมรับคำสั่งแล้ว • กดค้างปุ่มไมค์เพื่อพูด' : VoiceInput.micErrorMessage('STT_UNAVAILABLE'), !state.sttAvailable);
     } catch (_) {
       state.sttAvailable = false;
       state.mic = 'unavailable';
@@ -405,7 +414,7 @@
     const recorder = micCtl.recorder;
     state.mic = 'uploading';
     updateSendDisabled();
-    setMicStatus('กำลังประมวลผลเสียง…', false);
+    setMicStatus('กำลังแปลงเสียงเป็นข้อความ…', false, true);
     const blob = await new Promise((resolve) => {
       if (!recorder) return resolve(null);
       recorder.addEventListener('stop', () => {
@@ -462,7 +471,7 @@
     state.mic = state.sttAvailable ? 'idle' : 'unavailable';
     updateSendDisabled();
     if (autoSendMessage) {
-      setMicStatus('รับคำสั่งแล้ว กำลังประมวลผล…', false);
+      setMicStatus('รับคำสั่งแล้ว กำลังประมวลผลคำสั่ง…', false, true);
       await acknowledgement;
       sendMessage(autoSendMessage, { voice: true });
     }
@@ -474,7 +483,7 @@
     stopVoiceAudio();
     micCtl.held = true;
     if (state.sttAvailable !== true) {
-      setMicStatus('กำลังเชื่อมต่อระบบแปลงเสียง…', false);
+      setMicStatus('กำลังเชื่อมต่อระบบแปลงเสียง…', false, true);
       await loadSttStatus();
       if (state.sttAvailable !== true) {
         micCtl.held = false;
@@ -511,7 +520,7 @@
     micCtl.recorder.start(250);
     state.mic = 'recording';
     updateSendDisabled();
-    setMicStatus('กำลังฟัง… ปล่อยปุ่มเมื่อพูดจบ', false);
+    setMicStatus('กำลังฟัง… ปล่อยปุ่มเมื่อพูดจบ', false, true);
     micCtl.timer = setTimeout(() => {
       setMicStatus(VoiceInput.micErrorMessage('AUDIO_TOO_LONG'), true);
       finishRecording();
@@ -1366,6 +1375,7 @@
     autoResizeInput();
 
     setBusy(true);
+    if (voiceTurn) setMicStatus('กำลังประมวลผลคำสั่ง…', false, true);
     showTypingIndicator();
 
     let settled = false;
@@ -1374,6 +1384,10 @@
       removeTypingIndicator();
       setBusy(false);
       appendMessage('assistant', 'AI ใช้เวลาประมวลผลนานเกินไป กรุณาลองอีกครั้ง', { error: true });
+      if (voiceTurn) {
+        setMicStatus('ใช้เวลาประมวลผลนานเกินไป กรุณาลองใหม่', true);
+        playVoiceClip('notUnderstood');
+      }
     }, CLIENT_TIMEOUT_MS);
 
     api('/api/ai/chat', {
@@ -1452,12 +1466,15 @@
         removeTypingIndicator();
         const msg = await messageForError(err);
         appendMessage('assistant', msg, { error: true });
-        if (voiceTurn) playVoiceClip('notUnderstood');
+        if (voiceTurn) {
+          setMicStatus('ประมวลผลคำสั่งไม่สำเร็จ กรุณาลองใหม่', true);
+          playVoiceClip('notUnderstood');
+        }
       })
       .finally(() => {
         settled = true;
         setBusy(false);
-        $('#chat-input').focus();
+        if (!state.voiceMode) $('#chat-input').focus();
       });
   }
 

@@ -92,6 +92,10 @@
         <button id="voice-assistant-btn" class="voice-assistant-btn" type="button" aria-haspopup="dialog" aria-controls="voice-assistant-panel">ผู้ช่วยเอไอธานีพิทักษ์</button>
         <button id="send-btn" class="send-btn">ส่ง</button>
       </div>
+      <div id="voice-command-status" class="voice-command-status" role="status" aria-live="polite">
+        <span class="voice-status-activity" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span id="mic-status" class="voice-status-text"></span>
+      </div>
       <div class="input-actions">
         <button id="clear-btn" class="clear-btn" type="button">ล้างการสนทนา</button>
         <span>ตรวจสอบข้อมูลอ้างอิงก่อนนำรายงานไปใช้</span>
@@ -109,7 +113,6 @@
         <span class="voice-mic-icon" aria-hidden="true">●</span>
         <span>กดค้างเพื่อพูด</span>
       </button>
-      <p id="mic-status" class="voice-status" role="status"></p>
     </div>
   </section>
 

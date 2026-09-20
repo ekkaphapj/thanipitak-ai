@@ -20,6 +20,22 @@ test('authentication: login success returns token and user profile', async () =>
   }
 });
 
+test('authentication: requested test demo account is station-scoped', async () => {
+  const ctx = setup();
+  try {
+    const res = await request(ctx.app)
+      .post('/api/auth/login')
+      .send({ username: USERS.demo2233.username, password: USERS.demo2233.password })
+      .timeout(5000);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.user.username, '2233');
+    assert.strictEqual(res.body.user.role, 'officer');
+    assert.strictEqual(res.body.user.stationId, 1);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test('authentication: login with wrong password fails', async () => {
   const ctx = setup();
   try {

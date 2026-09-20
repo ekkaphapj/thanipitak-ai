@@ -37,6 +37,7 @@ const USERS = {
   station1_off: { username: 'station1_off', password: 'thanipitak123', role: 'officer', stationId: 1 },
   station1_view: { username: 'station1_view', password: 'thanipitak123', role: 'viewer', stationId: 1 },
   station2_off: { username: 'station2_off', password: 'thanipitak123', role: 'officer', stationId: 2 },
+  demo2233: { username: '2233', password: '1234', role: 'officer', stationId: 1 },
 };
 
 module.exports = { setup, USERS };

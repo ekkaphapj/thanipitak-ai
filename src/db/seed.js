@@ -118,6 +118,11 @@ function seedDatabase(db, seed = 20240901) {
       counts.users += 1;
     }
 
+    // Demonstration-only account requested for the test-data login screen.
+    // It is deliberately station-scoped like the normal station-1 officer.
+    userStmt.run('2233', bcrypt.hashSync('1234', 10), 'ผู้ใช้ทดสอบ 2233', 'officer', stationIds[0]);
+    counts.users += 1;
+
     const personStmt = db.prepare(
       'INSERT INTO persons (synthetic_code, first_name, last_name, person_type, district, subdistrict, station_id, status, last_visit_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );

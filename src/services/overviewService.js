@@ -9,8 +9,12 @@ const GROUP_LABELS = { station: 'สภ.', subdistrict: 'ตำบล' };
 
 function detectOverview(message) {
   const text = String(message || '').replace(/\s+/g, ' ').trim();
-  if (!/(?:ข้อมูล)?ภาพรวม|ภาพรวมข้อมูล|สรุปภาพรวม/.test(text)) return null;
   const person_type=/ผู้ป่วยจิตเวช|จิตเวช|ผู้ป่วย/.test(text)?'psychiatric':/ผู้เสพ|ผู้ใช้ยา|ยาเสพติด/.test(text)?'drug_user':/ผู้ค้า|ผู้จำหน่าย/.test(text)?'dealer':/ผู้พ้นโทษ|พ้นโทษ/.test(text)?'released':null;
+  // Spoken “ขอข้อมูลผู้เสพ” is a category overview, not an open-ended
+  // person lookup. A known explicit category is required for this shortcut.
+  const overviewWords = /(?:ข้อมูล)?ภาพรวม|ภาพรวมข้อมูล|สรุปภาพรวม/.test(text);
+  const typeDataRequest = Boolean(person_type && /(?:ขอ|แสดง|ดู)\s*(?:ข้อมูล|รายละเอียด)(?:ของ)?/.test(text));
+  if (!overviewWords && !typeDataRequest) return null;
   const subdistrict=text.match(/ตำบล\s*([^\s,]+)/u)?.[1];
   const district=text.match(/(?:อำเภอ|เขต)\s*([^\s,]+)/u)?.[1];
   const filters={};if(person_type)filters.person_type=person_type;if(subdistrict&&!/^(?:ไหน|ใด|ต่างๆ)$/u.test(subdistrict))filters.subdistrict=subdistrict;if(district)filters.district=district;

@@ -446,6 +446,17 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
   First entry per browser session plays hello → greeting → how-to-use; later
   entries play how-to-use.  Follow-up prompts, unclear audio, unsupported
   questions, completion, and “who are you” have separate clips.
+- The public root path `/` redirects to `/ai.html`, so
+  `https://ai.policeshield4.com/` opens the AI assistant directly while old
+  `/ai.html` bookmarks continue to work. On mobile the mascot sheet is reduced
+  to 142px and the press-to-talk control is 76px with a stronger visual ring,
+  keeping more of the current answer visible.
+- Spoken or typed requests in the form `ขอข้อมูลผู้เสพ` (and equivalent
+  supported target categories) render the authorized category overview without
+  model inference. If an authorized selected person is a different category,
+  the server reads that selected record, asks whether to use it or the requested
+  category overview, and the category option clears only local UI selection.
+  A frontend-supplied person type never participates in the decision.
 - `chatContext.js` recognizes Arabic/Thai digits and Thai number words in
   `เลือกคนที่ N`, `เลือกรายการที่ N`, `เลือกลำดับที่ N`, and the corresponding
   `ขอข้อมูล...`; it performs the same local select action as the numbered

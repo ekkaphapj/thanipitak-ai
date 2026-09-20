@@ -69,6 +69,9 @@ function createApp(db, options = {}) {
   app.use('/api/reports', require('./routes/reportRoutes').createReportRoutes(db,authRequired,audit));
   app.use('/api/admin', createAdminRoutes(db, audit, authRequired, adminOnly));
 
+  // Keep /ai.html as the canonical page but make the public Tunnel URL
+  // immediately open the assistant instead of the older dashboard.
+  app.get('/', (req, res) => res.redirect(302, '/ai.html'));
   app.use(express.static(path.join(__dirname, '..', 'frontend')));
 
   app.use('/api', (req, res) => {

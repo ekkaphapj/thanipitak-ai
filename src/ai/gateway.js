@@ -5,6 +5,7 @@ const {detectMonitoringIntent,isSelectedMonitoringReasonFollowup,runMonitoring,r
 const { parseSummaryIntent } = require('./../services/summaryService');
 const { hasDBIntent } = require('./intentDetector');
 const { detectFastPathIntent, runFastPath } = require('./fastPath');
+const { detectOverview, TYPE_LABELS: OVERVIEW_TYPE_LABELS } = require('../services/overviewService');
 const { sanitizeTopic, topicFromIntent } = require('./conversationTopic');
 const { detectExportIntent, reportRequestFromExport } = require('./exportIntent');
 const {
@@ -262,6 +263,32 @@ function createAIGateway(toolRouter) {
 // it falls through to the untouched Phase 3.1 gateway (chatWithTools).
 async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, onToolCall, options = {}) {
   const selectedPersonId = validPersonId((options.context || {}).personId);
+  const requestedOverview = detectOverview(userMessage);
+  // Category overview and an explicitly selected person are different scopes.
+  // Fetch the selected person through the authorized tool before comparing
+  // types; a frontend-provided type must never influence this decision.
+  if (requestedOverview?.filters?.person_type && selectedPersonId !== null && !options.forceQwen) {
+    const selected = await toolRouter.getPersonSummary(currentUser, selectedPersonId);
+    if (!selected.ok) {
+      return { answer: 'ไม่พบข้อมูลบุคคลที่เลือกในพื้นที่ที่รับผิดชอบ', toolsUsed: ['get_person_summary'], grounded: true, databaseIntent: true, retryCount: 0, fastPath: true, intent: 'selected_person_unavailable', executionTier: 2, ollamaCalls: 0 };
+    }
+    if (onToolCall) onToolCall({ toolName: 'get_person_summary', toolArgs: { person_id: selectedPersonId }, userId: currentUser.id, username: currentUser.username });
+    const selectedType = selected.data.person && selected.data.person.person_type;
+    const requestedType = requestedOverview.filters.person_type;
+    if (selectedType !== requestedType) {
+      const selectedLabel = OVERVIEW_TYPE_LABELS[selectedType] || 'บุคคลที่เลือก';
+      const requestedLabel = OVERVIEW_TYPE_LABELS[requestedType] || 'ประเภทที่สั่ง';
+      const selectedName = [selected.data.person.first_name, selected.data.person.last_name].filter(Boolean).join(' ') || 'บุคคลที่เลือก';
+      return {
+        answer: `ขณะนี้เลือก${selectedName} ซึ่งเป็น${selectedLabel} แต่คำสั่งขอข้อมูล${requestedLabel} ต้องการข้อมูลบุคคลที่เลือก หรือภาพรวม${requestedLabel}ตามที่สั่ง`,
+        toolsUsed: ['get_person_summary'], grounded: true, databaseIntent: true, retryCount: 0, fastPath: true, intent: 'selected_type_conflict', executionTier: 2, ollamaCalls: 0,
+        presentation: { type: 'summary_choices', selectionConflict: true, choices: [
+          { label: `1. ข้อมูลบุคคลที่เลือก (${selectedLabel})`, message: 'สรุปประวัติคนนี้' },
+          { label: `2. ภาพรวม${requestedLabel}ตามที่สั่ง`, message: userMessage, clearSelection: true },
+        ] },
+      };
+    }
+  }
   const summaryIntent = parseSummaryIntent(userMessage);
   if (summaryIntent && selectedPersonId === null && !options.forceQwen) {
     const out = summaryIntent.intent === 'summary_choices'

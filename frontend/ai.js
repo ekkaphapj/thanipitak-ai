@@ -1126,7 +1126,12 @@
     for (const choice of (presentation.choices || [])) {
       const button = document.createElement('button');
       button.type = 'button'; button.className = 'suggest-btn'; button.textContent = choice.label;
-      button.addEventListener('click', () => sendMessage(choice.message));
+      button.addEventListener('click', () => {
+        // Only the server may request this local selection reset; person IDs
+        // are still re-authorized by the backend for every later request.
+        if (choice.clearSelection) clearSelectedPerson();
+        sendMessage(choice.message);
+      });
       box.appendChild(button);
     }
     const locations = presentation.locations || {};

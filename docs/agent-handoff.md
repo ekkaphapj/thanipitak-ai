@@ -465,6 +465,12 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
   Its ingress configuration is Cloudflare-dashboard managed; do not assume a
   local config edit changes it.  The Node process must be restarted after model
   or env changes.  The latest code deployment at this update was `461128a`.
+- On 2026-09-20, `/etc/systemd/system/thanipitak-ai.service` was installed,
+  enabled, and started from the tracked `deploy/systemd/thanipitak-ai.service`
+  template. It runs as `ekkaphap` and binds only `127.0.0.1:3100`. The public
+  Cloudflare URL returned HTTP 200 after the service was started. Use
+  `sudo systemctl restart thanipitak-ai` after verified application updates;
+  use `sudo systemctl status thanipitak-ai --no-pager` for diagnosis.
 
 ### New SATA storage and file access
 

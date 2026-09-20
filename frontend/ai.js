@@ -623,11 +623,15 @@
       } else {
         const input = $('#chat-input');
         const typedBeforeTranscript = input.value.trim();
+        // Voice mode is a turn-based interface. A completed spoken command
+        // replaces any leftover transient text from the prior voice turn so
+        // ordinal selection and the following spoken question never combine.
+        if (state.voiceMode) input.value = '';
         input.value = VoiceInput.applyTranscript(input.value, text);
         autoResizeInput();
         // Send a clean voice turn immediately. Never silently combine a
         // transcript with text the user had already typed.
-        if (typedBeforeTranscript) {
+        if (typedBeforeTranscript && !state.voiceMode) {
           if (!state.voiceMode) input.focus();
           setMicStatus(state.voiceMode
             ? 'พบข้อความที่พิมพ์ค้างอยู่ • ปิดโหมดเสียงเพื่อกลับไปตรวจและส่งข้อความเดิม'
@@ -1498,6 +1502,9 @@
     let message = (overrideText !== undefined ? overrideText : $('#chat-input').value || '').trim();
     if (!message || state.sending) return;
     const voiceTurn = options.voice === true;
+    // A voice transcript is only a transport buffer. Clear it before any
+    // local command path can return early (for example “เลือกคนที่ 18”).
+    if (voiceTurn) clearChatInput();
 
     const compactMessage = message.replace(/\s+/g, '');
     if (/(?:เริ่ม|สอน).*แบบฝึกหัด/u.test(compactMessage)) {
@@ -1697,6 +1704,13 @@
     const el = $('#chat-input');
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+  }
+
+  function clearChatInput() {
+    const input = $('#chat-input');
+    if (!input) return;
+    input.value = '';
+    autoResizeInput();
   }
 
   async function bootstrap() {

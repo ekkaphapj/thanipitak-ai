@@ -107,9 +107,10 @@ chat logs.
   user click, satisfying normal browser autoplay rules.
 - Press/hold captures audio. Once capture ends and there is usable audio, it
   immediately plays `voice-acknowledge.mp3` while STT is running concurrently.
-  For a recognized clean voice turn it then auto-sends the transcript. If
-  typed text already exists, it never silently combines it with STT; it leaves
-  it for the user to review.
+  For a recognized clean voice turn it then auto-sends the transcript. Voice
+  mode is turn-based: each completed spoken command replaces and clears the
+  temporary composer text, so consecutive voice commands are never combined.
+  Typed mode still preserves a draft and asks the user to review it.
 - While voice mode is open, the normal typed composer is hidden. Its former
   location becomes an accessible status dock: listening/transcription/chat
   processing uses a moving three-bar indicator, and a completed turn says
@@ -166,9 +167,9 @@ chat logs.
   commands as the ordinary chat and never calls a registry endpoint merely to
   show a lesson card. In voice mode, browser `speechSynthesis` reads the current
   exercise and its exact command aloud; it is separate from recorded assistant
-  audio and never sends an audio recording anywhere. If a voice turn finds an
-  existing typed draft, it must preserve it and say to close voice mode before
-  reviewing or sending that draft.
+  audio and never sends an audio recording anywhere. Voice-mode speech replaces
+  transient text from the preceding spoken turn; closing voice mode restores
+  the empty typed composer ready for a new typed request.
 
 ### Latest validation
 

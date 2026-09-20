@@ -193,6 +193,8 @@ test('stt html includes hold-to-talk mic button', () => {
   assert.match(js, /loadSttStatus/);
   assert.match(js, /รับคำสั่งแล้ว กำลังประมวลผล/);
   assert.match(js, /sendMessage\(autoSendMessage, \{ voice: true \}\)/);
+  assert.match(js, /Voice mode is a turn-based interface/);
+  assert.match(js, /if \(voiceTurn\) clearChatInput\(\)/);
   assert.match(js, /voice-acknowledge\.mp3/);
   assert.match(js, /voice-answer-question\.mp3/);
   assert.match(js, /voice-introduce\.mp3/);

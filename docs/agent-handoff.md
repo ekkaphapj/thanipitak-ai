@@ -150,6 +150,14 @@ chat logs.
 - Mobile styles hide the sidebar, place the normal text composer into a
   touch-friendly two-row layout, and lift the compact mascot above the voice
   status dock.
+- Voice mode is also a full-screen presentation mode: the standard navigation
+  and source controls are temporarily hidden, a dark intelligence-desk stage
+  displays the spoken request's result, and newly appended assistant results
+  use the `voice-result-reveal` upward reveal animation. The mascot, close
+  control, and press-and-hold talk button remain fixed above the status dock;
+  closing voice mode restores the ordinary operational UI. This is client-side
+  presentation only and does not alter authorization, data source, or API
+  requests.
 - Usage-help wording (including `วิธีใช้`, the common misspelling `วิธิใช้`,
   `สอนใช้หน่อย`, `ใช้ยังไง`, `ทำยังไง`, `ทำไงต่อ`, `สั่งยังไง`, and
   `ขอวิธีใช้`) first asks whether the officer wants a lesson. The local lesson

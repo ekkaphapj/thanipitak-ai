@@ -365,6 +365,7 @@
     box.querySelector('.empty-state')?.remove();
     const wrap = document.createElement('div');
     wrap.className = 'msg ' + (role === 'user' ? 'msg-user' : 'msg-assistant');
+    if (state.voiceMode && role === 'assistant') wrap.classList.add('voice-result-reveal');
     if (options.error) wrap.classList.add('msg-error');
 
     const bubble = document.createElement('div');

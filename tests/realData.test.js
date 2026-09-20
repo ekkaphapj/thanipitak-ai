@@ -9,6 +9,16 @@ test('real mode routes product questions to RAG instead of registry clarificatio
   assert.equal(res.status,200);assert.match(res.body.answer,/ระบบจัดการบุคคลเป้าหมายอัจฉริยะ/);assert.doesNotMatch(res.body.answer,/ต้องการจำนวน|รายชื่อ หรือแยกยอด/);
  } finally { if(previous===undefined)delete process.env.RAG_ENABLED;else process.env.RAG_ENABLED=previous; }
 });
+test('real mode treats registry terminology explanations as knowledge, not a people lookup',async()=>{
+ const previous=process.env.RAG_ENABLED;process.env.RAG_ENABLED='true';
+ try {
+  const app=express();app.use(express.json());
+  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async()=>{throw new Error('registry must not be read for a terminology question');}}));
+  const res=await request(app).post('/ai/chat').send({message:'ผู้เสพหมายถึงอะไรในระบบ'});
+  assert.equal(res.status,200);assert.match(res.body.answer,/ตรวจจากทะเบียนตามสิทธิ์/);
+  assert.doesNotMatch(res.body.answer,/ต้องการจำนวน|รายชื่อ หรือแยกยอด/);
+ } finally { if(previous===undefined)delete process.env.RAG_ENABLED;else process.env.RAG_ENABLED=previous; }
+});
 test('unknown spoken question invokes local interpreter and executes scoped grouping',async()=>{
  let interpretations=0;const app=express();app.use(express.json());
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='t';next();},{

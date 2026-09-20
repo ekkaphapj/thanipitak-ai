@@ -560,3 +560,23 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
   `ssh -o ProxyCommand="cloudflared access ssh --hostname ssh.policeshield4.com" ekkaphap@ssh.policeshield4.com`.
   Prefer an SSH key in `~ekkaphap/.ssh/authorized_keys`; do not expose port 22
   by router forwarding or create an unauthenticated tunnel.
+
+### Continuation update — 2026-09-20 (source-informed knowledge catalogue)
+
+- Reviewed the separate primary-system checkout
+  `E:\Projects\ThaniPitak\udonpolice-datacenter` and the supplied DDL only
+  as reference material. The AI repository now includes safe, source-informed
+  RAG entries for the core registry, visit workflows, drug workflows,
+  dashboards/maps, guardian reporting, account scope, data boundaries, and
+  practical question examples. It deliberately does **not** ingest registry
+  rows, detailed schema, credentials, identifiers, or raw SQL.
+- `src/ai/intentDetector.js` recognizes questions *about* product terminology
+  and operation (for example “ผู้เสพหมายถึงอะไรในระบบ” or “ข้อมูลจริงกับ
+  ข้อมูลทดสอบต่างกันอย่างไร”) before database-keyword detection. They are
+  therefore answered through knowledge RAG without reading the registry.
+  Counts, lists, visits, monitoring, and all real-person facts remain on the
+  authenticated, server-scoped data path.
+- `src/ai/rag.js` has deterministic answers for common capability, registry
+  terminology, and access-boundary questions. Broader product questions use
+  only retrieved catalogue snippets and the local model. Never turn RAG into
+  free-form SQL generation or a bypass for the real-data allowlist.

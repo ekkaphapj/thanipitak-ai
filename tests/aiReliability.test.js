@@ -61,6 +61,9 @@ test('intent: hasDBIntent does NOT detect non-DB questions', () => {
   assert.strictEqual(hasDBIntent('ขอบคุณ'), false);
   assert.strictEqual(hasDBIntent(''), false);
   assert.strictEqual(hasDBIntent(null), false);
+  assert.strictEqual(hasDBIntent('ผู้เสพหมายถึงอะไรในระบบ'), false);
+  assert.strictEqual(hasDBIntent('ระบบธานีพิทักษ์รองรับคำถามอะไรบ้าง'), false);
+  assert.strictEqual(hasDBIntent('ข้อมูลจริงกับข้อมูลทดสอบต่างกันอย่างไร'), false);
 });
 
 // ── R1: DB question, tool called → grounded ──

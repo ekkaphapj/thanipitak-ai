@@ -23,4 +23,18 @@ test('RAG catalog covers pilot geography, workflows, and local voice privacy', (
   assert.match(rag.DOCS.find((doc) => doc.id === 'usage').text, /PDF หรือ Excel/);
   assert.match(rag.DOCS.find((doc) => doc.id === 'voice').text, /ไม่ส่งเสียงไปยัง Ollama/);
   assert.match(rag.DOCS.find((doc) => doc.id === 'integration').text, /Shield\+/);
+  assert.match(rag.DOCS.find((doc) => doc.id === 'core-workflows').text, /ตรวจเยี่ยม/);
+  assert.match(rag.DOCS.find((doc) => doc.id === 'guardian-workflow').text, /ผู้ดูแลผู้ป่วย/);
+  assert.match(rag.DOCS.find((doc) => doc.id === 'data-boundary').text, /SQL/);
+});
+
+test('RAG gives deterministic practical help and keeps registry facts behind authorized routes', async () => {
+  const help = await rag.answer('ถามอะไรได้บ้าง ใช้ยังไง');
+  assert.deepEqual(help.sources, ['usage', 'question-patterns', 'unknown-question']);
+  assert.match(help.answer, /ภาพรวมผู้เสพตำบลโพนสูง/);
+
+  const concept = await rag.answer('ผู้เสพหมายถึงอะไรในระบบ');
+  assert.deepEqual(concept.sources, ['target-groups', 'types', 'scope']);
+  assert.match(concept.answer, /ตรวจจากทะเบียนตามสิทธิ์/);
+  assert.doesNotMatch(concept.answer, /SELECT|FROM people/i);
 });

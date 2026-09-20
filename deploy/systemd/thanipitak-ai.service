@@ -1,0 +1,27 @@
+[Unit]
+Description=ThaniPitak AI web application
+After=network-online.target docker.service thanipitak-stt.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ekkaphap
+Group=ekkaphap
+WorkingDirectory=/home/ekkaphap/thanipitak-ai
+Environment=HOST=127.0.0.1
+Environment=PORT=3100
+Environment=STT_ENABLED=true
+Environment=STT_URL=http://127.0.0.1:8178
+Environment=RAG_ENABLED=true
+Environment=RAG_EMBEDDING_MODEL=qwen3-embedding:0.6b
+Environment=OLLAMA_HOST=http://127.0.0.1:11434
+Environment=OLLAMA_MODEL=qwen3:8b-q6
+Environment=REPORT_FONT_PATH=/usr/share/fonts/truetype/tlwg/Garuda.ttf
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

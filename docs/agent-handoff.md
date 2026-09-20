@@ -50,6 +50,13 @@ chat logs.
   (not Docker or a broad process group); then restart `npm start` with the
   same environment values above, logging to `/dev/shm/thanipitak-ai.log`.
   Check Caddy URL and `/health` at `127.0.0.1:8178` afterwards.
+- The tracked service template is `deploy/systemd/thanipitak-ai.service`.
+  Install it as `/etc/systemd/system/thanipitak-ai.service`, then run
+  `sudo systemctl daemon-reload && sudo systemctl enable --now thanipitak-ai`.
+  It deliberately binds the app to `127.0.0.1`, because Caddy and the
+  Cloudflare Tunnel are its only required ingress paths. Before the first
+  `--now`, stop only the specific manually started Node PID found with
+  `pgrep -af 'node.*src/index.js'` to avoid a port-3100 collision.
 - STT server runs locally from `.venv-stt` using
   `scripts/stt-server.py`, bound to loopback port 8178. It reports model
   `Vinxscribe/biodatlab-whisper-th-medium-faster`. The Ubuntu

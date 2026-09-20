@@ -208,7 +208,7 @@ function createToolRouter(db) {
     summarizePersons: (user, request) => summaries.summarize(user, request),
     summaryChoices: (user, prompt) => summaries.choices(user, prompt),
     groupPersons: (user, opts) => persons.groupByLocation(user, opts),
-    discover: (user) => discovery.run(user),
+    discover: (user, options) => discovery.run(user, options),
   };
 }
 

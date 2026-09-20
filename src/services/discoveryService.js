@@ -3,13 +3,19 @@
 // Descriptive discovery is deliberately aggregate-only.  It surfaces where
 // recorded data is concentrated or incomplete; it never predicts behaviour,
 // ranks people, or turns a pattern into a medical/legal conclusion.
-const DISCOVERY_RE = /(?:knowledge\s*discovery|data\s*discovery|วิเคราะห์(?:ภาพรวม|ข้อมูล|pattern)|พบ\s*(?:อะไรใหม่|แพตเทิร์น|pattern|ข้อสังเกต)|ข้อมูล(?:มีอะไรน่าสนใจ|บอกอะไร|กระจุกตัว)|ความกระจุกตัว)/iu;
+const DISCOVERY_RE = /(?:knowledge\s*discovery|data\s*discovery|วิเคราะห์(?:ภาพรวม|ข้อมูล|pattern)|พบ\s*(?:อะไรใหม่|แพตเทิร์น|pattern|ข้อสังเกต)|ข้อมูล(?:มีอะไรน่าสนใจ|บอกอะไร|กระจุกตัว)|ความกระจุกตัว|วิเคราะห์ภาระงาน|ตรวจ(?:สอบ)?คุณภาพข้อมูล|เปรียบเทียบพื้นที่|วิเคราะห์ผลการดำเนินงาน)/iu;
 const TYPE_LABELS = { psychiatric: 'ผู้ป่วยจิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'ผู้พ้นโทษ' };
 const STATUS_LABELS = { registered: 'ขึ้นทะเบียน', active: 'กำลังติดตาม', followup: 'ต้องติดตาม', completed: 'เสร็จสิ้น' };
 const MIN_GROUP_COUNT = 5;
 
 function detectDiscoveryIntent(message) {
-  return DISCOVERY_RE.test(String(message || '').trim());
+  const text = String(message || '').trim();
+  if (!DISCOVERY_RE.test(text)) return null;
+  if (/ภาระงาน|ค้างติดตาม/.test(text)) return { kind: 'workload' };
+  if (/คุณภาพข้อมูล|ข้อมูล.*(?:ครบ|ขาด|ไม่ครบ)/.test(text)) return { kind: 'quality' };
+  if (/เปรียบเทียบพื้นที่|เปรียบเทียบ.*(?:ตำบล|อำเภอ|สภ\.?)/.test(text)) return { kind: 'comparison' };
+  if (/ผลการดำเนินงาน|ปิดงาน|สถานะ/.test(text)) return { kind: 'operations' };
+  return { kind: 'discovery' };
 }
 
 function countBy(rows, key) {
@@ -21,7 +27,7 @@ function countBy(rows, key) {
   return [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'th'));
 }
 
-function discover(rows, { scopeLabel = 'พื้นที่ที่มีสิทธิ์เข้าถึง' } = {}) {
+function discover(rows, { scopeLabel = 'พื้นที่ที่มีสิทธิ์เข้าถึง', kind = 'discovery' } = {}) {
   const total = rows.length;
   const byType = countBy(rows, 'person_type');
   const byStatus = countBy(rows, 'status');
@@ -47,6 +53,18 @@ function discover(rows, { scopeLabel = 'พื้นที่ที่มีส�
 
   const missingArea = rows.filter((row) => !String(row.subdistrict || '').trim() || !String(row.district || '').trim()).length;
   if (missingArea) insights.push(`พบข้อมูลพื้นที่ไม่ครบ ${missingArea} รายการ จึงอาจยังจัดอันดับตำบลหรืออำเภอได้ไม่ครบถ้วน`);
+  if (kind === 'workload') {
+    const pending = (byStatus.find((item) => item.name === 'followup') || { count: 0 }).count;
+    const active = (byStatus.find((item) => item.name === 'active') || { count: 0 }).count;
+    insights.splice(0, insights.length, `งานที่บันทึกเป็นต้องติดตาม ${pending} คน และกำลังติดตาม ${active} คน`, `ควรจัดลำดับงานจากรายการต้องติดตามตามพื้นที่และประเภทผ่านคำสั่งรายชื่อ/ภาพรวม ไม่ใช้ผลนี้แทนกำหนดการปฏิบัติงาน`);
+  } else if (kind === 'quality') {
+    insights.splice(0, insights.length, missingArea ? `พบข้อมูลพื้นที่ไม่ครบ ${missingArea} รายการ ควรเติมตำบลหรืออำเภอก่อนใช้จัดอันดับ` : 'ข้อมูลพื้นที่ของรายการที่ตรวจได้ครบถ้วน', `ตรวจพบประเภทข้อมูล ${byType.length} กลุ่ม และสถานะงาน ${byStatus.length} สถานะ`);
+  } else if (kind === 'comparison') {
+    const top = byArea.filter((item) => item.count >= MIN_GROUP_COUNT).slice(0, 3);
+    insights.splice(0, insights.length, top.length ? `พื้นที่ที่มีข้อมูลมากสุด: ${top.map((item) => `${item.name} ${item.count} คน`).join(' • ')}` : 'ยังไม่มีพื้นที่ใดมีข้อมูลถึงเกณฑ์เปรียบเทียบแบบรวม', 'ใช้ผลนี้เพื่อเลือกพื้นที่ที่จะดูภาพรวมต่อ ไม่ใช่เพื่อจัดระดับความเสี่ยงของพื้นที่');
+  } else if (kind === 'operations') {
+    insights.splice(0, insights.length, `สถานะงานที่บันทึก: ${byStatus.map((item) => `${STATUS_LABELS[item.name] || item.name} ${item.count}`).join(' • ')}`, 'ผลนี้สะท้อนสถานะทะเบียนปัจจุบัน ไม่ใช่อัตราความสำเร็จหรือผลลัพธ์ของคดี');
+  }
   if (!insights.length) insights.push('ยังไม่พบรูปแบบที่มีจำนวนมากพอสำหรับรายงานแบบรวม ควรเพิ่มข้อมูลหรือระบุพื้นที่/ประเภทที่ต้องการวิเคราะห์');
 
   const lines = [
@@ -57,12 +75,12 @@ function discover(rows, { scopeLabel = 'พื้นที่ที่มีส�
   ];
   return {
     answer: lines.join('\n'),
-    presentation: { type: 'discovery', total, insights, byType, byStatus, topAreas: byArea.filter((item) => item.count >= MIN_GROUP_COUNT).slice(0, 5) },
+    presentation: { type: 'discovery', kind, total, insights, byType, byStatus, topAreas: byArea.filter((item) => item.count >= MIN_GROUP_COUNT).slice(0, 5) },
   };
 }
 
 function createDiscoveryService(persons) {
-  function run(user) {
+  function run(user, options = {}) {
     // The service obtains all records through the existing scoped person
     // service.  It receives no role/station input from the prompt or client.
     const result = persons.listPersonsForDiscovery(user);
@@ -72,7 +90,7 @@ function createDiscoveryService(persons) {
         presentation: { type: 'discovery', total: result.total, insights: [], byType: [], byStatus: [], topAreas: [], limited: true },
       };
     }
-    return discover(result.rows, { scopeLabel: user.stationName || 'พื้นที่ที่มีสิทธิ์เข้าถึง' });
+    return discover(result.rows, { scopeLabel: user.stationName || 'พื้นที่ที่มีสิทธิ์เข้าถึง', kind: options.kind });
   }
   return { run };
 }

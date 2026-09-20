@@ -180,7 +180,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    filters,byType:Object.entries(TYPE_LABELS).map(([type,label])=>({type,label,count:counts[type]})),highRisk:high.total,watch:watch.total,top:sort('desc'),bottom:sort('asc')};
   return {answer:formatOverview(data),presentation:{type:'overview',...data}};
  }
- async function realDiscovery(req) {
+ async function realDiscovery(req, options = {}) {
   const found=await search(req,{},1,true);
   const typeIds=[...new Set(found.data.map(row=>row.type_id).filter(Boolean))];
   const types=typeIds.length ? await rows(req,'people_type',new URLSearchParams({select:'type_id,type_name',type_id:`in.(${typeIds.join(',')})`,limit:'1000'})) : {data:[]};
@@ -190,7 +190,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    person_type:typeFor(typeById.get(String(row.type_id))||''),status:row.status,
    subdistrict:row.tambon,district:row.amphoe,
   }));
-  return discover(safeRows,{scopeLabel:req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง'});
+  return discover(safeRows,{scopeLabel:req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง',kind:options.kind});
  }
  const registry=createRealRegistryRead(rows);
  router.get('/ai/status',(req,res)=>res.json({available:true,model:'ข้อมูลจริง • อ่านจาก Supabase'}));
@@ -226,8 +226,9 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if(area)ranking=[message,area[1],/น้อย/.test(message)?'น้อยสุด':'มากสุด'];
   }
   const conversation={topic:topicFromIntent(intent)||incomingTopic};
-  if(detectDiscoveryIntent(message)){
-   try { const result=await realDiscovery(req);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_aggregate_discovery'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+  const discoveryIntent=detectDiscoveryIntent(message);
+  if(discoveryIntent){
+   try { const result=await realDiscovery(req,discoveryIntent);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_aggregate_discovery'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
    catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
   }
   if(overview){

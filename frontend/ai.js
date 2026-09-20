@@ -20,6 +20,7 @@
     ordinalItems: null,
     referenceList: null,
     voiceMode: false,
+    tutorial: { active: false, step: 0, lastAdvanced: false },
   };
 
   const VOICE_CLIPS = {
@@ -173,7 +174,129 @@
 
   function isUsageGuideQuestion(message) {
     const text = String(message || '').replace(/\s+/g, '');
-    return /(?:วิธ[ีิ]ใช้|วิธีการใช้|สอน(?:การ)?ใช้งาน?(?:ให้)?หน่อย|สอนใช้หน่อย|ใช้ยังไง|ต้องถามอะไรบ้าง|ถามอะไรได้บ้าง)/u.test(text);
+    return /(?:วิธ[ีิ]ใช้|วิธีการใช้|สอน(?:การ)?ใช้งาน?(?:ให้)?หน่อย|สอนใช้หน่อย|ใช้ยังไง|ต้องถามอะไรได้บ้าง|ทำยังไง(?:ต่อ)?|ทำไง(?:ต่อ)?|สั่งยังไง|ขอวิธีใช้|ไม่เข้าใจ(?:วิธีใช้)?|ทำไม่เป็น|ช่วย(?:สอน|บอกวิธี|หน่อย))/u.test(text);
+  }
+
+  const TUTORIAL_STEPS = [
+    {
+      title: 'ดูภาพรวมก่อน',
+      prompt: 'ขอภาพรวม สภ.',
+      hint: 'ระบบจะสรุปจำนวนบุคคลเป้าหมาย ประเภท สีความเสี่ยง และอันดับพื้นที่',
+      matches: /(?:ขอ)?ภาพรวม/u,
+    },
+    {
+      title: 'ขอรายชื่อ',
+      prompt: 'ขอรายชื่อผู้เสพ',
+      hint: 'ลองขอรายชื่อประเภทใดก็ได้ แล้วระบบจะแสดงลำดับกำกับทุกรายการ',
+      matches: /(?:ขอ)?รายชื่อ.*(?:ผู้เสพ|ผู้ค้า|จิตเวช|ผู้พ้นโทษ|บุคคล|ทั้งหมด)/u,
+    },
+    {
+      title: 'เลือกรายการตามลำดับ',
+      prompt: 'เลือกคนที่ 1',
+      hint: 'เลือกได้ด้วยคำว่า เลือกคนที่, เลือกรายการที่ หรือ เลือกลำดับที่',
+      matches: /เลือก(?:คน|รายการ|ลำดับ)?ที่?\s*(?:1|๑|หนึ่ง)/u,
+    },
+    {
+      title: 'ขอข้อมูลของรายการที่เลือก',
+      prompt: 'ขอข้อมูลคนที่ 1',
+      hint: 'หลังเลือกแล้ว จะถามว่า “คนนี้มีประวัติอย่างไร” ก็ได้',
+      matches: /(?:ขอ)?ข้อมูล(?:คน|รายการ)?ที่?\s*(?:1|๑|หนึ่ง)|คนนี้.*(?:ข้อมูล|ประวัติ)|ประวัติ.*คนนี้/u,
+    },
+    {
+      title: 'วิเคราะห์ข้อมูลภาพรวม',
+      prompt: 'วิเคราะห์ภาระงาน',
+      hint: 'ยังลอง “เปรียบเทียบพื้นที่” หรือ “ตรวจคุณภาพข้อมูล” ได้ด้วย',
+      matches: /(?:วิเคราะห์ภาระงาน|เปรียบเทียบพื้นที่|ตรวจคุณภาพข้อมูล|วิเคราะห์ผลการดำเนินงาน)/u,
+    },
+  ];
+
+  function tutorialSpeechFor(step) {
+    if (!step) return 'ทำแบบฝึกหัดครบแล้วค่ะ ตอนนี้ลองถามด้วยภาษาพูดตามงานจริงได้เลย';
+    return `แบบฝึกหัดข้อ ${state.tutorial.step + 1} ${step.title} ค่ะ ลองพูดหรือพิมพ์ว่า ${step.prompt}`;
+  }
+
+  function speakTutorial(text) {
+    if (!state.voiceMode || !('speechSynthesis' in window)) return Promise.resolve();
+    stopVoiceAudio();
+    return new Promise((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'th-TH';
+      utterance.rate = 0.93;
+      utterance.onend = utterance.onerror = () => { setMascotSpeaking(false); resolve(); };
+      activeVoiceStop = () => { window.speechSynthesis.cancel(); setMascotSpeaking(false); resolve(); };
+      setMascotSpeaking(true);
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    });
+  }
+
+  function renderTutorialStep({ completed = false } = {}) {
+    const step = TUTORIAL_STEPS[state.tutorial.step];
+    const wrap = appendMessage('assistant', '');
+    wrap.classList.add('msg-tutorial');
+    wrap.querySelector('.bubble')?.remove();
+    const card = document.createElement('section');
+    card.className = 'tutorial-card';
+    const head = document.createElement('div');
+    head.className = 'tutorial-head';
+    const finished = !step;
+    head.innerHTML = `<span class="tutorial-kicker">${finished ? 'เรียนจบแล้ว' : `แบบฝึกหัด ${state.tutorial.step + 1} / ${TUTORIAL_STEPS.length}`}</span><h2>${finished ? 'พร้อมใช้งานแล้ว' : step.title}</h2><p>${finished ? 'คุณสามารถดูภาพรวม ขอรายชื่อ เลือกรายการ วิเคราะห์ข้อมูล และขอรายงานได้ตามสิทธิ์ของบัญชี' : step.hint}</p>`;
+    const body = document.createElement('div');
+    body.className = 'tutorial-body';
+    if (!finished) {
+      const status = document.createElement('span');
+      status.className = completed ? 'tutorial-complete' : 'tutorial-status';
+      status.textContent = completed ? '✓ ทำข้อนี้แล้ว — ไปข้อถัดไป' : 'ลองทำตามคำสั่งนี้';
+      const prompt = document.createElement('code'); prompt.textContent = step.prompt;
+      const tryButton = document.createElement('button');
+      tryButton.type = 'button'; tryButton.className = 'suggest-btn'; tryButton.textContent = 'ใช้คำสั่งนี้';
+      tryButton.addEventListener('click', () => sendMessage(step.prompt));
+      body.append(status, prompt, tryButton);
+    } else {
+      const restart = document.createElement('button');
+      restart.type = 'button'; restart.className = 'suggest-btn'; restart.textContent = 'เริ่มแบบฝึกหัดใหม่';
+      restart.addEventListener('click', startTutorial);
+      body.appendChild(restart);
+    }
+    card.append(head, body);
+    wrap.insertBefore(card, wrap.querySelector('.msg-time'));
+    scrollToBottom();
+    return step;
+  }
+
+  function startTutorial() {
+    state.tutorial = { active: true, step: 0, lastAdvanced: false };
+    const step = renderTutorialStep();
+    if (state.voiceMode) speakTutorial(tutorialSpeechFor(step));
+  }
+
+  function renderTutorialOffer() {
+    const wrap = appendMessage('assistant', '');
+    wrap.classList.add('msg-tutorial');
+    wrap.querySelector('.bubble')?.remove();
+    const card = document.createElement('section');
+    card.className = 'tutorial-card tutorial-offer';
+    card.innerHTML = '<div class="tutorial-head"><span class="tutorial-kicker">ช่วยเริ่มต้นใช้งาน</span><h2>ต้องการให้สอนการใช้งานหรือไม่?</h2><p>มีแบบฝึกหัดให้ลองทีละคำสั่ง ทั้งพิมพ์และพูด พร้อมตัวอย่างคำถามที่ใช้ได้จริง</p></div>';
+    const choices = document.createElement('div'); choices.className = 'tutorial-choices';
+    const start = document.createElement('button'); start.type = 'button'; start.className = 'suggest-btn'; start.textContent = '1. เริ่มแบบฝึกหัด'; start.addEventListener('click', startTutorial);
+    const guide = document.createElement('button'); guide.type = 'button'; guide.className = 'suggest-btn'; guide.textContent = '2. ดูคำสั่งที่ใช้ได้'; guide.addEventListener('click', renderUsageGuide);
+    const no = document.createElement('button'); no.type = 'button'; no.className = 'suggest-btn'; no.textContent = '3. ไม่ใช่'; no.addEventListener('click', () => appendMessage('assistant', 'ได้เลยค่ะ ลองบอกสิ่งที่ต้องการค้นหาหรือสรุปข้อมูลได้ทันที'));
+    choices.append(start, guide, no); card.appendChild(choices);
+    wrap.insertBefore(card, wrap.querySelector('.msg-time'));
+    scrollToBottom();
+    if (state.voiceMode) speakTutorial('ต้องการให้สอนการใช้งานหรือไม่คะ ลองพูดว่า เริ่มแบบฝึกหัด หรือ ดูคำสั่งที่ใช้ได้');
+  }
+
+  function completeTutorialStep(message) {
+    if (!state.tutorial.active) return false;
+    const step = TUTORIAL_STEPS[state.tutorial.step];
+    if (!step || !step.matches.test(String(message || ''))) return false;
+    if (state.tutorial.step === 2 && !(state.referenceList && state.referenceList.items.length)) return false;
+    if (state.tutorial.step === 3 && !state.selectedPerson) return false;
+    state.tutorial.step += 1;
+    state.tutorial.lastAdvanced = true;
+    renderTutorialStep({ completed: true });
+    return true;
   }
 
   function renderUsageGuide() {
@@ -239,6 +362,7 @@
   function appendMessage(role, text, options = {}) {
     removeTypingIndicator();
     const box = $('#chat-messages');
+    box.querySelector('.empty-state')?.remove();
     const wrap = document.createElement('div');
     wrap.className = 'msg ' + (role === 'user' ? 'msg-user' : 'msg-assistant');
     if (options.error) wrap.classList.add('msg-error');
@@ -370,6 +494,12 @@
 
   function finishVoiceTurn(json, message) {
     if (!state.voiceMode) return Promise.resolve();
+    if (state.tutorial.active && state.tutorial.lastAdvanced) {
+      state.tutorial.lastAdvanced = false;
+      return speakTutorial(tutorialSpeechFor(TUTORIAL_STEPS[state.tutorial.step])).finally(() => {
+        if (state.voiceMode && state.mic !== 'recording' && state.mic !== 'uploading' && !state.sending) setMicStatus('พร้อมรับคำสั่งต่อไป', false);
+      });
+    }
     let clip = 'finished';
     if (isVoiceIntroduction(message)) clip = 'introduce';
     else if (answerNeedsFollowup(json)) clip = 'answerQuestion';
@@ -1368,14 +1498,38 @@
     if (!message || state.sending) return;
     const voiceTurn = options.voice === true;
 
-    if (isUsageGuideQuestion(message)) {
+    const compactMessage = message.replace(/\s+/g, '');
+    if (/(?:เริ่ม|สอน).*แบบฝึกหัด/u.test(compactMessage)) {
+      appendMessage('user', message);
+      $('#chat-input').value = '';
+      autoResizeInput();
+      startTutorial();
+      return;
+    }
+    if (/(?:ดู|บอก).*(?:คำสั่ง|ตัวอย่าง)/u.test(compactMessage) && /(?:ใช้|สั่ง|ได้)/u.test(compactMessage)) {
       appendMessage('user', message);
       $('#chat-input').value = '';
       autoResizeInput();
       renderUsageGuide();
-      finishVoiceTurn(null, message);
       return;
     }
+    if (state.tutorial.active && /(?:ทำ(?:ยัง)?ไงต่อ|ต่อไป|ทวน(?:ข้อ|คำสั่ง)?|ย้ำ(?:ข้อ|คำสั่ง)?)/u.test(compactMessage)) {
+      appendMessage('user', message);
+      $('#chat-input').value = '';
+      autoResizeInput();
+      const step = renderTutorialStep();
+      if (voiceTurn) speakTutorial(tutorialSpeechFor(step));
+      return;
+    }
+    if (isUsageGuideQuestion(message)) {
+      appendMessage('user', message);
+      $('#chat-input').value = '';
+      autoResizeInput();
+      renderTutorialOffer();
+      return;
+    }
+
+    completeTutorialStep(message);
 
     if (window.ChatContext.isReferenceListQuestion(message)) {
       appendMessage('user', message);

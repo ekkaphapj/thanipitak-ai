@@ -199,6 +199,13 @@ test('stt html includes hold-to-talk mic button', () => {
   assert.match(js, /กำลังแปลงเสียงเป็นข้อความ/);
   assert.match(js, /พร้อมรับคำสั่งต่อไป/);
   assert.match(js, /openVoiceAssistant/);
+  assert.match(js, /ต้องการให้สอนการใช้งานหรือไม่/);
+  assert.match(js, /ทำยังไง(?:ต่อ)?/);
+  assert.match(js, /TUTORIAL_STEPS/);
+  assert.match(js, /speechSynthesis/);
+  assert.match(js, /ขอภาพรวม สภ\./);
+  assert.match(js, /เลือกคนที่ 1/);
+  assert.match(js, /วิเคราะห์ภาระงาน/);
   const css = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'ai-refresh.css'), 'utf8');
   assert.match(css, /thanipitak-ai-voice-sprite-v2\.png/);
   assert.match(css, /voice-mouth/);

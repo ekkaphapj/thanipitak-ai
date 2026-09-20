@@ -150,11 +150,17 @@ chat logs.
 - Mobile styles hide the sidebar, place the normal text composer into a
   touch-friendly two-row layout, and lift the compact mascot above the voice
   status dock.
-- Usage-help wording (`วิธีใช้`, the common misspelling `วิธิใช้`, `สอนใช้หน่อย`,
-  `ใช้ยังไง`, and `ต้องถามอะไรบ้าง`) renders a local guide template directly in
-  the browser. It offers safe examples and does not call Ollama or registry
-  endpoints. If a voice turn finds an existing typed draft, it must preserve it
-  and say to close voice mode before reviewing or sending that draft.
+- Usage-help wording (including `วิธีใช้`, the common misspelling `วิธิใช้`,
+  `สอนใช้หน่อย`, `ใช้ยังไง`, `ทำยังไง`, `ทำไงต่อ`, `สั่งยังไง`, and
+  `ขอวิธีใช้`) first asks whether the officer wants a lesson. The local lesson
+  is five short exercises: overview, list, ordinal selection, selected-person
+  detail, and aggregate analysis. It accepts the same typed or transcribed
+  commands as the ordinary chat and never calls a registry endpoint merely to
+  show a lesson card. In voice mode, browser `speechSynthesis` reads the current
+  exercise and its exact command aloud; it is separate from recorded assistant
+  audio and never sends an audio recording anywhere. If a voice turn finds an
+  existing typed draft, it must preserve it and say to close voice mode before
+  reviewing or sending that draft.
 
 ### Latest validation
 

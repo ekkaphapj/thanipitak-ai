@@ -5,6 +5,7 @@ const personRepo = require('../repositories/personRepo');
 const {createMonitoringService}=require('../services/monitoringService');
 const {createSummaryService}=require('../services/summaryService');
 const {createOverviewService}=require('../services/overviewService');
+const {createDiscoveryService}=require('../services/discoveryService');
 
 const ALLOWED_TOOLS = new Set([
   'get_statistics',
@@ -28,6 +29,7 @@ function createToolRouter(db) {
   const followups = createFollowupService(db);
   const summaries = createSummaryService(db);
   const overview = createOverviewService(db);
+  const discovery = createDiscoveryService(persons);
 
   async function execute(toolName, args, currentUser) {
     if (!ALLOWED_TOOLS.has(toolName)) {
@@ -206,6 +208,7 @@ function createToolRouter(db) {
     summarizePersons: (user, request) => summaries.summarize(user, request),
     summaryChoices: (user, prompt) => summaries.choices(user, prompt),
     groupPersons: (user, opts) => persons.groupByLocation(user, opts),
+    discover: (user) => discovery.run(user),
   };
 }
 

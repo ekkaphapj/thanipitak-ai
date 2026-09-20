@@ -62,6 +62,7 @@ function normalizeQuery(query) {
 }
 
 const RECENT_VISITS_MAX = 5;
+const DISCOVERY_ROW_CAP = 5000;
 
 function toDateKey(d) {
   return d.toISOString().slice(0, 10);
@@ -183,6 +184,16 @@ function createPersonService(db) {
     };
   }
 
+  function listPersonsForDiscovery(user) {
+    const stationIds = allowedStationIds(user);
+    const result = personRepo.listPersons(db, { stationIds, limit: DISCOVERY_ROW_CAP + 1, offset: 0 });
+    return {
+      rows: result.rows.slice(0, DISCOVERY_ROW_CAP),
+      total: result.total,
+      truncated: result.total > DISCOVERY_ROW_CAP,
+    };
+  }
+
   function getPerson(user, id) {
     const person = personRepo.getPersonById(db, parseInt(id, 10));
     if (!person || !hasAccessToPerson(user, person)) {
@@ -227,6 +238,7 @@ function createPersonService(db) {
     listPersonsWithSummary,
     summarizePersons,
     groupByLocation,
+    listPersonsForDiscovery,
     getPerson,
     getVisits,
     getUrineTests,
@@ -240,5 +252,6 @@ module.exports = {
   hasAccessToPerson,
   stationScope,
   buildPersonSummary,
+  DISCOVERY_ROW_CAP,
   createPersonService,
 };

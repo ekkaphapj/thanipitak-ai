@@ -23,6 +23,7 @@ const {
 } = require('./personAnalyzer');
 const { runIntentRouter, INTENT_MODEL } = require('./intentRouter');
 const rag = require('./rag');
+const { detectDiscoveryIntent } = require('../services/discoveryService');
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'scb10x/llama3.1-typhoon2-8b-instruct:latest';
@@ -262,6 +263,15 @@ function createAIGateway(toolRouter) {
 // station/role/user_id are never accepted here. When confidence is not high,
 // it falls through to the untouched Phase 3.1 gateway (chatWithTools).
 async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, onToolCall, options = {}) {
+  if (detectDiscoveryIntent(userMessage) && !options.forceQwen) {
+    const out = toolRouter.discover(currentUser);
+    if (onToolCall) onToolCall({ toolName: 'discover_aggregate_patterns', toolArgs: {}, userId: currentUser.id, username: currentUser.username });
+    return {
+      answer: out.answer, toolsUsed: ['discover_aggregate_patterns'], grounded: true,
+      databaseIntent: true, retryCount: 0, fastPath: true, intent: 'aggregate_discovery',
+      executionTier: 1, ollamaCalls: 0, presentation: out.presentation,
+    };
+  }
   const selectedPersonId = validPersonId((options.context || {}).personId);
   const requestedOverview = detectOverview(userMessage);
   // Category overview and an explicitly selected person are different scopes.

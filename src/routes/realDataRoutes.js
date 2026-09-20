@@ -10,6 +10,7 @@ const {parseStationId,applyPeopleStationScope,personInOwnStation}=require('../se
 const {detectOverview,formatOverview,TYPE_LABELS}=require('../services/overviewService');
 const {hasDBIntent}=require('../ai/intentDetector');
 const rag=require('../ai/rag');
+const {detectDiscoveryIntent,discover}=require('../services/discoveryService');
 
 async function ollamaJson(path,body) {
  const response=await fetch(new URL(path,process.env.OLLAMA_HOST||'http://127.0.0.1:11434'),{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(120000),body:JSON.stringify(body)});
@@ -179,6 +180,18 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    filters,byType:Object.entries(TYPE_LABELS).map(([type,label])=>({type,label,count:counts[type]})),highRisk:high.total,watch:watch.total,top:sort('desc'),bottom:sort('asc')};
   return {answer:formatOverview(data),presentation:{type:'overview',...data}};
  }
+ async function realDiscovery(req) {
+  const found=await search(req,{},1,true);
+  const typeIds=[...new Set(found.data.map(row=>row.type_id).filter(Boolean))];
+  const types=typeIds.length ? await rows(req,'people_type',new URLSearchParams({select:'type_id,type_name',type_id:`in.(${typeIds.join(',')})`,limit:'1000'})) : {data:[]};
+  const typeById=new Map(types.data.map(row=>[String(row.type_id),String(row.type_name||'')]));
+  const typeFor=name=>/จิตเวช/.test(name)?'psychiatric':/ผู้เสพ|ใช้ยา/.test(name)?'drug_user':/ผู้ค้า|จำหน่าย/.test(name)?'dealer':/พ้นโทษ|เรือนจำ/.test(name)?'released':'other';
+  const safeRows=found.data.map(row=>({
+   person_type:typeFor(typeById.get(String(row.type_id))||''),status:row.status,
+   subdistrict:row.tambon,district:row.amphoe,
+  }));
+  return discover(safeRows,{scopeLabel:req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง'});
+ }
  const registry=createRealRegistryRead(rows);
  router.get('/ai/status',(req,res)=>res.json({available:true,model:'ข้อมูลจริง • อ่านจาก Supabase'}));
  router.post('/ai/chat',async(req,res)=>{
@@ -213,6 +226,10 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if(area)ranking=[message,area[1],/น้อย/.test(message)?'น้อยสุด':'มากสุด'];
   }
   const conversation={topic:topicFromIntent(intent)||incomingTopic};
+  if(detectDiscoveryIntent(message)){
+   try { const result=await realDiscovery(req);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_aggregate_discovery'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+   catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
+  }
   if(overview){
    try { const result=await realOverview(req,overview.requestedScope,overview.filters);conversation.topic=sanitizeTopic(overview.filters);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_overview_read'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
    catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}

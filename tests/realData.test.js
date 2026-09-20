@@ -19,6 +19,21 @@ test('real mode treats registry terminology explanations as knowledge, not a peo
   assert.doesNotMatch(res.body.answer,/ต้องการจำนวน|รายชื่อ หรือแยกยอด/);
  } finally { if(previous===undefined)delete process.env.RAG_ENABLED;else process.env.RAG_ENABLED=previous; }
 });
+test('real aggregate discovery reads only scoped rows and returns no names',async()=>{
+ const app=express();app.use(express.json());const calls=[];
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,stationName:'สภ.บ้านดุง'};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async url=>{
+  const u=new URL(url);calls.push(u);
+  if(u.pathname.endsWith('/people_type'))return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[{type_id:5,type_name:'ผู้เสพ'},{type_id:9,type_name:'ผู้ป่วยจิตเวช'}]};
+  return {ok:true,headers:new Headers({'content-range':'0-5/6'}),json:async()=>[
+   {id:1,station_id:77,type_id:5,tambon:'ก',amphoe:'เมือง',status:'active'}, {id:2,station_id:77,type_id:5,tambon:'ก',amphoe:'เมือง',status:'active'},
+   {id:3,station_id:77,type_id:5,tambon:'ก',amphoe:'เมือง',status:'active'}, {id:4,station_id:77,type_id:5,tambon:'ก',amphoe:'เมือง',status:'active'},
+   {id:5,station_id:77,type_id:5,tambon:'ก',amphoe:'เมือง',status:'active'}, {id:6,station_id:77,type_id:9,tambon:'ข',amphoe:'เมือง',status:'followup'},
+  ]};
+ }}));
+ const res=await request(app).post('/ai/chat').send({message:'พบ pattern อะไรบ้าง'});
+ assert.equal(res.status,200);assert.equal(res.body.presentation.type,'discovery');assert.equal(res.body.presentation.total,6);assert.match(res.body.answer,/ข้อมูลกระจุกตัว/);assert.doesNotMatch(res.body.answer,/สมชาย|first_name/);
+ const people=calls.find(call=>call.pathname.endsWith('/people'));assert.equal(people.searchParams.get('station_id'),'eq.77');
+});
 test('unknown spoken question invokes local interpreter and executes scoped grouping',async()=>{
  let interpretations=0;const app=express();app.use(express.json());
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77};req.realToken='t';next();},{

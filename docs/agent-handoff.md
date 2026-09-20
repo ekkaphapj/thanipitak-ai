@@ -580,3 +580,19 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
   terminology, and access-boundary questions. Broader product questions use
   only retrieved catalogue snippets and the local model. Never turn RAG into
   free-form SQL generation or a bypass for the real-data allowlist.
+
+### Continuation update — 2026-09-20 (aggregate discovery)
+
+- `src/services/discoveryService.js` adds deterministic aggregate discovery.
+  It recognizes “พบ pattern อะไรบ้าง”, “วิเคราะห์ภาพรวมข้อมูล”, and related
+  explicit aggregate wording. It returns only descriptive observations: type
+  distribution, sufficiently large area concentration, recorded follow-up
+  status totals, and missing-area data quality. It does not return names,
+  predict behaviour, or produce medical/legal conclusions.
+- Test mode obtains rows through `personService` with the same server-owned
+  station scope and a 5,000-row safety cap. Real mode uses the existing
+  authenticated, allowlisted Supabase read path, applies the same station
+  filter, and returns a `discovery` presentation. The discovery command never
+  calls Ollama and must not be broadened by frontend role/station fields.
+- Full `npm test` passed 316 tests / 25 suites after the addition. Regression
+  coverage is in `tests/discovery.test.js` and `tests/realData.test.js`.

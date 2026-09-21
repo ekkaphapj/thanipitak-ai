@@ -9,6 +9,18 @@ test('real mode routes product questions to RAG instead of registry clarificatio
   assert.equal(res.status,200);assert.match(res.body.answer,/ระบบจัดการบุคคลเป้าหมายอัจฉริยะ/);assert.doesNotMatch(res.body.answer,/ต้องการจำนวน|รายชื่อ หรือแยกยอด/);
  } finally { if(previous===undefined)delete process.env.RAG_ENABLED;else process.env.RAG_ENABLED=previous; }
 });
+test('psychiatric overview uses the audited primary AI summary tool, not a direct registry read',async()=>{
+ const app=express();app.use(express.json());const calls=[];
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,aiScope:{level:'region4',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{
+  calls.push({url,opts});
+  assert.match(url,/\/functions\/v1\/ai-summary$/);
+  assert.equal(opts.headers.Authorization,'Bearer verified-session');
+  return {ok:true,json:async()=>({report_type:'psychiatric_summary',scope:{level:'region4',read_only:true},rows:[{station_id:77,station_name:'สภ.บ้านดุง',province:'อุดรธานี',patient_total:4,green_total:1,yellow_total:2,red_total:1}]})};
+ }}));
+ const res=await request(app).post('/ai/chat').send({message:'ขอภาพรวมผู้ป่วยจิตเวช'});
+ assert.equal(res.status,200);assert.match(res.body.answer,/รวม 4 คน/);assert.equal(res.body.presentation.readOnlyAggregate,true);
+ assert.equal(res.body.presentation.items[0].red,1);assert.equal(calls.length,1);
+});
 test('real mode treats registry terminology explanations as knowledge, not a people lookup',async()=>{
  const previous=process.env.RAG_ENABLED;process.env.RAG_ENABLED='true';
  try {

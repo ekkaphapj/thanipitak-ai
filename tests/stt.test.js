@@ -21,6 +21,7 @@ function mockRealAuth() {
       ok: true,
       json: async () => {
         if (String(url).endsWith('/user')) return { id: 'uuid' };
+        if (String(url).includes('/functions/v1/ai-access-scope')) return { scope: { level: 'station', read_only: true, user_id: 8, station_id: 2, province: 'อุดรธานี' } };
         if (String(url).includes('/stations?')) return [{ station_id: 2, station_name: 'สภ.ทดสอบ', division: 'ภ.จว.', province: 'อุดรธานี' }];
         return [{ user_id: 8, username: '4648', name: 'ตัวอย่าง', user_type: 'User', station_id: 2 }];
       },

@@ -2,6 +2,8 @@ const express = require('express');
 
 function createRealAuthRoutes({ url = require('../realConfig').url, key = require('../realConfig').key, request = fetch } = {}) {
   const router = express.Router();
+  const { createRealAiTools } = require('../services/realAiTools');
+  const aiTools = createRealAiTools({ url, key, request });
   router.use((req, res, next) => {
     if (!url || !key) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่าการเชื่อมต่อฐานข้อมูลจริง', code: 'REAL_AUTH_NOT_CONFIGURED' });
     next();
@@ -16,6 +18,9 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
     const rows = await result.json();
     if (!Array.isArray(rows) || rows.length !== 1) return null;
     const p = rows[0];
+    // The primary profile is the authorization source.  Do not admit an
+    // External account merely because it can present a valid Supabase token.
+    if (!['User', 'Admin', 'SuperAdmin', 'ผู้ดูแลระบบ'].includes(p.user_type)) return null;
     const { parseStationId } = require('../services/stationScope');
     const stationId = parseStationId(p.station_id);
     let station = null;
@@ -27,10 +32,14 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
         if (Array.isArray(stations) && stations.length === 1 && Number(stations[0].station_id) === stationId) station = stations[0];
       }
     }
+    // Scope is returned by the primary system's authenticated Edge Function.
+    // Do not derive it from the browser profile or from a local role mapping.
+    const aiScope = await aiTools.accessScope(token);
     return { id: p.user_id, username: p.username, name: p.name, stationId,
       stationName: station?.station_name || null, division: station?.division || null, province: station?.province || null,
-      roleLabel: { Admin: 'ผู้ดูแลระบบ', User: 'เจ้าหน้าที่', External: 'หน่วยงานภายนอก' }[p.user_type] || 'ผู้ใช้งาน',
-      role: p.user_type === 'Admin' ? 'admin' : p.user_type === 'User' ? 'officer' : 'viewer', dataSource: 'real' };
+      roleLabel: { Admin: 'ผู้ดูแลระบบ', SuperAdmin: 'ผู้ดูแลระบบหลัก', User: 'เจ้าหน้าที่', 'ผู้ดูแลระบบ': 'ผู้ดูแลระบบ' }[p.user_type] || 'ผู้ใช้งาน',
+      role: ['Admin', 'SuperAdmin', 'ผู้ดูแลระบบ'].includes(p.user_type) ? 'admin' : 'officer',
+      aiScope, dataSource: 'real' };
   }
   router.post('/login', async (req, res) => {
     const { username, password } = req.body || {};

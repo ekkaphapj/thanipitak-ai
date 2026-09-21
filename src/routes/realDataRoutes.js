@@ -38,6 +38,8 @@ function topNFromMessage(message) {
 
 function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent}={}) {
  const router=express.Router();router.use(authenticate);
+ const { createRealAiTools } = require('../services/realAiTools');
+ const aiTools = createRealAiTools({ url, key, request });
  async function rows(req,table,params) {
   let response;
   try { response=await request(`${url}/rest/v1/${table}?${params}`,{headers:{apikey:key,Authorization:`Bearer ${req.realToken}`,Prefer:'count=exact'},signal:AbortSignal.timeout(15000)}); }
@@ -194,6 +196,24 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  }
  const registry=createRealRegistryRead(rows);
  router.get('/ai/status',(req,res)=>res.json({available:true,model:'ข้อมูลจริง • อ่านจาก Supabase'}));
+ router.get('/ai/access-scope',(req,res)=>res.json({scope:req.user.aiScope||null,readOnly:true}));
+ async function psychiatricSummary(req) {
+  const result=await aiTools.psychiatricSummary(req.realToken);
+  const rows=result.rows.map(row=>({
+   name:String(row.station_name||'ไม่ระบุ สภ.'),
+   province:String(row.province||''),
+   count:Number(row.patient_total)||0,
+   green:Number(row.green_total)||0,
+   yellow:Number(row.yellow_total)||0,
+   red:Number(row.red_total)||0,
+  }));
+  const total=rows.reduce((sum,row)=>sum+row.count,0);
+  const scope=result.scope?.level==='all'?'ทุกจังหวัดตามสิทธิ์ที่ยืนยันแล้ว':result.scope?.level==='region4'?'ทุกจังหวัดในขอบเขตที่ยืนยันแล้ว':result.scope?.province?`จังหวัด${result.scope.province}`:'พื้นที่ตามสิทธิ์ที่ยืนยันแล้ว';
+  return {
+   answer:`ภาพรวมผู้ป่วยจิตเวช • ${scope}\nรวม ${total} คน จาก ${rows.length} สภ.`,
+   presentation:{type:'location_summary',groupBy:'station',readOnlyAggregate:true,items:rows,filters:{person_type:'psychiatric'}},
+  };
+ }
  router.post('/ai/chat',async(req,res)=>{
   const start=Date.now();const message=req.body?.message;
   if(typeof message!=='string'||!message.trim()||message.length>2000)return res.status(400).json({error:'คำถามไม่ถูกต้อง'});
@@ -232,6 +252,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
   }
   if(overview){
+   // This is the first audited aggregate tool supplied by the primary system.
+   // It returns counts only; no direct registry read is made from this app.
+   if(overview.filters.person_type==='psychiatric'){
+    try { const result=await psychiatricSummary(req); return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/psychiatric_summary'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+    catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
+   }
    try { const result=await realOverview(req,overview.requestedScope,overview.filters);conversation.topic=sanitizeTopic(overview.filters);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_overview_read'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
    catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
   }

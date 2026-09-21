@@ -126,6 +126,11 @@
       return;
     }
     const parts = [];
+    const scope = u.aiScope;
+    if (scope?.level === 'all') parts.push('ทุกจังหวัดตามสิทธิ์ที่ยืนยันแล้ว');
+    else if (scope?.level === 'region4') parts.push('ทุกจังหวัดในขอบเขต ภ.4');
+    else if (scope?.level === 'province' && scope.province) parts.push(`จังหวัด${scope.province}`);
+    else if (scope?.level === 'station' && scope.station_id) parts.push(`สภ./สถานี ${scope.station_id}`);
     if (u.province) parts.push(`จังหวัด${u.province}`);
     if (u.stationName) parts.push(u.stationName);
     else if (u.stationId) parts.push(`สภ./สถานี ${u.stationId}`);
@@ -1228,13 +1233,20 @@
       const locationName=String(item.name||'').startsWith(label)?item.name:label+item.name;
       const row=document.createElement('div');row.className='pc-row';
       const info=document.createElement('span');info.textContent=`${index+1}. ${locationName} • ${item.count||0} คน`;
-      const button=document.createElement('button');button.type='button';button.className='pc-btn';button.textContent='ดูรายชื่อ';
-      const followup=`ขอรายชื่อ${type}ใน${locationName}`;
-      button.addEventListener('click',()=>sendMessage(followup));
-      ordinalItems.push({ordinal:index+1,displayName:locationName,followup});
-      row.append(info,button);box.appendChild(row);
+      if (presentation.readOnlyAggregate) {
+        const detail=document.createElement('small');
+        detail.textContent=`เขียว ${item.green||0} • เหลือง ${item.yellow||0} • แดง ${item.red||0}`;
+        row.append(info,detail);
+      } else {
+        const button=document.createElement('button');button.type='button';button.className='pc-btn';button.textContent='ดูรายชื่อ';
+        const followup=`ขอรายชื่อ${type}ใน${locationName}`;
+        button.addEventListener('click',()=>sendMessage(followup));
+        ordinalItems.push({ordinal:index+1,displayName:locationName,followup});
+        row.append(info,button);
+      }
+      box.appendChild(row);
     }
-    rememberOrdinalItems(ordinalItems, `รายการ${label}`);
+    if (!presentation.readOnlyAggregate) rememberOrdinalItems(ordinalItems, `รายการ${label}`);
     hostForPresentation(wrap).appendChild(box);
   }
 

@@ -24,6 +24,8 @@ function realFailure(error) {
  // Keep server diagnostics free of messages, requests, transcripts, and row data.
  console.error(`[real-data] failure code=${code||'none'} type=${error?.name||'Error'} at ${location}`);
  if(code==='REAL_ACCESS_DENIED'||/สิทธิ์สถานี/.test(error?.message||''))return {status:403,code:'REAL_ACCESS_DENIED',error:'บัญชีนี้ไม่มีสิทธิ์อ่านข้อมูลจริงในขอบเขตที่ร้องขอ'};
+ if(code==='REAL_LOCATION_NOT_FOUND')return {status:422,code,error:error.message||'ไม่พบชื่อพื้นที่ที่ระบุ กรุณาตรวจสอบชื่อและลองใหม่'};
+ if(code==='REAL_LOCATION_AMBIGUOUS')return {status:422,code,error:error.message||'พบชื่อพื้นที่มากกว่าหนึ่งแห่ง กรุณาระบุจังหวัดหรืออำเภอเพิ่ม'};
  if(code==='REAL_UNAVAILABLE'||error?.name==='TimeoutError'||error?.name==='AbortError')return {status:503,code:'REAL_UNAVAILABLE',error:'เชื่อมต่อข้อมูลจริงไม่ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง'};
  if(code==='REAL_DATA_UNVERIFIABLE'||/ข้อมูลไม่ครบ|จำนวนข้อมูลที่ตรวจสอบได้|ข้อมูลเปลี่ยนระหว่างนับ/.test(error?.message||''))return {status:502,code:'REAL_DATA_UNVERIFIABLE',error:'ข้อมูลจริงตอบกลับไม่ครบหรือกำลังเปลี่ยนแปลง จึงยังสรุปผลไม่ได้'};
  return {status:502,code:'REAL_READ_FAILED',error:'ไม่สามารถอ่านข้อมูลจริงได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง'};
@@ -54,11 +56,13 @@ const TRANSCRIPT_PROVINCE_ALIASES = new Map([
  ['นะค่ะพนม', 'นครพนม'],
 ]);
 function canonicalProvince(req, value) {
- if(!value)return null;
+ if(!value)return {value:null};
  const raw=String(value).trim().replace(/(?:ครับ|ค่ะ|คะ)$/u,'');
  const requested=TRANSCRIPT_PROVINCE_ALIASES.get(raw)||raw;
  const provinces=Array.isArray(req.user?.aiScope?.provinces)?req.user.aiScope.provinces.filter(item=>typeof item==='string'):[];
- return provinces.find(item=>item.trim()===requested)||requested;
+ const matched=provinces.find(item=>item.trim()===requested);
+ if(provinces.length&&!matched)return {value:null,error:`ไม่พบชื่อจังหวัด “${requested}” ในข้อมูลที่เลือกได้ กรุณาตรวจสอบชื่อและลองใหม่`};
+ return {value:matched||requested};
 }
 
 function isProvinceChangeOnly(message) {
@@ -125,7 +129,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    const own=parseStationId(req.user.stationId);
    const s=await rows(req,'stations',new URLSearchParams({select:'station_id',station_name:`ilike.*${clean(filters.station)}*`,limit:'1000'}));
    const ids=s.data.map(x=>Number(x.station_id)).filter(id=>own?id===own:req.user.role==='admin');
-   if(!ids.length)return {data:[],total:0};
+   if(!ids.length){const error=new Error(`ไม่พบชื่อ สภ. “${filters.station}” กรุณาตรวจสอบชื่อและลองใหม่`);error.code='REAL_LOCATION_NOT_FOUND';throw error;}
+   if(!own&&ids.length>1){const error=new Error(`พบชื่อ สภ. “${filters.station}” มากกว่าหนึ่งแห่ง กรุณาระบุจังหวัดเพิ่ม`);error.code='REAL_LOCATION_AMBIGUOUS';throw error;}
    p.set('station_id', own ? `eq.${own}` : `in.(${ids.join(',')})`);
   }
   if(filters.person_type){
@@ -138,8 +143,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if (!aggregate) {
    const found=await rows(req,'people',p);
    const scoped=found.data.filter(person=>personInOwnStation(req.user,person));
-   if(scoped.length!==found.data.length) return {data:scoped,total:scoped.length};
-   return found;
+   const result=scoped.length!==found.data.length?{data:scoped,total:scoped.length}:found;
+   if(result.total===0&&(filters.district||filters.subdistrict)){
+    const label=filters.subdistrict?'ตำบล':'อำเภอ';const value=filters.subdistrict||filters.district;
+    const error=new Error(`ไม่พบข้อมูลตามชื่อ${label} “${value}” กรุณาตรวจสอบชื่อและลองใหม่`);error.code='REAL_LOCATION_NOT_FOUND';throw error;
+   }
+   return result;
   }
   p.set('select','id,province,amphoe,tambon,type_id,station_id');p.set('order','id.asc');p.set('limit','1000');
   const all=[];const seen=new Set();let total=null;
@@ -314,7 +323,9 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(!ranking&&ordered)ranking=[message,ordered[1],/น้อยไปมาก/.test(message)?'น้อยสุด':'มากสุด'];
   let plan=null;let ollamaCalls=0;
   const incomingTopic=sanitizeTopic(req.body?.context?.topic);
-  const explicitProvince=canonicalProvince(req,provinceFromMessage(message));
+  const provinceResolution=canonicalProvince(req,provinceFromMessage(message));
+  if(provinceResolution.error)return res.status(422).json({error:provinceResolution.error,code:'REAL_LOCATION_NOT_FOUND',dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  const explicitProvince=provinceResolution.value;
   // The authenticated profile is server-verified.  It supplies the initial
   // province filter until the officer explicitly selects another province.
   const selectedProvince=explicitProvince||incomingTopic?.province||req.user.province||null;

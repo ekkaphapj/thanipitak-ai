@@ -69,6 +69,21 @@ test('common voice transcription for Nakhon Phanom is normalized before the audi
  const res=await request(app).post('/ai/chat').send({message:'ขอภาพรวมจังหวัดนะครับพนม'});
  assert.equal(res.status,200);assert.equal(bodies.length,1);assert.equal(bodies[0].province,'นครพนม');assert.equal(res.body.conversation.topic.province,'นครพนม');assert.equal(res.body.presentation.totals.total,303);
 });
+test('unknown province is rejected before an aggregate read instead of returning a misleading zero',async()=>{
+ const app=express();app.use(express.json());let reads=0;
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,aiScope:{level:'all',read_only:true,provinces:['นครพนม','อุดรธานี']}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async()=>{reads++;throw new Error('unknown province must not invoke a summary');}}));
+ const res=await request(app).post('/ai/chat').send({message:'ขอภาพรวมจังหวัดไม่มีจริง'});
+ assert.equal(res.status,422);assert.equal(res.body.code,'REAL_LOCATION_NOT_FOUND');assert.match(res.body.error,/ไม่พบชื่อจังหวัด/);assert.equal(reads,0);
+});
+test('unknown or ambiguous station name asks the officer to correct the location',async()=>{
+ const app=express();app.use(express.json());
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,aiScope:{level:'all',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async(url)=>{
+  if(url.includes('/stations?'))return {ok:true,headers:new Headers({'content-range':'0-0/0'}),json:async()=>[]};
+  throw new Error('station validation should stop before people data');
+ }}));
+ const res=await request(app).post('/ai/chat').send({message:'ขอรายชื่อในสภ.ไม่มีจริง'});
+ assert.equal(res.status,422);assert.equal(res.body.code,'REAL_LOCATION_NOT_FOUND');assert.match(res.body.error,/ไม่พบชื่อ สภ/);
+});
 test('station ranking uses the audited aggregate tool, selected province, type and requested limit',async()=>{
  const app=express();app.use(express.json());const bodies=[];
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,province:'อุดรธานี',aiScope:{level:'all',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{

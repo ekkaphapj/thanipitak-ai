@@ -46,7 +46,41 @@ function provinceFromMessage(message) {
 }
 
 function isProvinceChangeOnly(message) {
- return /^\s*(?:เปลี่ยน(?:เป็น)?|เลือก(?:เป็น)?|ตั้ง(?:เป็น)?)\s*(?:จังหวัด)?\s*[ก-๙A-Za-z.-]{2,80}\s*$/u.test(String(message||''));
+  return /^\s*(?:เปลี่ยน(?:เป็น)?|เลือก(?:เป็น)?|ตั้ง(?:เป็น)?)\s*(?:จังหวัด)?\s*[ก-๙A-Za-z.-]{2,80}\s*$/u.test(String(message||''));
+}
+
+const STATION_RANK_TYPES = [
+  ['psychiatric', /ผู้ป่วยจิตเวช|จิตเวช|ผู้ป่วย/u],
+  ['drug_user', /ผู้เสพ|ผู้ใช้ยา|ยาเสพติด/u],
+  ['dealer', /ผู้ค้า|ผู้จำหน่าย/u],
+  ['released', /ผู้พ้นโทษ|พ้นโทษ/u],
+];
+const THAI_RANK_NUMBERS = { 'หนึ่ง':1, 'สอง':2, 'สาม':3, 'สี่':4, 'ห้า':5, 'หก':6, 'เจ็ด':7, 'แปด':8, 'เก้า':9, 'สิบ':10 };
+
+function rankLimitFromMessage(message) {
+ const text=String(message||'').replace(/\s+/g,' ').trim();
+ const arabic=text.match(/(?:^|\s)(\d{1,2})\s*อันดับ|อันดับ(?:แรก)?\s*(\d{1,2})/u);
+ const raw=arabic?.[1]||arabic?.[2];
+ if(raw){const number=Number(raw);return number>=1&&number<=100?number:null;}
+ for(const [word,number] of Object.entries(THAI_RANK_NUMBERS))if(new RegExp(`${word}\\s*อันดับ|อันดับ(?:แรก)?\\s*${word}`, 'u').test(text))return number;
+ return null;
+}
+
+function detectStationRanking(message) {
+ const text=String(message||'').replace(/\s+/g,' ').trim();
+ if(!/(?:สภ\.?|สถานีตำรวจ|สถานี)/u.test(text))return null;
+ const direction=/น้อย|ต่ำ|เบา/u.test(text)?'asc':/มาก|เยอะ|สูง|อันดับ/u.test(text)?'desc':null;
+ if(!direction)return null;
+ const matched=STATION_RANK_TYPES.find(([,pattern])=>pattern.test(text));
+ return {direction,personType:matched?.[0]||null,limit:rankLimitFromMessage(text)};
+}
+
+function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
+ if(isProvinceChangeOnly(message)||detectExportIntent(message)||detectStationRanking(message)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson)return false;
+ const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,topic);
+ if(summary||intent||/(ตำบล|อำเภอ|จังหวัด)(?:ไหน|ใด|อะไร).*?(มากที่สุด|เยอะที่สุด|น้อยที่สุด|มากสุด|เยอะสุด|น้อยสุด)/u.test(message))return false;
+ if(process.env.RAG_ENABLED==='true'&&!hasDBIntent(message)&&rag.directAnswer(message))return false;
+ return true;
 }
 
 function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent}={}) {
@@ -234,6 +268,26 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const scope=result.scope?.level==='all'?'ทุกจังหวัดตามสิทธิ์ที่ยืนยันแล้ว':result.scope?.level==='region4'?'ทุกจังหวัดในขอบเขตที่ยืนยันแล้ว':result.scope?.province?`จังหวัด${result.scope.province}`:'พื้นที่ตามสิทธิ์ที่ยืนยันแล้ว';
   return {answer:`ภาพรวมบุคคลเป้าหมาย • ${scope}\nรวม ${totals.total} คน • ผู้ป่วยจิตเวช ${totals.psychiatric} • ผู้เสพ ${totals.drugUser} • ผู้ค้า ${totals.dealer} • ผู้พ้นโทษ ${totals.released}`,presentation:{type:'target_person_summary',readOnlyAggregate:true,scopeLabel:scope,rows,totals}};
  }
+ async function stationRanking(req, province, request) {
+  const summary=await targetPersonSummary(req,province);
+  const field={psychiatric:'psychiatric',drug_user:'drugUser',dealer:'dealer',released:'released'}[request.personType]||'total';
+  const label={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[request.personType]||'บุคคลทั้งหมด';
+  const sorted=[...summary.presentation.rows].sort((left,right)=>{
+   const difference=request.direction==='asc'?left[field]-right[field]:right[field]-left[field];
+   return difference||(left.stationName===right.stationName?0:(left.stationName<right.stationName?-1:1));
+  });
+  const rows=request.limit===null?sorted:sorted.slice(0,request.limit);
+  const directionLabel=request.direction==='asc'?'น้อยไปมาก':'มากไปน้อย';
+  const amountLabel=request.limit===null?`แสดงทั้งหมด ${rows.length} สภ.`:`${rows.length} อันดับแรก`;
+  const answer=`จัดอันดับ สภ. • ${summary.presentation.scopeLabel}\nเรียง${label}${directionLabel} • ${amountLabel}`;
+  return {answer,presentation:{type:'station_ranking',scopeLabel:summary.presentation.scopeLabel,rows,personType:request.personType,direction:request.direction,limit:request.limit}};
+ }
+ router.post('/ai/chat/processing',(req,res)=>{
+  const message=req.body?.message;
+  if(typeof message!=='string'||!message.trim()||message.length>2000)return res.status(400).json({error:'คำถามไม่ถูกต้อง'});
+  const topic=sanitizeTopic(req.body?.context?.topic);
+  return res.json({willUseLocalAi:likelyUsesLocalAi(message,topic,Boolean(selectedPersonId(req.body)))});
+ });
  router.post('/ai/chat',async(req,res)=>{
   const start=Date.now();const message=req.body?.message;
   if(typeof message!=='string'||!message.trim()||message.length>2000)return res.status(400).json({error:'คำถามไม่ถูกต้อง'});
@@ -245,10 +299,17 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   let plan=null;let ollamaCalls=0;
   const incomingTopic=sanitizeTopic(req.body?.context?.topic);
   const explicitProvince=provinceFromMessage(message);
-  const selectedProvince=explicitProvince||incomingTopic?.province||null;
+  // The authenticated profile is server-verified.  It supplies the initial
+  // province filter until the officer explicitly selects another province.
+  const selectedProvince=explicitProvince||incomingTopic?.province||req.user.province||null;
   const selectedTopic=selectedProvince?sanitizeTopic({...(incomingTopic||{}),province:selectedProvince}):incomingTopic;
   if(isProvinceChangeOnly(message)){
    return res.json({answer:`ตั้งค่าจังหวัดที่ต้องการดูเป็นจังหวัด${selectedProvince} แล้ว คำสั่งถัดไปจะใช้จังหวัดนี้เป็นตัวกรองภายในสิทธิ์ของบัญชี`,grounded:true,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
+  const stationRank=detectStationRanking(message);
+  if(stationRank){
+   try { const result=await stationRanking(req,selectedProvince,stationRank);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+   catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
   }
   const exportIntent=detectExportIntent(message);
   if(exportIntent){

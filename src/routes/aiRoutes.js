@@ -3,6 +3,7 @@ const http = require('http');
 const { createToolRouter } = require('../ai/toolRouter');
 const {
   createAIGateway,
+  willUseLocalAi,
   OLLAMA_MODEL,
   OLLAMA_ROUTING_MODE,
   OLLAMA_INTENT_MODEL,
@@ -53,6 +54,14 @@ function createAIRoutes(db, authRequired, options = {}) {
   router.get('/status', authRequired, async (req, res) => {
     const { available } = await ollamaCheck();
     return res.json({ available, model: activeOllamaModel(), routingMode: OLLAMA_ROUTING_MODE });
+  });
+
+  router.post('/chat/processing', authRequired, (req, res) => {
+    const { message } = req.body || {};
+    if (!message || typeof message !== 'string' || message.trim() === '') return res.status(400).json({ error: 'กรุณาส่ง message', code: 'MISSING_MESSAGE' });
+    if (message.length > MAX_MESSAGE_LENGTH) return res.status(400).json({ error: `message ยาวเกิน ${MAX_MESSAGE_LENGTH} ตัวอักษร`, code: 'MESSAGE_TOO_LONG' });
+    for (const field of FORBIDDEN_BODY_FIELDS) if (req.body[field] !== undefined) return res.status(400).json({ error: `ไม่อนุญาตให้ส่ง field "${field}" จาก frontend`, code: 'FORBIDDEN_FIELD' });
+    return res.json({ willUseLocalAi: willUseLocalAi(message.trim(), sanitizePersonContext(req.body.context)) });
   });
 
   router.post('/chat', authRequired, async (req, res) => {

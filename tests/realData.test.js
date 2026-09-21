@@ -48,6 +48,37 @@ test('select province wording is handled as a local filter before RAG or the mod
  const res=await request(app).post('/ai/chat').send({message:'เลือกจังหวัดนครพนม'});
  assert.equal(res.status,200);assert.equal(res.body.conversation.topic.province,'นครพนม');assert.match(res.body.answer,/ตั้งค่าจังหวัด/);assert.equal(reads,0);
 });
+test('station ranking uses the audited aggregate tool, selected province, type and requested limit',async()=>{
+ const app=express();app.use(express.json());const bodies=[];
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,province:'อุดรธานี',aiScope:{level:'all',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{
+  bodies.push(JSON.parse(opts.body));
+  return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'all',read_only:true},rows:[
+   {station_name:'สภ.ก',province:'นครพนม',psychiatric_total:2,drug_user_total:3,dealer_total:1,released_total:0,target_total:6},
+   {station_name:'สภ.ข',province:'นครพนม',psychiatric_total:1,drug_user_total:9,dealer_total:2,released_total:1,target_total:13},
+   {station_name:'สภ.ค',province:'นครพนม',psychiatric_total:4,drug_user_total:5,dealer_total:0,released_total:0,target_total:9},
+  ]})};
+ }}));
+ const res=await request(app).post('/ai/chat').send({message:'สภ.ที่มีผู้เสพเยอะที่สุด 2 อันดับแรก',context:{topic:{province:'นครพนม'}}});
+ assert.equal(res.status,200);assert.equal(bodies.length,1);assert.equal(bodies[0].summary_kind,'target_people');assert.equal(bodies[0].province,'นครพนม');
+ assert.equal(res.body.presentation.type,'station_ranking');assert.equal(res.body.presentation.personType,'drug_user');assert.equal(res.body.presentation.rows.length,2);assert.equal(res.body.presentation.rows[0].stationName,'สภ.ข');assert.equal(res.body.presentation.rows[1].stationName,'สภ.ค');
+});
+test('station ranking without a limit returns every station with each target-person type',async()=>{
+ const app=express();app.use(express.json());
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,province:'อุดรธานี',aiScope:{level:'all',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async()=>({ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'all',read_only:true},rows:[
+  {station_name:'สภ.มาก',province:'อุดรธานี',psychiatric_total:2,drug_user_total:3,dealer_total:1,released_total:0,target_total:6},
+  {station_name:'สภ.น้อย',province:'อุดรธานี',psychiatric_total:1,drug_user_total:0,dealer_total:0,released_total:0,target_total:1},
+]})})}));
+ const res=await request(app).post('/ai/chat').send({message:'สภ.ที่มีข้อมูลน้อยที่สุด'});
+ assert.equal(res.status,200);assert.equal(res.body.presentation.limit,null);assert.equal(res.body.presentation.rows.length,2);assert.equal(res.body.presentation.rows[0].stationName,'สภ.น้อย');assert.equal(res.body.presentation.rows[0].drugUser,0);
+});
+test('processing preflight identifies only local-model requests and does not read data',async()=>{
+ const app=express();app.use(express.json());let reads=0;
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,province:'อุดรธานี'};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async()=>{reads++;throw new Error('preflight must not call data');}}));
+ const direct=await request(app).post('/ai/chat/processing').send({message:'สภ.ที่มีข้อมูลมากที่สุด 5 อันดับแรก'});
+ assert.equal(direct.status,200);assert.equal(direct.body.willUseLocalAi,false);
+ const model=await request(app).post('/ai/chat/processing').send({message:'ช่วยวิเคราะห์คำถามแปลกใหม่ให้หน่อย'});
+ assert.equal(model.status,200);assert.equal(model.body.willUseLocalAi,true);assert.equal(reads,0);
+});
 test('real mode treats registry terminology explanations as knowledge, not a people lookup',async()=>{
  const previous=process.env.RAG_ENABLED;process.env.RAG_ENABLED='true';
  try {

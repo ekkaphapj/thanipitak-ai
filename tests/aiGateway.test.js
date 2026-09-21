@@ -245,6 +245,25 @@ test('ai route: /api/ai/chat rejects missing message', async () => {
   }
 });
 
+test('ai processing preflight does not invoke a tool and marks only non-fast-path questions', async () => {
+  const ctx = setup();
+  try {
+    const login = await request(ctx.app)
+      .post('/api/auth/login')
+      .send({ username: USERS.station1_off.username, password: USERS.station1_off.password });
+    const direct = await request(ctx.app).post('/api/ai/chat/processing')
+      .set('Authorization', `Bearer ${login.body.token}`).send({ message: 'มีผู้เสพกี่คน' });
+    assert.strictEqual(direct.status, 200);
+    assert.strictEqual(direct.body.willUseLocalAi, false);
+    const model = await request(ctx.app).post('/api/ai/chat/processing')
+      .set('Authorization', `Bearer ${login.body.token}`).send({ message: 'ช่วยวิเคราะห์เชิงลึกให้หน่อย' });
+    assert.strictEqual(model.status, 200);
+    assert.strictEqual(model.body.willUseLocalAi, true);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test('ai route: returns answer and toolsUsed from injected gateway', async () => {
   const ctx = setup();
   try {

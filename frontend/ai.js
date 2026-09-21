@@ -33,6 +33,7 @@
     introduce: 'voice-introduce.mp3',
     notUnderstood: 'voice-not-understand-question.mp3',
     finished: 'voice-finish-job.mp3',
+    processing: 'ai-processing.mp3',
   };
   let activeVoiceAudio = null;
   let activeVoiceStop = null;
@@ -479,7 +480,10 @@
 
   function playVoiceClip(name) {
     const source = VOICE_CLIPS[name];
-    if (!source || !state.voiceMode) return Promise.resolve();
+    // The processing cue also applies to typed requests.  It is only started
+    // after the server has classified the request as one that will call the
+    // local model; deterministic data tools never request this clip.
+    if (!source || (!state.voiceMode && name !== 'processing')) return Promise.resolve();
     stopVoiceAudio();
     return new Promise((resolve) => {
       const audio = new Audio(source);
@@ -1269,6 +1273,31 @@
     table.appendChild(body); box.appendChild(table); hostForPresentation(wrap).appendChild(box);
   }
 
+  function renderStationRanking(wrap, presentation) {
+    const box = document.createElement('section'); box.className = 'overview-card';
+    const labels = { psychiatric: 'ผู้ป่วยจิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'ผู้พ้นโทษ' };
+    const typeLabel = presentation.personType ? labels[presentation.personType] : 'บุคคลทั้งหมด';
+    const title = document.createElement('h2'); title.textContent = `จัดอันดับ สภ. ตามจำนวน${typeLabel}`; box.appendChild(title);
+    const note = document.createElement('p'); note.textContent = `${presentation.scopeLabel || 'พื้นที่ที่เลือก'} • เรียง${presentation.direction === 'asc' ? 'น้อยไปมาก' : 'มากไปน้อย'}${presentation.limit == null ? ' • แสดงทั้งหมด' : ` • ${presentation.limit} อันดับแรก`}`; box.appendChild(note);
+    const table = document.createElement('table'); table.className = 'overview-table';
+    const head = document.createElement('thead');
+    head.innerHTML = presentation.personType
+      ? '<tr><th>อันดับ</th><th>สภ.</th><th>จังหวัด</th><th>จำนวน</th></tr>'
+      : '<tr><th>อันดับ</th><th>สภ.</th><th>จังหวัด</th><th>จิตเวช</th><th>ผู้เสพ</th><th>ผู้ค้า</th><th>พ้นโทษ</th><th>รวม</th></tr>';
+    table.appendChild(head);
+    const body = document.createElement('tbody');
+    const field = { psychiatric: 'psychiatric', drug_user: 'drugUser', dealer: 'dealer', released: 'released' }[presentation.personType];
+    for (const [index, item] of (presentation.rows || []).entries()) {
+      const row = document.createElement('tr');
+      const values = presentation.personType
+        ? [index + 1, item.stationName, item.province, item[field] || 0]
+        : [index + 1, item.stationName, item.province, item.psychiatric || 0, item.drugUser || 0, item.dealer || 0, item.released || 0, item.total || 0];
+      for (const value of values) { const cell = document.createElement('td'); cell.textContent = String(value); row.appendChild(cell); }
+      body.appendChild(row);
+    }
+    table.appendChild(body); box.appendChild(table); hostForPresentation(wrap).appendChild(box);
+  }
+
   function renderOverview(wrap, presentation) {
     const box = document.createElement('section');
     box.className = 'overview-card';
@@ -1691,9 +1720,18 @@
       }
     }, CLIENT_TIMEOUT_MS);
 
-    api('/api/ai/chat', {
+    const chatBody = window.ChatContext.buildChatBody(message, state.selectedPerson, state.conversationTopic);
+    // This authenticated preflight is classification only: it neither reads
+    // registry data nor calls a model.  Starting the cue before /ai/chat
+    // ensures it is heard only when the ensuing request will use Local AI.
+    api('/api/ai/chat/processing', {
+      method: 'POST', body: JSON.stringify(chatBody),
+    }).catch(() => null).then((processing) => {
+      if (processing?.willUseLocalAi) playVoiceClip('processing');
+      return api('/api/ai/chat', {
       method: 'POST',
-      body: JSON.stringify(window.ChatContext.buildChatBody(message, state.selectedPerson, state.conversationTopic)),
+      body: JSON.stringify(chatBody),
+      });
     })
       .then((json) => {
         if (settled) return;
@@ -1744,6 +1782,7 @@
         if (json.presentation && json.presentation.type === 'location_summary') renderLocationSummary(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'overview') renderOverview(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'target_person_summary') renderTargetPersonSummary(wrap, json.presentation);
+        if (json.presentation && json.presentation.type === 'station_ranking') renderStationRanking(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_result') renderSummaryResult(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'report_offer') renderReportOffer(wrap, json.presentation);

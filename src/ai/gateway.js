@@ -257,6 +257,22 @@ function createAIGateway(toolRouter) {
   };
 }
 
+// UI-only preflight.  It deliberately does not read registry data, execute a
+// tool, or call Ollama.  A false result is reserved for deterministic paths
+// that are known to bypass Local AI; all uncertain routes return true so the
+// processing cue is never delayed until after inference has started.
+function willUseLocalAi(userMessage, context = {}) {
+  const selectedPersonId = validPersonId(context.personId);
+  if (detectDiscoveryIntent(userMessage)) return false;
+  if (parseSummaryIntent(userMessage) && selectedPersonId === null) return false;
+  if (detectExportIntent(userMessage)) return false;
+  if (detectMonitoringIntent(userMessage)) return false;
+  const fastIntent = detectFastPathIntent(userMessage, sanitizeTopic(context.topic));
+  if (fastIntent) return false;
+  if (process.env.RAG_ENABLED === 'true' && !hasDBIntent(userMessage) && rag.directAnswer(userMessage)) return false;
+  return true;
+}
+
 // Phase 3.2: conservative deterministic fast path for high-confidence intents.
 // This is a performance shortcut (routing), NOT an authorization layer.
 // Scope always comes from the authenticated backend user; user-supplied
@@ -563,6 +579,7 @@ module.exports = {
   createAIGateway,
   chatWithTools,
   chatWithToolsWithFastPath,
+  willUseLocalAi,
   OLLAMA_MODEL,
   MAX_TOOL_ITERATIONS,
   DB_RETRY_INSTRUCTION,

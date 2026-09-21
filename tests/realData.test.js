@@ -60,6 +60,15 @@ test('select province wording is handled as a local filter before RAG or the mod
  const res=await request(app).post('/ai/chat').send({message:'เลือกจังหวัดนครพนม'});
  assert.equal(res.status,200);assert.equal(res.body.conversation.topic.province,'นครพนม');assert.match(res.body.answer,/ตั้งค่าจังหวัด/);assert.equal(reads,0);
 });
+test('common voice transcription for Nakhon Phanom is normalized before the audited summary call',async()=>{
+ const app=express();app.use(express.json());const bodies=[];
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,aiScope:{level:'all',read_only:true,provinces:['นครพนม']}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{
+  bodies.push(JSON.parse(opts.body));
+  return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'all',read_only:true},rows:[{station_name:'สภ.ท่าอุเทน',province:'นครพนม',psychiatric_total:303,drug_user_total:0,dealer_total:0,released_total:0,target_total:303}]})};
+ }}));
+ const res=await request(app).post('/ai/chat').send({message:'ขอภาพรวมจังหวัดนะครับพนม'});
+ assert.equal(res.status,200);assert.equal(bodies.length,1);assert.equal(bodies[0].province,'นครพนม');assert.equal(res.body.conversation.topic.province,'นครพนม');assert.equal(res.body.presentation.totals.total,303);
+});
 test('station ranking uses the audited aggregate tool, selected province, type and requested limit',async()=>{
  const app=express();app.use(express.json());const bodies=[];
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,province:'อุดรธานี',aiScope:{level:'all',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{

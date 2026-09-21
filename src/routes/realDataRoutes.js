@@ -45,6 +45,22 @@ function provinceFromMessage(message) {
  return province ? province.trim().slice(0,100) : null;
 }
 
+// These are high-confidence Whisper variants heard in field use.  Province
+// resolution remains a server-side filter and is reconciled with the
+// authenticated scope list when it is available; it never changes scope.
+const TRANSCRIPT_PROVINCE_ALIASES = new Map([
+ ['นะครับพนม', 'นครพนม'],
+ ['นะคะพนม', 'นครพนม'],
+ ['นะค่ะพนม', 'นครพนม'],
+]);
+function canonicalProvince(req, value) {
+ if(!value)return null;
+ const raw=String(value).trim().replace(/(?:ครับ|ค่ะ|คะ)$/u,'');
+ const requested=TRANSCRIPT_PROVINCE_ALIASES.get(raw)||raw;
+ const provinces=Array.isArray(req.user?.aiScope?.provinces)?req.user.aiScope.provinces.filter(item=>typeof item==='string'):[];
+ return provinces.find(item=>item.trim()===requested)||requested;
+}
+
 function isProvinceChangeOnly(message) {
   return /^\s*(?:เปลี่ยน(?:เป็น)?|เลือก(?:เป็น)?|ตั้ง(?:เป็น)?)\s*(?:จังหวัด)?\s*[ก-๙A-Za-z.-]{2,80}\s*$/u.test(String(message||''));
 }
@@ -298,7 +314,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(!ranking&&ordered)ranking=[message,ordered[1],/น้อยไปมาก/.test(message)?'น้อยสุด':'มากสุด'];
   let plan=null;let ollamaCalls=0;
   const incomingTopic=sanitizeTopic(req.body?.context?.topic);
-  const explicitProvince=provinceFromMessage(message);
+  const explicitProvince=canonicalProvince(req,provinceFromMessage(message));
   // The authenticated profile is server-verified.  It supplies the initial
   // province filter until the officer explicitly selects another province.
   const selectedProvince=explicitProvince||incomingTopic?.province||req.user.province||null;

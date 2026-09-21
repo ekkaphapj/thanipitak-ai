@@ -30,12 +30,17 @@ function createUserService(db) {
   }
 
   function publicProfile(user) {
+    const station = user.station_id
+      ? db.prepare('SELECT name, province FROM stations WHERE id = ?').get(user.station_id)
+      : null;
     return {
       id: user.id,
       username: user.username,
       name: user.name,
       role: user.role,
       stationId: user.station_id,
+      stationName: station?.name || null,
+      province: station?.province || null,
     };
   }
 

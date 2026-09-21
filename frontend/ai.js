@@ -114,6 +114,22 @@
     $('#user-name').textContent = u.name || u.username;
     $('#user-meta').textContent = (u.roleLabel || roleLabel(u.role)) + ' • ' + stationLabel(u);
     $('#model-badge').textContent = state.aiModel;
+    renderScopeBar();
+  }
+
+  function renderScopeBar() {
+    const value = $('#scope-bar-value');
+    if (!value) return;
+    const u = state.user;
+    if (!u) {
+      value.textContent = 'กรุณาเข้าสู่ระบบเพื่อระบุขอบเขตข้อมูล';
+      return;
+    }
+    const parts = [];
+    if (u.province) parts.push(`จังหวัด${u.province}`);
+    if (u.stationName) parts.push(u.stationName);
+    else if (u.stationId) parts.push(`สภ./สถานี ${u.stationId}`);
+    value.textContent = parts.length ? parts.join(' • ') : 'ข้อมูลส่วนกลางตามสิทธิ์ของบัญชี';
   }
 
   function renderAiStatus(available) {
@@ -248,7 +264,8 @@
     const head = document.createElement('div');
     head.className = 'tutorial-head';
     const finished = !step;
-    head.innerHTML = `<span class="tutorial-kicker">${finished ? 'เรียนจบแล้ว' : `แบบฝึกหัด ${state.tutorial.step + 1} / ${TUTORIAL_STEPS.length}`}</span><h2>${finished ? 'พร้อมใช้งานแล้ว' : step.title}</h2><p>${finished ? 'คุณสามารถดูภาพรวม ขอรายชื่อ เลือกรายการ วิเคราะห์ข้อมูล และขอรายงานได้ตามสิทธิ์ของบัญชี' : step.hint}</p>`;
+    head.innerHTML = `<div class="tutorial-head-row"><span class="tutorial-kicker">${finished ? 'เรียนจบแล้ว' : `แบบฝึกหัด ${state.tutorial.step + 1} / ${TUTORIAL_STEPS.length}`}</span><button type="button" class="tutorial-exit-btn">ออกจากแบบฝึกหัด</button></div><h2>${finished ? 'พร้อมใช้งานแล้ว' : step.title}</h2><p>${finished ? 'คุณสามารถดูภาพรวม ขอรายชื่อ เลือกรายการ วิเคราะห์ข้อมูล และขอรายงานได้ตามสิทธิ์ของบัญชี' : step.hint}</p>`;
+    head.querySelector('.tutorial-exit-btn').addEventListener('click', exitTutorial);
     const body = document.createElement('div');
     body.className = 'tutorial-body';
     if (!finished) {
@@ -279,6 +296,20 @@
     state.tutorial = { active: true, step: 0, lastAdvanced: false };
     const step = renderTutorialStep();
     if (state.voiceMode) speakTutorial(tutorialSpeechFor(step));
+  }
+
+  function exitTutorial() {
+    state.tutorial = { active: false, step: 0, lastAdvanced: false };
+    document.querySelectorAll('.msg-tutorial').forEach((item) => item.remove());
+    const dock = $('#voice-tutorial-dock');
+    if (dock) {
+      dock.replaceChildren();
+      dock.classList.add('hidden');
+      dock.setAttribute('aria-hidden', 'true');
+    }
+    document.body.classList.remove('voice-tutorial-active');
+    if (state.voiceMode) setMicStatus('ออกจากแบบฝึกหัดแล้ว • พร้อมรับคำสั่ง', false);
+    else renderEmptyState();
   }
 
   function renderTutorialOffer() {

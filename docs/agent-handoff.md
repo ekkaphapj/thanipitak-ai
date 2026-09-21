@@ -644,3 +644,32 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
   (new regression files: `tests/thaiText.test.js`, `tests/geoFuzzy.test.js`,
   all with mocked Supabase responses, no real registry or live model).
 
+### Continuation update — 2026-09-21 evening (province reports and headings)
+
+- Live Roi Et testing reproduced two defects and both root causes are fixed.
+- Province-scoped people lists and list-style reports used a free-text
+  `people.province ilike` filter, which returns silently empty whenever the
+  stored province text differs from the request (the same mismatch behind the
+  earlier Nakhon Phanom "overview 303 but PDF 0" case). `search()` in
+  `src/routes/realDataRoutes.js` now resolves a province filter against
+  `stations.province = eq.<name>` (the same authoritative source the audited
+  aggregate uses) and applies it as a `station_id in.(...)` filter, intersected
+  with the own-station scope. A province with no stations in scope yields an
+  explicit empty result, never another station's rows.
+- Aggregate headings (psychiatric summary, target-person summary, station
+  ranking, overview, ranking answers) were labeled from the Edge Function
+  scope object, which describes account authority (`level: all`) and never the
+  requested filter. Headings now name the requested province/station/district/
+  subdistrict first, e.g. `ภาพรวมบุคคลเป้าหมาย • จังหวัดร้อยเอ็ด`, and only
+  fall back to the scope description when no area was requested.
+- The typed overview branch (`realOverview`) previously dropped the province
+  from its filters; it now inherits `selectedProvince` (explicit selection,
+  topic, or the authenticated profile province) so overview filters, topic,
+  and headings agree.
+- New regression file `tests/provinceReports.test.js` covers: station-mapped
+  province lists with mismatched stored province text, own-station isolation
+  for other provinces, the aggregate PDF receiving the requested province via
+  the audited tool, requested-province headings, and the account-default
+  heading. Full `npm test`: **353 tests, 25 suites, 0 failures**.
+
+

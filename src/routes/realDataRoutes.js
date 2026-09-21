@@ -139,16 +139,29 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  async function search(req,filters={},page=1,aggregate=false,pageSize=20,allowFuzzy=true) {
   const size=Math.min(50,Math.max(1,Number(pageSize)||20));
   let fuzzyApplied=null;
+  let provinceStationIds=null;
   const p=new URLSearchParams({select:'id,first_name,last_name,station_id,province,amphoe,tambon,type_id,status',order:'first_name.asc,id.asc',limit:String(size),offset:String((page-1)*size)});
   applyPeopleStationScope(req.user,p);
   const clean=v=>String(v).replace(/[%*(),]/g,'').slice(0,100);
-  for(const [input,column] of [['province','province'],['district','amphoe'],['subdistrict','tambon']])if(filters[input])p.set(column,`ilike.*${clean(filters[input])}*`);
+  for(const [input,column] of [['district','amphoe'],['subdistrict','tambon']])if(filters[input])p.set(column,`ilike.*${clean(filters[input])}*`);
   if(filters.query||filters.search)p.set('first_name',`ilike.*${clean(filters.query||filters.search)}*`);
   if(filters.status)throw new Error('การแปลสถานะทะเบียนจริงยังไม่พร้อม กรุณาค้นด้วยชื่อหรือพื้นที่');
+  if(filters.province){
+   // Province names are resolved against stations.province — the same source
+   // the audited aggregate uses — and applied as a station filter.  Matching
+   // on free-text people.province made province-scoped lists and reports come
+   // back silently empty whenever the stored text differed from the request.
+   const scopedId=applyPeopleStationScope(req.user,new URLSearchParams());
+   const st=await rows(req,'stations',new URLSearchParams({select:'station_id',province:`eq.${clean(filters.province)}`,limit:'1000'}));
+   const ids=st.data.map(x=>Number(x.station_id)).filter(id=>scopedId? id===scopedId : req.user.role==='admin');
+   if(!ids.length)return {data:[],total:0};
+   provinceStationIds=ids;
+   p.set('station_id', scopedId ? `eq.${scopedId}` : `in.(${ids.join(',')})`);
+  }
   if(filters.station){
    const own=parseStationId(req.user.stationId);
    const s=await rows(req,'stations',new URLSearchParams({select:'station_id',station_name:`ilike.*${clean(filters.station)}*`,limit:'1000'}));
-   const ids=s.data.map(x=>Number(x.station_id)).filter(id=>own?id===own:req.user.role==='admin');
+   let ids=s.data.map(x=>Number(x.station_id)).filter(id=>own?id===own:req.user.role==='admin');
    if(!ids.length && allowFuzzy){
     // A station name that matches nothing exactly may still be a close
     // transcription. Candidates come from the stations catalogue this account
@@ -167,6 +180,10 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     } else if(matches.length>1)throw stationChoicesError(filters.station,matches);
    }
    if(!ids.length){const error=new Error(`ไม่พบชื่อ สภ. “${filters.station}” กรุณาตรวจสอบชื่อและลองใหม่`);error.code='REAL_LOCATION_NOT_FOUND';throw error;}
+   if(provinceStationIds){
+    ids=ids.filter(id=>provinceStationIds.includes(id));
+    if(!ids.length)return {data:[],total:0};
+   }
    if(!own&&ids.length>1){const error=new Error(`พบชื่อ สภ. “${filters.station}” มากกว่าหนึ่งแห่ง กรุณาระบุจังหวัดเพิ่ม`);error.code='REAL_LOCATION_AMBIGUOUS';throw error;}
    p.set('station_id', own ? `eq.${own}` : `in.(${ids.join(',')})`);
   }
@@ -298,7 +315,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    registry.listRecordedMonitoring(req,{level:'high',personType:filters.person_type,district:filters.district,subdistrict:filters.subdistrict,pageSize:1}),
    registry.listRecordedMonitoring(req,{level:'watch',personType:filters.person_type,district:filters.district,subdistrict:filters.subdistrict,pageSize:1}),
   ]);
-  const data={scopeLabel:req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง',requestedScope,groupBy,total:found.total,
+  const requestedArea=filters.station?`สภ.${String(filters.station).replace(/^สภ\.?\s*/u,'')}`:filters.province?`จังหวัด${filters.province}`:filters.district?`อำเภอ${filters.district}`:filters.subdistrict?`ตำบล${filters.subdistrict}`:null;
+  const data={scopeLabel:requestedArea||req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง',requestedScope,groupBy,total:found.total,
    filters,byType:Object.entries(TYPE_LABELS).map(([type,label])=>({type,label,count:counts[type]})),highRisk:high.total,watch:watch.total,top:sort('desc'),bottom:sort('asc')};
   return {answer:formatOverview(data),presentation:{type:'overview',...data}};
  }
@@ -394,6 +412,17 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  }
  router.get('/ai/status',(req,res)=>res.json({available:true,model:'ข้อมูลจริง • อ่านจาก Supabase'}));
  router.get('/ai/access-scope',(req,res)=>res.json({scope:req.user.aiScope||null,readOnly:true}));
+ // The Edge Function scope object describes the account's authority (for
+ // example level "all"), never the requested filter, so the heading must name
+ // the area the officer asked for whenever one was applied.
+ function scopeHeading(requestedLabel,result){
+  if(requestedLabel)return requestedLabel;
+  const level=result?.scope?.level;
+  if(level==='all')return 'ทุกจังหวัดตามสิทธิ์ที่ยืนยันแล้ว';
+  if(level==='region4')return 'ทุกจังหวัดในขอบเขตที่ยืนยันแล้ว';
+  if(result?.scope?.province)return `จังหวัด${result.scope.province}`;
+  return 'พื้นที่ตามสิทธิ์ที่ยืนยันแล้ว';
+ }
  async function psychiatricSummary(req, province=null) {
   const result=await aiTools.psychiatricSummary(req.realToken,{province});
   const rows=result.rows.map(row=>({
@@ -405,7 +434,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    red:Number(row.red_total)||0,
   }));
   const total=rows.reduce((sum,row)=>sum+row.count,0);
-  const scope=result.scope?.level==='all'?'ทุกจังหวัดตามสิทธิ์ที่ยืนยันแล้ว':result.scope?.level==='region4'?'ทุกจังหวัดในขอบเขตที่ยืนยันแล้ว':result.scope?.province?`จังหวัด${result.scope.province}`:'พื้นที่ตามสิทธิ์ที่ยืนยันแล้ว';
+  const scope=scopeHeading(province?`จังหวัด${province}`:null,result);
   return {
    answer:`ภาพรวมผู้ป่วยจิตเวช • ${scope}\nรวม ${total} คน จาก ${rows.length} สภ.`,
    presentation:{type:'location_summary',groupBy:'station',readOnlyAggregate:true,items:rows,filters:{person_type:'psychiatric'}},
@@ -415,7 +444,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const result=await aiTools.targetPersonSummary(req.realToken,{province});
   const rows=result.rows.map(row=>({stationName:String(row.station_name||'ไม่ระบุ สภ.'),province:String(row.province||''),psychiatric:Number(row.psychiatric_total)||0,drugUser:Number(row.drug_user_total)||0,dealer:Number(row.dealer_total)||0,released:Number(row.released_total)||0,total:Number(row.target_total)||0}));
   const totals=rows.reduce((sum,row)=>({psychiatric:sum.psychiatric+row.psychiatric,drugUser:sum.drugUser+row.drugUser,dealer:sum.dealer+row.dealer,released:sum.released+row.released,total:sum.total+row.total}),{psychiatric:0,drugUser:0,dealer:0,released:0,total:0});
-  const scope=result.scope?.level==='all'?'ทุกจังหวัดตามสิทธิ์ที่ยืนยันแล้ว':result.scope?.level==='region4'?'ทุกจังหวัดในขอบเขตที่ยืนยันแล้ว':result.scope?.province?`จังหวัด${result.scope.province}`:'พื้นที่ตามสิทธิ์ที่ยืนยันแล้ว';
+  const scope=scopeHeading(province?`จังหวัด${province}`:null,result);
   return {answer:`ภาพรวมบุคคลเป้าหมาย • ${scope}\nรวม ${totals.total} คน • ผู้ป่วยจิตเวช ${totals.psychiatric} • ผู้เสพ ${totals.drugUser} • ผู้ค้า ${totals.dealer} • ผู้พ้นโทษ ${totals.released}`,presentation:{type:'target_person_summary',readOnlyAggregate:true,scopeLabel:scope,rows,totals}};
  }
  async function stationRanking(req, province, request) {
@@ -520,7 +549,13 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     try { const result=await targetPersonSummary(req,selectedProvince);const reportTopic=sanitizeTopic({...(conversation.topic||{}),report_kind:'target_person_aggregate'}); return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation:{topic:reportTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
     catch(e){return sendRealFailure(res,e,start);}
    }
-   try { const result=await realOverview(req,overview.requestedScope,overview.filters);conversation.topic=sanitizeTopic(overview.filters);return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_overview_read'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+   try {
+    const overviewFilters={...overview.filters};
+    if(!overviewFilters.province&&selectedProvince)overviewFilters.province=selectedProvince;
+    const result=await realOverview(req,overview.requestedScope,overviewFilters);
+    conversation.topic=sanitizeTopic(overviewFilters);
+    return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_overview_read'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
    catch(e){return sendRealFailure(res,e,start);}
   }
   if(personId && !isCollectionQuestion(message,intent,ranking,summary,personId)) {
@@ -588,7 +623,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     });
     const winners=topN!==null?sorted.slice(0,topN):showAll?sorted:sorted.filter(g=>g.count===sorted[0]?.count);
     const category={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[filters.person_type]||'บุคคล';
-    const scope=req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง';
+    const scope=filters.station?`สภ.${String(filters.station).replace(/^สภ\.?\s*/u,'')}`:filters.province?`จังหวัด${filters.province}`:filters.district?`อำเภอ${filters.district}`:filters.subdistrict?`ตำบล${filters.subdistrict}`:(req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง');
     const heading=topN!==null?`${topN} อันดับ${ranking[1]}${/น้อย/.test(ranking[2])?'น้อยที่สุด':'มากที่สุด'}`:'';
     const answer=`ข้อมูลจริง • ${scope}\nนับ${category}จากทะเบียนทั้งหมด ${result.total} คน\n`+(showAll||topN!==null?`${heading||`เรียง${/น้อย/.test(ranking[2])?'น้อยไปมาก':'มากไปน้อย'}`}\n`:'')+(winners.length?winners.map((g,index)=>`${showAll||topN!==null?`${index+1}. `:''}${ranking[1]}${g.name} ${column==='tambon'?g.district:''} ${column!=='province'?g.province:''} มี${category}${showAll||topN!==null?'':ranking[2]} ${g.count} คน`).join('\n'):'ไม่พบข้อมูลพื้นที่ที่จัดอันดับได้')+(!showAll&&topN===null&&winners.length>1?'\nมีหลายพื้นที่จำนวนเท่ากัน':'')+(missing?`\nอีก ${missing} คนไม่ระบุ${ranking[1]} จึงไม่รวมในอันดับ`:'')+(/น้อย/.test(ranking[2])?'\nอันดับนี้รวมเฉพาะพื้นที่ที่มีบุคคลในทะเบียน':'');
     return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_area_count'}],presentation:{type:'location_summary',groupBy:{tambon:'subdistrict',amphoe:'district',province:'province'}[column],items:winners,filters:{person_type:filters.person_type||null}},conversation,meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});

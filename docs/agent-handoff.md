@@ -611,3 +611,36 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
   calls Ollama and must not be broadened by frontend role/station fields.
 - Full `npm test` passed 316 tests / 25 suites after the addition. Regression
   coverage is in `tests/discovery.test.js` and `tests/realData.test.js`.
+
+### Continuation update — 2026-09-21 (Thai normalization + scope-safe fuzzy geography)
+
+- `src/ai/thaiText.js` adds one canonical `normalizeUtterance()` for typed and
+  transcribed commands: it strips zero-width characters, converts Thai digits,
+  collapses spacing, and removes trailing politeness particles (ครับ/ค่ะ/คะ,
+  optionally preceded by นะ). "นา" is deliberately not treated as a particle
+  prefix so names like บ้านนา keep their tail. `/ai/chat` and
+  `/ai/chat/processing` in `src/routes/realDataRoutes.js` normalize before any
+  detector or model call; a message that normalizes to empty keeps its
+  original text.
+- Province filters are fuzzy-corrected only against the server-verified
+  `aiScope.provinces` list: one close candidate is applied and reported as
+  `meta.fuzzy {field, from, to}`; several candidates return a
+  `place_choices` presentation asking the officer to choose; no candidate
+  still fails with `REAL_LOCATION_NOT_FOUND`.
+- When an อำเภอ/ตำบล/สภ. name matches zero registry rows, `search()` builds a
+  lazy area catalogue from the same station-scoped people/stations reads
+  (capped at 20 batches of 1000) and fuzzy-matches within it. A single match
+  retries the query with the corrected name (adding the parent district or
+  province only when it uniquely disambiguates) and reports `meta.fuzzy`;
+  multiple matches return `place_choices`; no match keeps the explicit
+  check-and-retry error. Aggregate (ranking/overview) searches are unchanged.
+- `place_choices` renders numbered buttons in `frontend/ai.js`
+  (`renderPlaceChoices`); each button and each spoken or typed
+  `เลือกลำดับที่ N` re-sends the original request with the ambiguous fragment
+  replaced by the chosen server-verified name. Choices only narrow filters;
+  the backend re-authorizes every follow-up. Voice mode plays the
+  follow-up-question clip because the answer contains กรุณาเลือก.
+- Full `npm test` after these changes: **347 tests, 25 suites, 0 failures**
+  (new regression files: `tests/thaiText.test.js`, `tests/geoFuzzy.test.js`,
+  all with mocked Supabase responses, no real registry or live model).
+

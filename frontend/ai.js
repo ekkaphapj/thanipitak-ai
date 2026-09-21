@@ -984,6 +984,45 @@
     return { handled: true };
   }
 
+  // Ambiguous place suggestions come from the server's authenticated scope
+  // list. Choosing one only narrows the requested filter; the backend still
+  // re-authorizes the whole follow-up request.
+  function followupForChoice(presentation, choice) {
+    const original = String((presentation && presentation.originalMessage) || '');
+    const replaceText = String((presentation && presentation.replaceText) || '');
+    const replaceWith = String((choice && choice.replaceWith) || choice.name || choice.display || '');
+    if (replaceText && replaceWith && original.includes(replaceText)) {
+      return original.replace(replaceText, replaceWith);
+    }
+    return `${String(choice.display || '')} ${original}`.trim();
+  }
+
+  function renderPlaceChoices(wrap, presentation) {
+    const box = document.createElement('div');
+    box.className = 'person-candidates';
+    const list = document.createElement('div');
+    list.className = 'pc-list';
+    const items = [];
+    for (const choice of (presentation && presentation.choices) || []) {
+      const followup = followupForChoice(presentation, choice);
+      const row = document.createElement('div');
+      row.className = 'pc-row';
+      const label = document.createElement('span');
+      label.textContent = `${choice.index}. ${choice.display || 'ไม่ระบุตัวเลือก'}`;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pc-btn';
+      btn.textContent = 'เลือก';
+      btn.addEventListener('click', () => sendMessage(followup));
+      row.append(label, btn);
+      list.appendChild(row);
+      items.push({ ordinal: choice.index, displayName: choice.display || `ตัวเลือกที่ ${choice.index}`, followup });
+    }
+    box.appendChild(list);
+    hostForPresentation(wrap).appendChild(box);
+    rememberOrdinalItems(items, 'ตัวเลือกพื้นที่');
+  }
+
   function renderPersonList(wrap, presentation) {
     const ctx = {
       page: presentation.page || 1,
@@ -1786,6 +1825,7 @@
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_result') renderSummaryResult(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'report_offer') renderReportOffer(wrap, json.presentation);
+        if (json.presentation && json.presentation.type === 'place_choices') renderPlaceChoices(wrap, json.presentation);
 
         const rt = json.meta && json.meta.responseTimeMs;
         if (typeof rt === 'number' && rt >= 0) {
@@ -1797,6 +1837,13 @@
             ? 'ตรวจสอบข้อมูลจากระบบ • ' + seconds + ' วินาที'
             : 'ประมวลผลด้วย Local AI • ' + seconds + ' วินาที';
           wrap.appendChild(perf);
+        }
+        const fuzzy = json.meta && json.meta.fuzzy;
+        if (fuzzy && fuzzy.from && fuzzy.to && fuzzy.from !== fuzzy.to) {
+          const note = document.createElement('div');
+          note.className = 'msg-tools';
+          note.textContent = `เข้าใจว่า “${fuzzy.from}” หมายถึง “${fuzzy.to}” ตามทะเบียน`;
+          wrap.appendChild(note);
         }
         scrollToBottom();
         if (voiceTurn) finishVoiceTurn(json, message);

@@ -1250,6 +1250,24 @@
     hostForPresentation(wrap).appendChild(box);
   }
 
+  function renderTargetPersonSummary(wrap, presentation) {
+    const box = document.createElement('section'); box.className = 'overview-card';
+    const title = document.createElement('h2'); title.textContent = presentation.scopeLabel || 'ภาพรวมบุคคลเป้าหมาย'; box.appendChild(title);
+    const totals = presentation.totals || {};
+    const summary = document.createElement('p'); summary.textContent = `รวม ${totals.total || 0} คน • จิตเวช ${totals.psychiatric || 0} • ผู้เสพ ${totals.drugUser || 0} • ผู้ค้า ${totals.dealer || 0} • ผู้พ้นโทษ ${totals.released || 0}`; box.appendChild(summary);
+    const table = document.createElement('table'); table.className = 'overview-table';
+    const head = document.createElement('thead'); head.innerHTML = '<tr><th>สภ.</th><th>จังหวัด</th><th>จิตเวช</th><th>ผู้เสพ</th><th>ผู้ค้า</th><th>พ้นโทษ</th><th>รวม</th></tr>'; table.appendChild(head);
+    const body = document.createElement('tbody');
+    for (const item of presentation.rows || []) {
+      const row = document.createElement('tr');
+      for (const value of [item.stationName, item.province, item.psychiatric, item.drugUser, item.dealer, item.released, item.total]) {
+        const cell = document.createElement('td'); cell.textContent = String(value || 0); row.appendChild(cell);
+      }
+      body.appendChild(row);
+    }
+    table.appendChild(body); box.appendChild(table); hostForPresentation(wrap).appendChild(box);
+  }
+
   function renderOverview(wrap, presentation) {
     const box = document.createElement('section');
     box.className = 'overview-card';
@@ -1723,6 +1741,7 @@
         if (json.presentation && json.presentation.type === 'monitoring_location_summary') renderMonitoringLocationSummary(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'location_summary') renderLocationSummary(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'overview') renderOverview(wrap,json.presentation);
+        if (json.presentation && json.presentation.type === 'target_person_summary') renderTargetPersonSummary(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_result') renderSummaryResult(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'report_offer') renderReportOffer(wrap, json.presentation);

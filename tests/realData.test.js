@@ -21,6 +21,16 @@ test('psychiatric overview uses the audited primary AI summary tool, not a direc
  assert.equal(res.status,200);assert.match(res.body.answer,/รวม 4 คน/);assert.equal(res.body.presentation.readOnlyAggregate,true);
  assert.equal(res.body.presentation.items[0].red,1);assert.equal(calls.length,1);
 });
+test('target-person overview uses the audited aggregate tool for every supported person type',async()=>{
+ const app=express();app.use(express.json());const calls=[];
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,aiScope:{level:'region4',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{
+  calls.push({url,opts});assert.match(url,/\/functions\/v1\/ai-summary$/);
+  assert.equal(JSON.parse(opts.body).summary_kind,'target_people');
+  return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'region4',read_only:true},rows:[{station_id:77,station_name:'สภ.บ้านดุง',province:'อุดรธานี',psychiatric_total:4,drug_user_total:3,dealer_total:2,released_total:1,target_total:10}]})};
+ }}));
+ const res=await request(app).post('/ai/chat').send({message:'ขอภาพรวมผู้เสพ'});
+ assert.equal(res.status,200);assert.match(res.body.answer,/ผู้เสพ 3/);assert.equal(res.body.presentation.type,'target_person_summary');assert.equal(res.body.presentation.totals.total,10);assert.equal(calls.length,1);
+});
 test('real mode treats registry terminology explanations as knowledge, not a people lookup',async()=>{
  const previous=process.env.RAG_ENABLED;process.env.RAG_ENABLED='true';
  try {
@@ -95,7 +105,7 @@ test('real registry ranking honors an explicit Top N and returns deterministic n
  assert.equal((res.body.answer.match(/^\d+\. ตำบล/gm)||[]).length,5,'Top 5 must return exactly five areas');
  assert.match(res.body.answer,/1\. ตำบลหนึ่ง.*2 คน/);
 });
-test('real overview is scoped, includes recorded risk totals, and ranks station or subdistrict',async()=>{
+test('real overview without a category uses the audited target-person aggregate',async()=>{
  const app=express();app.use(express.json());
  const people=[
   {id:1,station_id:77,type_id:9,tambon:'ก'},{id:2,station_id:77,type_id:5,tambon:'ก'},
@@ -103,6 +113,7 @@ test('real overview is scoped, includes recorded risk totals, and ranks station 
  ];
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,stationName:'สภ.บ้านดุง'};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async url=>{
   const u=new URL(url); const path=u.pathname;
+  if(path.endsWith('/functions/v1/ai-summary'))return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'station',read_only:true,station_id:77},rows:[{station_id:77,station_name:'สภ.บ้านดุง',province:'อุดรธานี',psychiatric_total:2,drug_user_total:1,dealer_total:1,released_total:0,target_total:4}]})};
   if(path.endsWith('/people_type')) return {ok:true,headers:new Headers({'content-range':'0-2/3'}),json:async()=>[{type_id:9,type_name:'ผู้ป่วยจิตเวช'},{type_id:5,type_name:'ผู้เสพ'},{type_id:7,type_name:'ผู้ค้า'}]};
   if(path.endsWith('/stations')) return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{station_id:77,station_name:'สภ.บ้านดุง'}]};
   if(path.endsWith('/visits')) return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[{id:1,person_id:1,visit_status:'เสี่ยงสูง',visit_date:'2026-09-01'},{id:2,person_id:2,visit_status:'เฝ้าระวัง',visit_date:'2026-09-01'}]};
@@ -111,12 +122,11 @@ test('real overview is scoped, includes recorded risk totals, and ranks station 
   return {ok:true,headers:new Headers({'content-range':'0-3/4'}),json:async()=>people};
  }}));
  const station=await request(app).post('/ai/chat').send({message:'ภาพรวม สภ.'});
- assert.equal(station.status,200);assert.equal(station.body.presentation.type,'overview');assert.equal(station.body.presentation.groupBy,'subdistrict');
- assert.equal(station.body.presentation.total,4);assert.equal(station.body.presentation.highRisk,1);assert.equal(station.body.presentation.watch,1);
- assert.match(station.body.answer,/ผู้ป่วยจิตเวช 2 คน/);assert.match(station.body.answer,/5 อันดับตำบล/);
+ assert.equal(station.status,200);assert.equal(station.body.presentation.type,'target_person_summary');
+ assert.equal(station.body.presentation.totals.total,4);assert.match(station.body.answer,/ผู้ป่วยจิตเวช 2/);assert.match(station.body.answer,/ผู้ค้า 1/);
  const province=await request(app).post('/ai/chat').send({message:'ภาพรวมจังหวัด'});
- assert.equal(province.status,200);assert.equal(province.body.presentation.groupBy,'station');
- assert.match(province.body.answer,/สภ\.บ้านดุง/);
+ assert.equal(province.status,200);assert.equal(province.body.presentation.type,'target_person_summary');
+ assert.equal(province.body.presentation.rows[0].stationName,'สภ.บ้านดุง');
 });
 test('real registry failures have safe categories and never expose upstream details',async()=>{
  const app=express();app.use(express.json());

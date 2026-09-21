@@ -54,7 +54,17 @@ function createRealAiTools({ url = require('../realConfig').url, key = require('
     return result;
   }
 
-  return { accessScope, psychiatricSummary };
+  async function targetPersonSummary(token, { province = null, stationId = null } = {}) {
+    const result = await invoke(token, 'ai-summary', { summary_kind: 'target_people', province, station_id: stationId });
+    if (result?.report_type !== 'target_person_summary' || !Array.isArray(result.rows) || !result.scope) {
+      const error = new Error('invalid target-person AI summary response');
+      error.code = 'REAL_DATA_UNVERIFIABLE';
+      throw error;
+    }
+    return result;
+  }
+
+  return { accessScope, psychiatricSummary, targetPersonSummary };
 }
 
 module.exports = { createRealAiTools };

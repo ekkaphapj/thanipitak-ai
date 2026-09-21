@@ -3,6 +3,8 @@ const http = require('http');
 const { createToolRouter } = require('../ai/toolRouter');
 const { createAIGateway, OLLAMA_MODEL } = require('../ai/gateway');
 const { createAIAuditor } = require('../repositories/aiAuditRepo');
+const { createRag } = require('../ai/rag');
+const path = require('path');
 
 const MAX_MESSAGE_LENGTH = 2000;
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
@@ -34,13 +36,19 @@ function checkOllamaAvailable() {
 function createAIRoutes(db, authRequired, options = {}) {
   const router = express.Router();
   const toolRouter = createToolRouter(db);
-  const gateway = options.gateway || createAIGateway(toolRouter);
+  const rag = options.rag || createRag({
+    knowledgeDir: process.env.RAG_KNOWLEDGE_DIR || path.join(__dirname, '..', '..', 'knowledge'),
+    indexPath: process.env.RAG_INDEX_PATH || path.join(__dirname, '..', '..', 'data', 'rag-index.json'),
+    ollamaHost: OLLAMA_HOST,
+    embedModel: process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text',
+  });
+  const gateway = options.gateway || createAIGateway(toolRouter, rag);
   const aiAudit = createAIAuditor(db);
   const ollamaCheck = options.ollamaCheck || checkOllamaAvailable;
 
   router.get('/status', authRequired, async (req, res) => {
     const { available } = await ollamaCheck();
-    return res.json({ available, model: OLLAMA_MODEL });
+    return res.json({ available, model: OLLAMA_MODEL, rag: rag.status() });
   });
 
   router.post('/chat', authRequired, async (req, res) => {

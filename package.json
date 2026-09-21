@@ -9,6 +9,7 @@
     "dev": "node --disable-warning=ExperimentalWarning --watch src/index.js",
     "seed": "node --disable-warning=ExperimentalWarning src/db/seed.js",
     "init-db": "node --disable-warning=ExperimentalWarning scripts/init-db.js",
+    "rag:build": "node scripts/build-rag-index.js",
     "test": "node --disable-warning=ExperimentalWarning --test"
   },
   "engines": {

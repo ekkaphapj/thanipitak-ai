@@ -22,6 +22,7 @@ function safeReportRequest(input) {
   if (!['psychiatric', 'drug_user', 'dealer', 'released'].includes(filters.person_type)) delete filters.person_type;
   if (!['all', 'watch', 'high'].includes(filters.level)) filters.level = 'all';
   return {
+    report_kind: request.report_kind === 'target_person_aggregate' ? 'target_person_aggregate' : undefined,
     filters,
     includeList: !!request.includeList,
     includeCount: request.includeCount !== false,
@@ -128,11 +129,34 @@ function drawListRow(doc, summary, row, index) {
   doc.y = y + rowHeight;
 }
 
+function drawAggregateStationHeader(doc) {
+  const x = 42; const y = doc.y;
+  const columns = [30, 126, 72, 57, 57, 57, 57, 55];
+  const labels = ['ลำดับ', 'สภ.', 'จังหวัด', 'จิตเวช', 'ผู้เสพ', 'ผู้ค้า', 'พ้นโทษ', 'รวม'];
+  doc.roundedRect(x, y, 511, 25, 6).fill(REPORT_COLORS.blue);
+  let cursor = x;
+  labels.forEach((label, index) => { doc.font('Thai').fontSize(8).fillColor('#FFFFFF').text(label, cursor + 5, y + 8, { width: columns[index] - 7, align: index > 2 ? 'right' : 'left', lineBreak: false }); cursor += columns[index]; });
+  doc.y = y + 31;
+}
+
+function drawAggregateStationRow(doc, summary, row, index) {
+  const x = 42; const columns = [30, 126, 72, 57, 57, 57, 57, 55];
+  const values = [String(index + 1), row.stationName || '-', row.province || '-', row.psychiatric || 0, row.drugUser || 0, row.dealer || 0, row.released || 0, row.total || 0];
+  const rowHeight = Math.max(25, ...values.map((value, column) => doc.heightOfString(String(value), { width: columns[column] - 10, lineGap: 1 }) + 12));
+  if (ensureReportSpace(doc, summary, rowHeight + 28)) drawAggregateStationHeader(doc);
+  const y = doc.y; doc.rect(x, y, 511, rowHeight).fill(index % 2 ? '#FFFFFF' : '#F8FAFC');
+  doc.strokeColor(REPORT_COLORS.line).lineWidth(0.5).moveTo(x, y + rowHeight).lineTo(x + 511, y + rowHeight).stroke();
+  let cursor = x;
+  values.forEach((value, column) => { doc.font('Thai').fontSize(8).fillColor(column === 1 ? REPORT_COLORS.ink : REPORT_COLORS.muted).text(String(value), cursor + 5, y + 6, { width: columns[column] - 9, align: column > 2 ? 'right' : 'left', lineGap: 1 }); cursor += columns[column]; });
+  doc.y = y + rowHeight;
+}
+
 function writeSummaryPdf(summary) {
   summary = summary || {};
   summary.filters = summary.filters || {};
   summary.counts = summary.counts || [];
   summary.items = summary.items || [];
+  summary.aggregateRows = summary.aggregateRows || [];
   const fontPath = process.env.REPORT_FONT_PATH || DEFAULT_FONT;
   if (!fs.existsSync(fontPath)) throw new Error('ไม่พบฟอนต์ภาษาไทยสำหรับสร้างรายงาน');
   fs.mkdirSync(REPORT_DIR, { recursive: true });
@@ -158,7 +182,11 @@ function writeSummaryPdf(summary) {
     doc.x = 42;
     doc.y = metaTop + 78;
     drawCountCards(doc, summary);
-    if (summary.includeList) {
+    if (summary.report_kind === 'target_person_aggregate') {
+      drawReportSectionTitle(doc, summary, `ข้อมูลแยกตาม สภ. (${summary.aggregateRows.length} สภ.)`);
+      drawAggregateStationHeader(doc);
+      summary.aggregateRows.forEach((row, index) => drawAggregateStationRow(doc, summary, row, index));
+    } else if (summary.includeList) {
       drawReportSectionTitle(doc, summary, `รายชื่อที่อยู่ในขอบเขต (${summary.items.length} รายการ)`);
       drawListHeader(doc);
       summary.items.forEach((row, index) => drawListRow(doc, summary, row, index));
@@ -206,7 +234,11 @@ function summaryRows(summary) {
     for (const row of summary.counts) rows.push([row.label, String(row.count)]);
     rows.push([]);
   }
-  if (summary.includeList) {
+  if (summary.report_kind === 'target_person_aggregate') {
+    rows.push(['ข้อมูลแยกตาม สภ.']);
+    rows.push(['ลำดับ', 'สภ.', 'จังหวัด', 'จิตเวช', 'ผู้เสพ', 'ผู้ค้า', 'ผู้พ้นโทษ', 'รวม']);
+    (summary.aggregateRows || []).forEach((row, index) => rows.push([String(index + 1), row.stationName || '', row.province || '', String(row.psychiatric || 0), String(row.drugUser || 0), String(row.dealer || 0), String(row.released || 0), String(row.total || 0)]));
+  } else if (summary.includeList) {
     rows.push(['รายชื่อ']);
     rows.push(['ลำดับ', 'ชื่อ', 'ประเภท', 'ระดับ', 'ตำบล', 'อำเภอ']);
     (summary.items || []).forEach((row, index) => {

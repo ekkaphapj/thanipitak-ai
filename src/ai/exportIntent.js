@@ -65,6 +65,7 @@ function reportRequestFromExport(intent, topic) {
   const filters = mergeTopicFilters(intent.filters || {}, topic);
   if (!filters.level) filters.level = 'all';
   return {
+    report_kind: topic?.report_kind === 'target_person_aggregate' ? 'target_person_aggregate' : undefined,
     filters,
     includeCount: true,
     includeList: true,

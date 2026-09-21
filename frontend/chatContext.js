@@ -77,6 +77,7 @@
       if (typeof raw[key] === 'string' && raw[key].trim()) topic[key] = raw[key].trim().slice(0, 100);
     }
     if (raw.scope === 'all') topic.scope = 'all';
+    if (raw.report_kind === 'target_person_aggregate') topic.report_kind = raw.report_kind;
     return Object.keys(topic).length ? topic : null;
   }
 

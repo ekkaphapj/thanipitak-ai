@@ -117,6 +117,12 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
     assert.ok(!JSON.stringify(body).includes('admin'));
   });
 
+  test('aggregate report marker is preserved without widening authorization', () => {
+    const body = ChatContext.buildChatBody('ทำเป็น pdf', null, { province: 'นครพนม', report_kind: 'target_person_aggregate', station_id: 2 });
+    assert.deepStrictEqual(body.context, { topic: { province: 'นครพนม', report_kind: 'target_person_aggregate' } });
+    assert.ok(!JSON.stringify(body).includes('station_id'));
+  });
+
   test('ordinal references accept Thai list wording without becoming request context', () => {
     assert.strictEqual(ChatContext.ordinalFromMessage('ขอข้อมูลเพิ่มเติมของลำดับที่ 3'), 3);
     assert.strictEqual(ChatContext.ordinalFromMessage('เอาอันดับ 12'), 12);

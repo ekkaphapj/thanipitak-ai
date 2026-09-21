@@ -29,7 +29,19 @@ test('target-person overview uses the audited aggregate tool for every supported
   return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'region4',read_only:true},rows:[{station_id:77,station_name:'สภ.บ้านดุง',province:'อุดรธานี',psychiatric_total:4,drug_user_total:3,dealer_total:2,released_total:1,target_total:10}]})};
  }}));
  const res=await request(app).post('/ai/chat').send({message:'ขอภาพรวมผู้เสพ'});
- assert.equal(res.status,200);assert.match(res.body.answer,/ผู้เสพ 3/);assert.equal(res.body.presentation.type,'target_person_summary');assert.equal(res.body.presentation.totals.total,10);assert.equal(calls.length,1);
+ assert.equal(res.status,200);assert.match(res.body.answer,/ผู้เสพ 3/);assert.equal(res.body.presentation.type,'target_person_summary');assert.equal(res.body.presentation.totals.total,10);assert.equal(res.body.conversation.topic.report_kind,'target_person_aggregate');assert.equal(calls.length,1);
+});
+test('aggregate overview PDF reuses the audited summary rows instead of the legacy people query',async()=>{
+ const previous=process.env.REPORT_FONT_PATH;process.env.REPORT_FONT_PATH='C:\\Windows\\Fonts\\tahoma.ttf';
+ try {
+  const app=express();app.use(express.json());const bodies=[];
+  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,province:'นครพนม',aiScope:{level:'all',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{
+   bodies.push(JSON.parse(opts.body));
+   return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'all',read_only:true},rows:[{station_name:'สภ.ท่าอุเทน',province:'นครพนม',psychiatric_total:303,drug_user_total:0,dealer_total:0,released_total:0,target_total:303}]})};
+  }}));
+  const res=await request(app).post('/reports/summary.pdf').send({reportRequest:{report_kind:'target_person_aggregate',filters:{province:'นครพนม'},includeCount:true,includeList:true}});
+  assert.equal(res.status,200);assert.match(res.headers['content-type'],/application\/pdf/);assert.equal(bodies.length,1);assert.equal(bodies[0].summary_kind,'target_people');assert.equal(bodies[0].province,'นครพนม');
+ } finally { if(previous===undefined)delete process.env.REPORT_FONT_PATH;else process.env.REPORT_FONT_PATH=previous; }
 });
 test('province change is a local conversation filter and the audited tool receives it',async()=>{
  const app=express();app.use(express.json());const bodies=[];

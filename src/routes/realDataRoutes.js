@@ -347,7 +347,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
    }
    if(!overview.filters.person_type || ['drug_user','dealer','released'].includes(overview.filters.person_type)){
-    try { const result=await targetPersonSummary(req,selectedProvince); return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+    try { const result=await targetPersonSummary(req,selectedProvince);const reportTopic=sanitizeTopic({...(conversation.topic||{}),report_kind:'target_person_aggregate'}); return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation:{topic:reportTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
     catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
    }
    try { const result=await realOverview(req,overview.requestedScope,overview.filters);conversation.topic=sanitizeTopic(overview.filters);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_overview_read'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
@@ -449,6 +449,11 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  async function realSummary(req,raw){
   const request=safeReportRequest(raw);
   const filters=request.filters||{};
+  if(request.report_kind==='target_person_aggregate'){
+   const aggregate=await targetPersonSummary(req,filters.province||req.user.province||null);
+   const totals=aggregate.presentation.totals;
+   return {report_kind:'target_person_aggregate',filters:{...filters,province:filters.province||req.user.province||undefined},includeCount:true,includeList:false,total:totals.total,counts:[{label:'ผู้ป่วยจิตเวช',count:totals.psychiatric},{label:'ผู้เสพ',count:totals.drugUser},{label:'ผู้ค้า',count:totals.dealer},{label:'ผู้พ้นโทษ',count:totals.released}],aggregateRows:aggregate.presentation.rows};
+  }
   if(filters.level==='high'||filters.level==='watch'){
    const listed=await registry.listRecordedMonitoring(req,{level:filters.level,personType:filters.person_type,page:1,pageSize:200});
    return {filters,includeCount:true,includeList:true,total:listed.total,counts:[{label:filters.level==='high'?'เสี่ยงสูง':'เฝ้าระวัง',count:listed.total}],items:listed.items.map(item=>({full_name:item.full_name,person_type:filters.person_type||'',level:item.level,subdistrict:item.subdistrict,district:item.district}))};

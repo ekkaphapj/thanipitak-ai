@@ -36,6 +36,15 @@ function topNFromMessage(message) {
  return Number.isSafeInteger(value)&&value>=1&&value<=20 ? value : null;
 }
 
+function provinceFromMessage(message) {
+ const match=String(message||'').match(/(?:เปลี่ยน(?:เป็น)?\s*(?:จังหวัด)?|(?:ใน|ของ)?จังหวัด)\s*([ก-๙A-Za-z.-]{2,80})/u);
+ return match ? match[1].trim().slice(0,100) : null;
+}
+
+function isProvinceChangeOnly(message) {
+ return /^\s*เปลี่ยน(?:เป็น)?\s*(?:จังหวัด)?\s*[ก-๙A-Za-z.-]{2,80}\s*$/u.test(String(message||''));
+}
+
 function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent}={}) {
  const router=express.Router();router.use(authenticate);
  const { createRealAiTools } = require('../services/realAiTools');
@@ -197,8 +206,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  const registry=createRealRegistryRead(rows);
  router.get('/ai/status',(req,res)=>res.json({available:true,model:'ข้อมูลจริง • อ่านจาก Supabase'}));
  router.get('/ai/access-scope',(req,res)=>res.json({scope:req.user.aiScope||null,readOnly:true}));
- async function psychiatricSummary(req) {
-  const result=await aiTools.psychiatricSummary(req.realToken);
+ async function psychiatricSummary(req, province=null) {
+  const result=await aiTools.psychiatricSummary(req.realToken,{province});
   const rows=result.rows.map(row=>({
    name:String(row.station_name||'ไม่ระบุ สภ.'),
    province:String(row.province||''),
@@ -214,8 +223,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    presentation:{type:'location_summary',groupBy:'station',readOnlyAggregate:true,items:rows,filters:{person_type:'psychiatric'}},
   };
  }
- async function targetPersonSummary(req) {
-  const result=await aiTools.targetPersonSummary(req.realToken);
+ async function targetPersonSummary(req, province=null) {
+  const result=await aiTools.targetPersonSummary(req.realToken,{province});
   const rows=result.rows.map(row=>({stationName:String(row.station_name||'ไม่ระบุ สภ.'),province:String(row.province||''),psychiatric:Number(row.psychiatric_total)||0,drugUser:Number(row.drug_user_total)||0,dealer:Number(row.dealer_total)||0,released:Number(row.released_total)||0,total:Number(row.target_total)||0}));
   const totals=rows.reduce((sum,row)=>({psychiatric:sum.psychiatric+row.psychiatric,drugUser:sum.drugUser+row.drugUser,dealer:sum.dealer+row.dealer,released:sum.released+row.released,total:sum.total+row.total}),{psychiatric:0,drugUser:0,dealer:0,released:0,total:0});
   const scope=result.scope?.level==='all'?'ทุกจังหวัดตามสิทธิ์ที่ยืนยันแล้ว':result.scope?.level==='region4'?'ทุกจังหวัดในขอบเขตที่ยืนยันแล้ว':result.scope?.province?`จังหวัด${result.scope.province}`:'พื้นที่ตามสิทธิ์ที่ยืนยันแล้ว';
@@ -231,6 +240,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(!ranking&&ordered)ranking=[message,ordered[1],/น้อยไปมาก/.test(message)?'น้อยสุด':'มากสุด'];
   let plan=null;let ollamaCalls=0;
   const incomingTopic=sanitizeTopic(req.body?.context?.topic);
+  const explicitProvince=provinceFromMessage(message);
+  const selectedProvince=explicitProvince||incomingTopic?.province||null;
+  const selectedTopic=selectedProvince?sanitizeTopic({...(incomingTopic||{}),province:selectedProvince}):incomingTopic;
+  if(isProvinceChangeOnly(message)){
+   return res.json({answer:`ตั้งค่าจังหวัดที่ต้องการดูเป็นจังหวัด${selectedProvince} แล้ว คำสั่งถัดไปจะใช้จังหวัดนี้เป็นตัวกรองภายในสิทธิ์ของบัญชี`,grounded:true,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
   const exportIntent=detectExportIntent(message);
   if(exportIntent){
    const reportRequest=reportRequestFromExport(exportIntent,incomingTopic);
@@ -243,7 +258,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     :`พร้อมสร้างรายงาน${files} จากทะเบียนจริงตามสิทธิ์บัญชีนี้ กดดาวน์โหลดด้านล่าง (ไม่รวมเลขบัตรและเบอร์โทร)`;
    return res.json({answer,grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:exportIntent.formats,auto:needsConfirm?null:exportIntent.auto,confirm:needsConfirm,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
-  const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,incomingTopic);
+  const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,selectedTopic);
   const overview=detectOverview(message);
   const topN=topNFromMessage(message);
   // “ขอ 5 อันดับตำบล…” is a complete, deterministic grouping request even
@@ -252,7 +267,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    const area=/(ตำบล|อำเภอ|จังหวัด)/.exec(message);
    if(area)ranking=[message,area[1],/น้อย/.test(message)?'น้อยสุด':'มากสุด'];
   }
-  const conversation={topic:topicFromIntent(intent)||incomingTopic};
+  const intentTopic=topicFromIntent(intent)||selectedTopic;
+  const conversation={topic:selectedProvince?sanitizeTopic({...(intentTopic||{}),province:selectedProvince}):intentTopic};
   const discoveryIntent=detectDiscoveryIntent(message);
   if(discoveryIntent){
    try { const result=await realDiscovery(req,discoveryIntent);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_aggregate_discovery'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
@@ -262,11 +278,11 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    // This is the first audited aggregate tool supplied by the primary system.
    // It returns counts only; no direct registry read is made from this app.
    if(overview.filters.person_type==='psychiatric'){
-    try { const result=await psychiatricSummary(req); return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/psychiatric_summary'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+    try { const result=await psychiatricSummary(req,selectedProvince); return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/psychiatric_summary'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
     catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
    }
    if(!overview.filters.person_type || ['drug_user','dealer','released'].includes(overview.filters.person_type)){
-    try { const result=await targetPersonSummary(req); return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+    try { const result=await targetPersonSummary(req,selectedProvince); return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
     catch(e){const failure=realFailure(e);return res.status(failure.status).json(failure);}
    }
    try { const result=await realOverview(req,overview.requestedScope,overview.filters);conversation.topic=sanitizeTopic(overview.filters);return res.json({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_overview_read'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }

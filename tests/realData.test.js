@@ -31,6 +31,17 @@ test('target-person overview uses the audited aggregate tool for every supported
  const res=await request(app).post('/ai/chat').send({message:'ขอภาพรวมผู้เสพ'});
  assert.equal(res.status,200);assert.match(res.body.answer,/ผู้เสพ 3/);assert.equal(res.body.presentation.type,'target_person_summary');assert.equal(res.body.presentation.totals.total,10);assert.equal(calls.length,1);
 });
+test('province change is a local conversation filter and the audited tool receives it',async()=>{
+ const app=express();app.use(express.json());const bodies=[];
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,aiScope:{level:'region4',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{
+  bodies.push(JSON.parse(opts.body));
+  return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'region4',read_only:true},rows:[]})};
+ }}));
+ const changed=await request(app).post('/ai/chat').send({message:'เปลี่ยนจังหวัดนครพนม'});
+ assert.equal(changed.status,200);assert.equal(changed.body.conversation.topic.province,'นครพนม');assert.equal(bodies.length,0);
+ const summary=await request(app).post('/ai/chat').send({message:'ขอภาพรวมผู้เสพ',context:{topic:changed.body.conversation.topic}});
+ assert.equal(summary.status,200);assert.equal(bodies.length,1);assert.equal(bodies[0].province,'นครพนม');
+});
 test('real mode treats registry terminology explanations as knowledge, not a people lookup',async()=>{
  const previous=process.env.RAG_ENABLED;process.env.RAG_ENABLED='true';
  try {

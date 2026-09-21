@@ -134,6 +134,7 @@
     if (u.province) parts.push(`จังหวัด${u.province}`);
     if (u.stationName) parts.push(u.stationName);
     else if (u.stationId) parts.push(`สภ./สถานี ${u.stationId}`);
+    if (state.dataSource === 'real' && state.conversationTopic?.province) parts.push(`กำลังเลือก: จังหวัด${state.conversationTopic.province}`);
     value.textContent = parts.length ? parts.join(' • ') : 'ข้อมูลส่วนกลางตามสิทธิ์ของบัญชี';
   }
 
@@ -1701,6 +1702,7 @@
         removeTypingIndicator();
         if (json.conversation && json.conversation.topic) {
           state.conversationTopic = json.conversation.topic;
+          renderScopeBar();
         } else if (json.presentation && json.presentation.filters && json.presentation.filters.person_type) {
           state.conversationTopic = window.ChatContext.sanitizeTopic({
             person_type: json.presentation.filters.person_type,

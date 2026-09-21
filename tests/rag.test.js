@@ -26,6 +26,10 @@ test('RAG catalog covers pilot geography, workflows, and local voice privacy', (
   assert.match(rag.DOCS.find((doc) => doc.id === 'core-workflows').text, /ตรวจเยี่ยม/);
   assert.match(rag.DOCS.find((doc) => doc.id === 'guardian-workflow').text, /ผู้ดูแลผู้ป่วย/);
   assert.match(rag.DOCS.find((doc) => doc.id === 'data-boundary').text, /SQL/);
+  const guide = rag.DOCS.find((doc) => doc.id === 'guide-01-ai-operational-guide');
+  assert.ok(guide, 'sanitized operational guide is loaded from knowledge/');
+  assert.match(guide.text, /เปลี่ยนจังหวัด/);
+  assert.doesNotMatch(guide.text, /eyJ[a-zA-Z0-9_-]{20,}/);
 });
 
 test('RAG gives deterministic practical help and keeps registry facts behind authorized routes', async () => {

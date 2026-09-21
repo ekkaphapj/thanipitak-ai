@@ -232,9 +232,17 @@
 
   function renderTutorialStep({ completed = false } = {}) {
     const step = TUTORIAL_STEPS[state.tutorial.step];
-    const wrap = appendMessage('assistant', '');
-    wrap.classList.add('msg-tutorial');
-    wrap.querySelector('.bubble')?.remove();
+    const dock = state.voiceMode ? $('#voice-tutorial-dock') : null;
+    const wrap = dock || appendMessage('assistant', '');
+    if (dock) {
+      dock.replaceChildren();
+      dock.classList.remove('hidden');
+      dock.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('voice-tutorial-active');
+    } else {
+      wrap.classList.add('msg-tutorial');
+      wrap.querySelector('.bubble')?.remove();
+    }
     const card = document.createElement('section');
     card.className = 'tutorial-card';
     const head = document.createElement('div');
@@ -259,8 +267,11 @@
       body.appendChild(restart);
     }
     card.append(head, body);
-    wrap.insertBefore(card, wrap.querySelector('.msg-time'));
-    scrollToBottom();
+    if (dock) wrap.appendChild(card);
+    else {
+      wrap.insertBefore(card, wrap.querySelector('.msg-time'));
+      scrollToBottom();
+    }
     return step;
   }
 
@@ -295,7 +306,7 @@
     if (state.tutorial.step === 3 && !state.selectedPerson) return false;
     state.tutorial.step += 1;
     state.tutorial.lastAdvanced = true;
-    renderTutorialStep({ completed: true });
+    renderTutorialStep(state.voiceMode ? {} : { completed: true });
     return true;
   }
 
@@ -462,6 +473,7 @@
     state.voiceMode = true;
     $('#voice-assistant-panel').classList.remove('hidden');
     document.body.classList.add('voice-mode-open');
+    if (state.tutorial.active) renderTutorialStep();
     setMicStatus(state.sttAvailable === false ? VoiceInput.micErrorMessage('STT_UNAVAILABLE') : 'พร้อมรับคำสั่งแล้ว • กดค้างปุ่มไมค์เพื่อพูด', state.sttAvailable === false);
     const greeted = sessionStorage.getItem('tp_voice_assistant_greeted') === '1';
     if (greeted) await playVoiceSequence(['howToUse']);
@@ -476,7 +488,10 @@
     stopVoiceAudio();
     state.voiceMode = false;
     $('#voice-assistant-panel').classList.add('hidden');
+    $('#voice-tutorial-dock')?.classList.add('hidden');
+    $('#voice-tutorial-dock')?.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('voice-mode-open');
+    document.body.classList.remove('voice-tutorial-active');
     $('#chat-input').focus();
   }
 

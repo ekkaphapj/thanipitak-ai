@@ -11,7 +11,7 @@ const {detectOverview,formatOverview,TYPE_LABELS}=require('../services/overviewS
 const {hasDBIntent}=require('../ai/intentDetector');
 rag=require('../ai/rag');
 const {detectDiscoveryIntent,discover}=require('../services/discoveryService');
-const {normalizeUtterance,matchPlaceNames}=require('../ai/thaiText');
+const {normalizeUtterance,matchPlaceNames,placeKey}=require('../ai/thaiText');
 
 async function ollamaJson(path,body) {
  const response=await fetch(new URL(path,process.env.OLLAMA_HOST||'http://127.0.0.1:11434'),{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(120000),body:JSON.stringify(body)});
@@ -82,6 +82,22 @@ function canonicalProvince(req, value) {
  if(candidates.length===1)return {value:candidates[0],fuzzy:{field:'province',from:requested,to:candidates[0]}};
  if(candidates.length>1)return {requested,choices:candidates.slice(0,6)};
  return {value:null,error:`ไม่พบชื่อจังหวัด “${requested}” ในข้อมูลที่เลือกได้ กรุณาตรวจสอบชื่อและลองใหม่`};
+}
+
+// Voice commands often drop the word "จังหวัด" ("ขอภาพรวมร้อยเอ็ด").  When
+// the keyword extraction finds nothing, a province whose server-verified name
+// occurs inside the sentence is treated as the requested filter instead of
+// silently falling back to the account profile province.  Matching is limited
+// to the authenticated scope list, so this can narrow a request but never
+// widen access.
+function bareProvincesFromMessage(user,message) {
+ const provinces=Array.isArray(user?.aiScope?.provinces)?user.aiScope.provinces.filter(item=>typeof item==='string'&&item.trim()):[];
+ const haystack=placeKey(message);
+ if(!provinces.length||!haystack)return [];
+ return provinces.filter(name=>{
+  const key=placeKey(name);
+  return key.length>=4&&haystack.includes(key);
+ });
 }
 
 function isProvinceChangeOnly(message) {
@@ -492,15 +508,27 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   const explicitProvince=provinceResolution.value;
   let fuzzyNote=provinceResolution.fuzzy||null;
+  let bareResolution=null;
+  if(!explicitProvince){
+   const bare=bareProvincesFromMessage(req.user,message);
+   if(bare.length===1)bareResolution={value:bare[0]};
+   else if(bare.length>1)bareResolution={choices:bare};
+  }
+  if(bareResolution?.choices){
+   return res.json({answer:`พบชื่อจังหวัดในคำสั่งหลายจังหวัด กรุณาเลือก`,grounded:true,dataSource:'real',
+    presentation:{type:'place_choices',field:'province',replaceText:'',originalMessage:message,
+     choices:bareResolution.choices.map((name,index)=>({index:index+1,name,replaceText:name,replaceWith:name,display:`จังหวัด${name}`,filters:{province:name}}))},
+    conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
+  // The authenticated profile is server-verified.  It supplies the initial
+  // province filter only when the officer did not name one in this command.
+  const selectedProvince=explicitProvince||bareResolution?.value||incomingTopic?.province||req.user.province||null;
   // Attach the applied correction to every successful answer of this request
   // so the interface can show what the system understood.
   const respond=(payload)=>{
    if(fuzzyNote&&!(payload.meta&&payload.meta.fuzzy))payload.meta={...(payload.meta||{}),fuzzy:fuzzyNote};
    return res.json(payload);
   };
-  // The authenticated profile is server-verified.  It supplies the initial
-  // province filter until the officer explicitly selects another province.
-  const selectedProvince=explicitProvince||incomingTopic?.province||req.user.province||null;
   const selectedTopic=selectedProvince?sanitizeTopic({...(incomingTopic||{}),province:selectedProvince}):incomingTopic;
   if(isProvinceChangeOnly(message)){
    return respond({answer:`ตั้งค่าจังหวัดที่ต้องการดูเป็นจังหวัด${selectedProvince} แล้ว คำสั่งถัดไปจะใช้จังหวัดนี้เป็นตัวกรองภายในสิทธิ์ของบัญชี`,grounded:true,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});

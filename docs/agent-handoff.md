@@ -671,5 +671,14 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
   for other provinces, the aggregate PDF receiving the requested province via
   the audited tool, requested-province headings, and the account-default
   heading. Full `npm test`: **353 tests, 25 suites, 0 failures**.
+- Follow-up live finding ("ขอร้อยเอ็ด ได้อุดร"): when a command named a
+  province without the word "จังหวัด" (or the transcript dropped it), the app
+  silently fell back to the account profile province. A bare province name
+  that occurs in the sentence is now matched against the server-verified
+  `aiScope.provinces` list only, overrides topic/profile province, and shows
+  in the heading; if two different province names appear, the officer gets a
+  `place_choices` picker instead of a silent guess. Choice follow-ups support
+  per-choice `replaceText` in `frontend/ai.js`. Full `npm test`: **356 tests,
+  25 suites, 0 failures**.
 
 

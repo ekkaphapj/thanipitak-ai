@@ -92,6 +92,52 @@ test('a typed aggregate request without an explicit province keeps the account d
  assert.equal(res.body.presentation.scopeLabel,'จังหวัดร้อยเอ็ด');
 });
 
+test('a province named without the keyword overrides the account profile province',async()=>{
+ const bodies=[];
+ const app=makeApp({role:'officer',stationId:77,province:'อุดรธานี',stationName:'สภ.บ้านดุง',aiScope:{level:'all',read_only:true,provinces:['อุดรธานี','ร้อยเอ็ด','นครพนม']}},async(url,opts)=>{
+  if(String(url).includes('/functions/v1/ai-summary')){
+   bodies.push(JSON.parse(opts.body));
+   return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'all',read_only:true},rows:[{station_name:'สภ.เมือง',province:'ร้อยเอ็ด',psychiatric_total:1,drug_user_total:2,dealer_total:0,released_total:0,target_total:3}]})};
+  }
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ขอภาพรวมร้อยเอ็ด'});
+ assert.equal(res.status,200);
+ assert.equal(res.body.presentation.scopeLabel,'จังหวัดร้อยเอ็ด');
+ assert.match(res.body.answer,/จังหวัดร้อยเอ็ด/);
+ assert.equal(bodies.length,1);
+ assert.equal(bodies[0].province,'ร้อยเอ็ด');
+ assert.equal(res.body.conversation.topic.province,'ร้อยเอ็ด');
+});
+
+test('two provinces named without a keyword ask the officer to choose',async()=>{
+ const app=makeApp({role:'officer',stationId:77,province:'อุดรธานี',aiScope:{level:'all',read_only:true,provinces:['อุดรธานี','ร้อยเอ็ด','นครพนม']}},async()=>{
+  throw new Error('an ambiguous province must not read data');
+ });
+ const res=await request(app).post('/ai/chat').send({message:'เทียบร้อยเอ็ดกับนครพนมภาพรวมใครเยอะกว่า'});
+ assert.equal(res.status,200);
+ assert.equal(res.body.presentation.type,'place_choices');
+ assert.equal(res.body.presentation.choices.length,2);
+ const first=res.body.presentation.choices[0];
+ assert.equal(first.display,'จังหวัดร้อยเอ็ด');
+ assert.equal(first.replaceText,'ร้อยเอ็ด');
+});
+
+test('a message without any province name keeps the conversation province',async()=>{
+ const bodies=[];
+ const app=makeApp({role:'officer',stationId:77,province:'อุดรธานี',aiScope:{level:'all',read_only:true,provinces:['อุดรธานี','ร้อยเอ็ด']}},async(url,opts)=>{
+  if(String(url).includes('/functions/v1/ai-summary')){
+   bodies.push(JSON.parse(opts.body));
+   return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'all',read_only:true},rows:[{station_name:'สภ.เมือง',province:'อุดรธานี',psychiatric_total:1,drug_user_total:2,dealer_total:0,released_total:0,target_total:3}]})};
+  }
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ขอภาพรวม',context:{topic:{province:'อุดรธานี'}}});
+ assert.equal(res.status,200);
+ assert.equal(res.body.presentation.scopeLabel,'จังหวัดอุดรธานี');
+ assert.equal(bodies[0].province,'อุดรธานี');
+});
+
 test('province-scoped station ranking states the requested province in the heading',async()=>{
  const app=makeApp({role:'admin',stationId:null},async(url)=>{
   const u=new URL(url);

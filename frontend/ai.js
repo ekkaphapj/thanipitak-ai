@@ -989,7 +989,7 @@
   // re-authorizes the whole follow-up request.
   function followupForChoice(presentation, choice) {
     const original = String((presentation && presentation.originalMessage) || '');
-    const replaceText = String((presentation && presentation.replaceText) || '');
+    const replaceText = String((choice && choice.replaceText) != null ? choice.replaceText : (presentation && presentation.replaceText) || '');
     const replaceWith = String((choice && choice.replaceWith) || choice.name || choice.display || '');
     if (replaceText && replaceWith && original.includes(replaceText)) {
       return original.replace(replaceText, replaceWith);

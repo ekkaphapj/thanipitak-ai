@@ -37,12 +37,16 @@ function topNFromMessage(message) {
 }
 
 function provinceFromMessage(message) {
- const match=String(message||'').match(/(?:เปลี่ยน(?:เป็น)?\s*(?:จังหวัด)?|(?:ใน|ของ)?จังหวัด)\s*([ก-๙A-Za-z.-]{2,80})/u);
- return match ? match[1].trim().slice(0,100) : null;
+ // Voice transcription commonly says “เลือกจังหวัด…” rather than
+ // “เปลี่ยนจังหวัด…”.  This is a local filter command, so recognise it
+ // before RAG or the model sees the utterance.
+ const match=String(message||'').match(/(?:เปลี่ยน(?:เป็น)?|เลือก(?:เป็น)?|ตั้ง(?:เป็น)?)\s*(?:จังหวัด)?\s*([ก-๙A-Za-z.-]{2,80})|(?:ใน|ของ)?จังหวัด\s*([ก-๙A-Za-z.-]{2,80})/u);
+ const province=match?.[1]||match?.[2];
+ return province ? province.trim().slice(0,100) : null;
 }
 
 function isProvinceChangeOnly(message) {
- return /^\s*เปลี่ยน(?:เป็น)?\s*(?:จังหวัด)?\s*[ก-๙A-Za-z.-]{2,80}\s*$/u.test(String(message||''));
+ return /^\s*(?:เปลี่ยน(?:เป็น)?|เลือก(?:เป็น)?|ตั้ง(?:เป็น)?)\s*(?:จังหวัด)?\s*[ก-๙A-Za-z.-]{2,80}\s*$/u.test(String(message||''));
 }
 
 function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent}={}) {

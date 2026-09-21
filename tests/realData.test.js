@@ -42,6 +42,12 @@ test('province change is a local conversation filter and the audited tool receiv
  const summary=await request(app).post('/ai/chat').send({message:'ขอภาพรวมผู้เสพ',context:{topic:changed.body.conversation.topic}});
  assert.equal(summary.status,200);assert.equal(bodies.length,1);assert.equal(bodies[0].province,'นครพนม');
 });
+test('select province wording is handled as a local filter before RAG or the model',async()=>{
+ const app=express();app.use(express.json());let reads=0;
+ app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,aiScope:{level:'all',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async()=>{reads++;throw new Error('a province selection must not read the registry');}}));
+ const res=await request(app).post('/ai/chat').send({message:'เลือกจังหวัดนครพนม'});
+ assert.equal(res.status,200);assert.equal(res.body.conversation.topic.province,'นครพนม');assert.match(res.body.answer,/ตั้งค่าจังหวัด/);assert.equal(reads,0);
+});
 test('real mode treats registry terminology explanations as knowledge, not a people lookup',async()=>{
  const previous=process.env.RAG_ENABLED;process.env.RAG_ENABLED='true';
  try {

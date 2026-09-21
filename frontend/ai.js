@@ -396,6 +396,8 @@
     if (mic) {
       mic.disabled = state.sending || state.mic === 'uploading';
       mic.setAttribute('aria-pressed', String(state.mic === 'recording'));
+      mic.classList.toggle('is-processing', state.mic === 'uploading' || state.sending);
+      mic.setAttribute('aria-busy', String(state.mic === 'uploading' || state.sending));
     }
     const voiceButton = $('#voice-assistant-btn');
     if (voiceButton) voiceButton.disabled = state.sending;

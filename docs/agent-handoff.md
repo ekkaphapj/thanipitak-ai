@@ -743,3 +743,17 @@ choices correctly. `node --check frontend/ai.js` passed.
 New regression files (all with mocked Supabase and a mocked interpreter — no
 live model and no real registry): `tests/timeWindow.test.js`,
 `tests/realTimeFilter.test.js`, `tests/personNameFuzzy.test.js`.
+### Continuation update — 2026-09-22 (key-only SSH on the pilot server)
+
+- Commit `3a4e4a8` (time windows, area exclusions, fuzzy person names) was
+  pushed and deployed to the Ubuntu pilot with `git pull --ff-only` plus
+  `sudo systemctl restart thanipitak-ai`. Service active, `/ai.html` HTTP 200
+  locally and through `https://ai.policeshield4.com/ai.html`, STT health OK.
+- SSH on the pilot now accepts **public keys only**. The deploy workstation's
+  `id_ed25519` (comment `thanipitak-deploy`) is in
+  `~ekkaphap/.ssh/authorized_keys`; `/etc/ssh/sshd_config.d/00-disable-password-auth.conf`
+  sets `PasswordAuthentication no` and overrides the cloud-init default.
+  Verified: key login works with `-o BatchMode=yes`, password attempts are
+  rejected with `Permission denied (publickey)`. Recovery without a key now
+  requires physical console access. `sudo` on the server still uses the
+  account password, which is unrelated to SSH authentication.

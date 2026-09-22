@@ -871,3 +871,34 @@ Deliberate contract confirmed by tests: watch-worded questions ("ใครเฝ
 "ใครถูกจับตา") list the whole monitored cohort with both levels; only
 "เฉพาะเฝ้าระวัง" narrows to watch-only, and deterministic level switches
 ("แล้วกลุ่มเฝ้าระวังล่ะ") stay on the continuation path.
+
+### Continuation update — 2026-09-22 night (Holdout-60 A/B rerun after condition work)
+
+Reran the Frozen Holdout-60 (fixture SHA verified identical) against the
+server-side `qwen3:8b-q6` over an authenticated SSH loopback tunnel —
+3 runs per arm, prompts swapped locally, no registry reads. Findings and
+decision live in `docs/qwen3-8b-q6-holdout60-ab-prompt-2026-09-22.md`:
+
+- The historical "guarded route 100%" was single-run variance; the honest
+  stable figure for qwen3:8b-q6 is ≈98.3% route / 83.3% raw intent, with
+  `h31` (incomplete fragment) failing 3/3 runs.
+- The second-round few-shot variant (teaching `requested` arrays + an
+  incomplete-fragment rule) did not beat the committed prompt and was
+  reverted; `src/ai/intentRouter.js` is back at the committed state.
+- Evidence kept (untracked, user-owned):
+  `qwen3-8b-q6-holdout60-promptv2/promptv6-2026-09-22.json`,
+  `tmp-ab-baseline-1..3.json`, `tmp-ab-v6-2/3.json`, plus the A/B report.
+- Strengthened next step: 14B-class model upgrade (RTX 3060 12GB fits
+  ~Q4/Q5 14B; 32B does not), gated by rerunning this same A/B, 3 runs/arm.
+
+### Continuation update — 2026-09-22 night (14B model A/B — kept 8B)
+
+Pulled `qwen3:14b` on the pilot Ollama and ran the same Frozen Holdout-60
+A/B (3 runs per model, committed prompt). 14B is worse on user-facing
+metrics: guarded route 95.0% vs 98.3% (fails h27/h31/h57 on every run),
+raw intent 81.7% vs 83.3%, e2e p95 1369ms vs 647ms — despite much better
+raw requested-field recall (31.5% vs 9.3%), which the guard layer derives
+anyway. **Decision: the app stays on `qwen3:8b-q6`;** `qwen3:14b` stays
+installed (9.3GB, deletable on explicit request). Report:
+`docs/qwen3-14b-holdout60-ab-2026-09-22.md`. Any future model switch must
+pass this same 3-runs-per-model harness first.

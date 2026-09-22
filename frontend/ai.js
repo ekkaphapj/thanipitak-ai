@@ -716,6 +716,7 @@
     if (state.sending) return;
     state.voiceMode = true;
     $('#voice-assistant-panel').classList.remove('hidden');
+    $('#voice-talk-dock').classList.remove('hidden');
     document.body.classList.add('voice-mode-open');
     startAudioCheck();
     if (state.tutorial.active) renderTutorialStep();
@@ -735,6 +736,7 @@
     setFullscreenBusy(null);
     state.voiceMode = false;
     $('#voice-assistant-panel').classList.add('hidden');
+    $('#voice-talk-dock').classList.add('hidden');
     $('#voice-tutorial-dock')?.classList.add('hidden');
     $('#voice-tutorial-dock')?.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('voice-mode-open');
@@ -1881,6 +1883,7 @@
       $('#chat-input').value = '';
       autoResizeInput();
       startTutorial();
+      if (voiceTurn) setFullscreenBusy(null);
       return;
     }
     if (/(?:ดู|บอก).*(?:คำสั่ง|ตัวอย่าง)/u.test(compactMessage) && /(?:ใช้|สั่ง|ได้)/u.test(compactMessage)) {
@@ -1888,6 +1891,7 @@
       $('#chat-input').value = '';
       autoResizeInput();
       renderUsageGuide();
+      if (voiceTurn) setFullscreenBusy(null);
       return;
     }
     if (state.tutorial.active && /(?:ทำ(?:ยัง)?ไงต่อ|ต่อไป|ทวน(?:ข้อ|คำสั่ง)?|ย้ำ(?:ข้อ|คำสั่ง)?)/u.test(compactMessage)) {
@@ -1896,6 +1900,7 @@
       autoResizeInput();
       const step = renderTutorialStep();
       if (voiceTurn) speakTutorial(tutorialSpeechFor(step));
+      setFullscreenBusy(null);
       return;
     }
     if (isUsageGuideQuestion(message)) {
@@ -1903,6 +1908,7 @@
       $('#chat-input').value = '';
       autoResizeInput();
       renderTutorialOffer();
+      if (voiceTurn) setFullscreenBusy(null);
       return;
     }
 
@@ -2086,6 +2092,7 @@
       .finally(() => {
         settled = true;
         setBusy(false);
+        setFullscreenBusy(null);
         if (!state.voiceMode) $('#chat-input').focus();
       });
   }

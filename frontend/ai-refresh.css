@@ -42,38 +42,52 @@ body{font-family:"Leelawadee UI","Noto Sans Thai","Segoe UI",Tahoma,sans-serif;l
    closest control to the thumb and has an explicit listening state. */
 .voice-assistant-sheet{width:340px;height:292px;display:block}.voice-speaker{width:174px;height:174px}.voice-talk-control{position:absolute;z-index:3;right:0;bottom:0;width:228px;padding:7px;border:1px solid #9fd8f8;border-radius:23px;background:linear-gradient(145deg,#f9fdff,#d8efff);box-shadow:0 12px 30px #071b374d}.voice-hold-btn{position:relative;right:auto;bottom:auto;display:flex;flex-direction:row;justify-content:flex-start;width:100%;min-width:0;min-height:78px;padding:10px 13px;border:0;border-radius:17px;background:linear-gradient(135deg,#087ac2,#064f9c);box-shadow:inset 0 1px #ffffff4d,0 7px 16px #065ba866;color:#fff;font:inherit;text-align:left}.voice-hold-btn:hover{background:linear-gradient(135deg,#1495db,#075aac)}.voice-mic-icon{flex:0 0 auto;width:42px;height:42px;border:0;border-radius:50%;background:#fff;box-shadow:0 3px 8px #001b483d}.voice-mic-icon::after{width:11px;height:20px;background:#0874ba}.voice-mic-icon::before{content:"";position:absolute;width:19px;height:25px;border:2px solid #0874ba;border-top:0;border-radius:0 0 12px 12px;transform:translateY(7px)}.voice-hold-copy{display:grid;gap:2px;margin-left:11px}.voice-hold-copy strong{font-size:15px;line-height:1.25}.voice-hold-copy small{color:#d7f0ff;font-size:10px;font-weight:700}.voice-hold-listening{display:none}.voice-hold-hint{display:flex;align-items:center;gap:6px;margin:6px 6px 1px;color:#195675;font-size:11px;font-weight:800}.voice-hold-hint span{width:8px;height:8px;border-radius:50%;background:#1ba564;box-shadow:0 0 0 3px #1ba56424}.voice-hold-btn[aria-pressed=true]{border:2px solid #ffccd1;background:linear-gradient(135deg,#db3f50,#921c31);box-shadow:0 0 0 5px #f0505b36,0 9px 25px #7e132b8c;animation:voice-listening 1s ease-in-out infinite}.voice-hold-btn[aria-pressed=true] .voice-hold-idle{display:none}.voice-hold-btn[aria-pressed=true] .voice-hold-listening{display:block}.voice-hold-btn[aria-pressed=true] .voice-mic-icon::after,.voice-hold-btn[aria-pressed=true] .voice-mic-icon::before{background:#c42c40;border-color:#c42c40}.voice-hold-btn.is-processing{background:linear-gradient(135deg,#496b88,#25435e);box-shadow:none}.voice-hold-btn:focus-visible{outline:4px solid #ffd45a;outline-offset:3px}.voice-mode-open .voice-assistant-sheet{width:390px;height:306px}.voice-mode-open .voice-speaker{width:200px;height:200px}.voice-mode-open .voice-talk-control{width:270px}.voice-mode-open .voice-hold-btn{right:auto;bottom:auto;min-width:0;min-height:82px;font-size:inherit}.voice-mode-open .voice-assistant-close{right:0;top:0}@media(max-width:720px){.voice-assistant-panel,.voice-mode-open .voice-assistant-panel{right:8px;bottom:calc(max(8px,env(safe-area-inset-bottom)) + 57px)}.voice-assistant-sheet,.voice-mode-open .voice-assistant-sheet{width:calc(100vw - 16px);height:196px}.voice-speaker,.voice-mode-open .voice-speaker{position:absolute;right:5px;top:0;width:112px;height:112px;opacity:.92}.voice-talk-control,.voice-mode-open .voice-talk-control{right:0;bottom:0;width:min(100%,330px);padding:7px;border-radius:20px}.voice-hold-btn,.voice-mode-open .voice-hold-btn{min-height:78px;padding:10px 12px;border-radius:15px;font-size:inherit}.voice-hold-copy strong{font-size:15px}.voice-hold-hint{font-size:11px}.voice-assistant-close,.voice-mode-open .voice-assistant-close{right:0;top:0;z-index:5;width:30px;height:30px}.voice-mode-open .voice-command-status{padding-right:12px}}
 
-/* ── Voice mode: audio check panel (desktop) — mic level + speaker test ── */
-.voice-audio-check{position:absolute;z-index:6;left:0;top:0;display:none;grid;gap:7px;width:100%;padding:11px 13px;border:1px solid #9fd8f8;border-radius:14px;background:linear-gradient(150deg,#f9fdffef,#e0f1ffe0);box-shadow:0 10px 26px #17243a2b}
+/* ── Voice mode layout (2026-09-22 rev2): mascot bottom-right, talk dock bottom-center,
+   audio check at the top, compact processing card ── */
+.voice-audio-check{position:fixed;z-index:66;top:14px;right:18px;left:auto;display:none;flex-direction:column;gap:7px;width:min(340px,44vw);padding:11px 13px;border:1px solid #9fd8f8;border-radius:14px;background:linear-gradient(150deg,#f9fdfff2,#ddeefce6);box-shadow:0 10px 26px #17243a30}
 .voice-audio-check.hidden{display:none}
-.voice-mode-open .voice-audio-check:not(.hidden){display:grid}
+.voice-mode-open .voice-audio-check:not(.hidden){display:flex}
 .voice-check-row{display:flex;align-items:center;gap:8px}
-.voice-check-label{flex:0 0 auto;font-size:10px;font-weight:800;color:#195675}
+.voice-check-label{flex:0 0 auto;width:38px;font-size:10px;font-weight:800;color:#195675}
 .voice-check-bar{flex:1;height:9px;border-radius:999px;background:#d5e6f4;overflow:hidden}
 .voice-check-bar i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,#1ba564,#49b7f0);transition:width .12s linear}
 .voice-check-bar i.is-error{background:#c8434d}
 .voice-check-btn{flex:0 0 auto;min-height:26px;padding:4px 9px;border:1px solid #9fd8f8;border-radius:8px;background:#fff;color:#174e73;font:800 10px/1.2 inherit;cursor:pointer}
 .voice-check-btn:hover{background:#eef7ff}
 .voice-check-btn:disabled{opacity:.55;cursor:wait}
-@media(max-width:720px){.voice-audio-check,.voice-mode-open .voice-audio-check{display:none!important}}
 
-/* ── Full-screen busy overlay while transcribing / loading data ── */
-.voice-busy-overlay{position:fixed;inset:0;z-index:80;display:none;place-items:center;pointer-events:none;background:radial-gradient(ellipse at center,#0d2340c4,#030c17ee)}
+/* Talk dock: the press-and-hold control lives at the bottom-center of the screen */
+.voice-talk-dock{display:none}
+.voice-mode-open #voice-talk-dock:not(.hidden){position:fixed;z-index:62;left:50%;transform:translateX(-50%);bottom:max(18px,env(safe-area-inset-bottom));display:block;width:min(360px,calc(100vw - 32px));filter:drop-shadow(0 14px 30px #071b374d)}
+.voice-mode-open #voice-talk-dock .voice-talk-control{position:relative;right:auto;bottom:auto;width:100%;padding:8px;border:1px solid #9fd8f8;border-radius:22px;background:linear-gradient(145deg,#f9fdff,#d8efff);box-shadow:none}
+.voice-mode-open #voice-talk-dock .voice-hold-btn{position:relative;right:auto;bottom:auto;width:100%;min-width:0;min-height:74px;padding:10px 14px;border:0;border-radius:16px;background:linear-gradient(135deg,#087ac2,#064f9c);box-shadow:inset 0 1px #ffffff4d,0 7px 16px #065ba866;color:#fff;font:inherit;text-align:left}
+.voice-mode-open #voice-talk-dock .voice-hold-btn:hover{background:linear-gradient(135deg,#1495db,#075aac)}
+.voice-mode-open #voice-talk-dock .voice-hold-btn[aria-pressed=true]{background:linear-gradient(135deg,#db3f50,#921c31);animation:voice-listening 1s ease-in-out infinite}
+.voice-mode-open #voice-talk-dock .voice-hold-hint{margin:6px 6px 1px;color:#195675;font-size:11px;font-weight:800}
+
+/* Mascot returns to the bottom-right, compact, without the talk control */
+.voice-mode-open .voice-assistant-panel{left:auto;right:clamp(16px,3vw,44px);bottom:calc(max(14px,env(safe-area-inset-bottom)) + 2px)}
+.voice-mode-open .voice-assistant-sheet{width:206px;height:206px}
+.voice-mode-open .voice-speaker{width:186px;height:186px}
+.voice-mode-open .voice-assistant-close{right:0;top:0}
+
+/* Compact processing card: small, light, unmistakable */
+.voice-busy-overlay{position:fixed;inset:0;z-index:80;display:none;place-items:center;pointer-events:none;background:#0a1a2e38}
 .voice-busy-overlay.active{display:grid}
-.voice-busy-card{display:grid;justify-items:center;gap:9px;padding:28px 42px;border:1px solid #7ac7ff59;border-radius:20px;background:#0f2540dd;box-shadow:0 24px 60px #0009;color:#fff;text-align:center}
-.voice-busy-card strong{font-size:17px;letter-spacing:-.01em}
-.voice-busy-card small{color:#b9d2ea;font-size:11px}
-.voice-busy-spinner{width:44px;height:44px;border-radius:50%;border:4px solid #ffffff2e;border-top-color:#8ed0ff;animation:voice-busy-spin .9s linear infinite}
+.voice-busy-card{display:grid;justify-items:center;gap:6px;padding:14px 26px;border:1px solid #7ac7ff66;border-radius:16px;background:#0f2540e8;box-shadow:0 16px 40px #0007;color:#fff;text-align:center}
+.voice-busy-card strong{font-size:14px}
+.voice-busy-card small{color:#b9d2ea;font-size:10px}
+.voice-busy-spinner{width:30px;height:30px;border-radius:50%;border:3px solid #ffffff2e;border-top-color:#8ed0ff;animation:voice-busy-spin .9s linear infinite}
 @keyframes voice-busy-spin{to{transform:rotate(360deg)}}
 
-/* ── Voice mode: mascot moves to the bottom-left so it never covers answers ── */
-.voice-mode-open .voice-assistant-panel{left:clamp(16px,3vw,44px);right:auto}
 @media(max-width:720px){
-  /* Mobile: large talk control at the bottom, mascot compact and out of the way */
-  .voice-assistant-panel,.voice-mode-open .voice-assistant-panel{left:8px;right:8px;bottom:calc(max(8px,env(safe-area-inset-bottom)) + 57px)}
-  .voice-assistant-sheet,.voice-mode-open .voice-assistant-sheet{width:calc(100vw - 16px);height:172px}
-  .voice-speaker,.voice-mode-open .voice-speaker{position:absolute;right:6px;top:-6px;width:96px;height:96px;opacity:.85}
-  .voice-talk-control,.voice-mode-open .voice-talk-control{width:min(100%,330px)}
-  .voice-hold-btn,.voice-mode-open .voice-hold-btn{min-height:86px;padding:12px 14px;border-radius:16px}
-  .voice-hold-copy strong{font-size:16px}
-  .voice-mode-open .chat-messages{padding-bottom:240px}
+  /* Mobile: no audio bars; compact mascot bottom-right; talk dock centered at the bottom */
+  .voice-audio-check,.voice-mode-open .voice-audio-check{display:none!important}
+  .voice-mode-open #voice-talk-dock:not(.hidden){bottom:max(8px,env(safe-area-inset-bottom));width:calc(100vw - 16px)}
+  .voice-mode-open #voice-talk-dock .voice-hold-btn{min-height:78px;padding:11px 13px;border-radius:15px}
+  .voice-mode-open .voice-assistant-panel{right:8px;bottom:calc(max(8px,env(safe-area-inset-bottom)) + 96px)}
+  .voice-mode-open .voice-assistant-sheet{width:104px;height:104px}
+  .voice-mode-open .voice-speaker{width:94px;height:94px}
+  .voice-mode-open .voice-assistant-close{width:24px;height:24px;font-size:17px}
+  .voice-mode-open .chat-messages{padding-bottom:150px}
 }

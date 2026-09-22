@@ -130,20 +130,22 @@
       <div id="voice-speaker" class="voice-speaker" aria-hidden="true">
         <div class="voice-mascot-sprite"></div>
       </div>
-      <div class="voice-talk-control">
-        <button id="mic-btn" class="voice-hold-btn" type="button" aria-label="กดค้างเพื่อพูด" aria-describedby="voice-hold-hint" aria-pressed="false">
-          <span class="voice-mic-icon" aria-hidden="true"></span>
-          <span class="voice-hold-copy">
-            <strong class="voice-hold-idle">กดค้างเพื่อพูด</strong>
-            <strong class="voice-hold-listening">กำลังรับคำสั่ง</strong>
-            <small class="voice-hold-idle">พูดเสร็จแล้วปล่อยปุ่ม</small>
-            <small class="voice-hold-listening">ปล่อยปุ่มเมื่อพูดจบ</small>
-          </span>
-        </button>
-        <p id="voice-hold-hint" class="voice-hold-hint"><span aria-hidden="true"></span>พร้อมรับคำสั่ง</p>
-      </div>
     </div>
   </section>
+  <div id="voice-talk-dock" class="voice-talk-dock hidden" aria-label="ปุ่มสั่งงานด้วยเสียง">
+    <div class="voice-talk-control">
+      <button id="mic-btn" class="voice-hold-btn" type="button" aria-label="กดค้างเพื่อพูด" aria-describedby="voice-hold-hint" aria-pressed="false">
+        <span class="voice-mic-icon" aria-hidden="true"></span>
+        <span class="voice-hold-copy">
+          <strong class="voice-hold-idle">กดค้างเพื่อพูด</strong>
+          <strong class="voice-hold-listening">กำลังรับคำสั่ง</strong>
+          <small class="voice-hold-idle">พูดเสร็จแล้วปล่อยปุ่ม</small>
+          <small class="voice-hold-listening">ปล่อยปุ่มเมื่อพูดจบ</small>
+        </span>
+      </button>
+      <p id="voice-hold-hint" class="voice-hold-hint"><span aria-hidden="true"></span>พร้อมรับคำสั่ง</p>
+    </div>
+  </div>
   <div id="voice-busy-overlay" class="voice-busy-overlay" aria-hidden="true">
     <div class="voice-busy-card" role="status">
       <span class="voice-busy-spinner" aria-hidden="true"></span>

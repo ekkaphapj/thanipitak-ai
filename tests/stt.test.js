@@ -230,9 +230,12 @@ test('stt html includes hold-to-talk mic button', () => {
   assert.match(js, /เลือกคนที่ 1/);
   assert.match(js, /วิเคราะห์ภาระงาน/);
   const css = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'ai-refresh.css'), 'utf8');
-  assert.match(css, /left:clamp\(16px,3vw,44px\);right:auto/);
   assert.match(css, /voice-busy-overlay/);
   assert.match(css, /voice-audio-check/);
+  assert.match(css, /voice-talk-dock/);
+  // Mascot returns to the bottom-right; the talk control is centered at the bottom.
+  assert.match(css, /left:auto;right:clamp\(16px,3vw,44px\)/);
+  assert.match(css, /left:50%;transform:translateX\(-50%\)/);
   assert.match(css, /thanipitak-ai-voice-sprite-v2\.png/);
   assert.match(css, /voice-mouth/);
   assert.match(css, /voice-command-status/);

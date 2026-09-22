@@ -927,3 +927,22 @@ exclusion feature; the tutorial exclusion step's hint states this. Full
 coverage assertions in `tests/stt.test.js` pin all 14 key exercise prompts
 and forbid the old hardcoded index checks; `tests/aiGateway.test.js` gains
 the exclusion-refusal test).
+
+### Continuation update — 2026-09-22 night (voice-mode layout rev2 + overlay fixes)
+
+Feedback round on the voice-mode changes:
+
+- **Stuck overlay fixed.** The full-screen "กำลังโหลดข้อมูล…" card could stay
+  forever on early-return chat paths (usage-guide offer, tutorial start/repeat,
+  "ดูคำสั่งที่ใช้ได้") that never reached the fetch finally. Every such path
+  now clears it, and `sendMessage`'s `.finally` clears it unconditionally.
+- **Compact processing card.** The overlay is a small centered card with a
+  light dim instead of a full dark screen.
+- **Desktop voice layout rev2.** The mascot returns to the bottom-right as a
+  compact circle; the press-and-hold control is its own dock fixed at the
+  bottom-center (`#voice-talk-dock`); the mic/speaker check panel moved to the
+  top-right of the screen; the typed input stays hidden in voice mode.
+- **Mobile** reverts to the previous pretty layout (compact mascot bottom-
+  right above the centered hold button, no audio-check bars) while keeping
+  the mascot clear of results.
+Full `npm test`: **417 tests, 25 suites, 0 failures**.

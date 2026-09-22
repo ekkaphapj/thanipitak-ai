@@ -114,6 +114,17 @@
   </main>
 
   <section id="voice-assistant-panel" class="voice-assistant-panel hidden" aria-label="โหมดสั่งงานด้วยเสียง">
+    <div id="voice-audio-check" class="voice-audio-check hidden" aria-label="ตรวจสอบไมโครโฟนและลำโพง">
+      <div class="voice-check-row">
+        <span class="voice-check-label">ไมค์</span>
+        <div class="voice-check-bar"><i id="voice-mic-level"></i></div>
+      </div>
+      <div class="voice-check-row">
+        <span class="voice-check-label">ลำโพง</span>
+        <div class="voice-check-bar"><i id="voice-speaker-level"></i></div>
+        <button id="voice-speaker-test" class="voice-check-btn" type="button">ทดสอบเสียงออก</button>
+      </div>
+    </div>
     <div class="voice-assistant-sheet">
       <button id="voice-assistant-close" class="voice-assistant-close" type="button" aria-label="ปิดโหมดสั่งงานด้วยเสียง">×</button>
       <div id="voice-speaker" class="voice-speaker" aria-hidden="true">
@@ -133,6 +144,13 @@
       </div>
     </div>
   </section>
+  <div id="voice-busy-overlay" class="voice-busy-overlay" aria-hidden="true">
+    <div class="voice-busy-card" role="status">
+      <span class="voice-busy-spinner" aria-hidden="true"></span>
+      <strong id="voice-busy-text">กำลังประมวลผล…</strong>
+      <small>ระบบกำลังทำงาน กรุณารอสักครู่</small>
+    </div>
+  </div>
   <aside id="voice-tutorial-dock" class="voice-tutorial-dock hidden" aria-label="แบบฝึกหัดสั่งงานด้วยเสียง" aria-live="polite"></aside>
 
 </div>

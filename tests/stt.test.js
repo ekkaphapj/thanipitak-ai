@@ -204,6 +204,17 @@ test('stt html includes hold-to-talk mic button', () => {
   assert.match(js, /พร้อมรับคำสั่งต่อไป/);
   assert.match(js, /openVoiceAssistant/);
   assert.match(js, /voice-result-reveal/);
+  // Voice-mode audio check panel: mic level bar and speaker test.
+  assert.match(js, /voice-audio-check/);
+  assert.match(js, /voice-mic-level/);
+  assert.match(js, /voice-speaker-test/);
+  assert.match(js, /testSpeakerOutput/);
+  assert.match(js, /startAudioCheck/);
+  // Full-screen processing overlay during voice transcription and data load.
+  assert.match(js, /voice-busy-overlay/);
+  assert.match(js, /setFullscreenBusy/);
+  assert.match(js, /กำลังโหลดข้อมูล/);
+  // Voice-mode mascot sits at the bottom-left so it never covers answers.
   assert.match(js, /ต้องการให้สอนการใช้งานหรือไม่/);
   assert.match(js, /ทำยังไง(?:ต่อ)?/);
   assert.match(js, /TUTORIAL_STEPS/);
@@ -219,6 +230,9 @@ test('stt html includes hold-to-talk mic button', () => {
   assert.match(js, /เลือกคนที่ 1/);
   assert.match(js, /วิเคราะห์ภาระงาน/);
   const css = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'ai-refresh.css'), 'utf8');
+  assert.match(css, /left:clamp\(16px,3vw,44px\);right:auto/);
+  assert.match(css, /voice-busy-overlay/);
+  assert.match(css, /voice-audio-check/);
   assert.match(css, /thanipitak-ai-voice-sprite-v2\.png/);
   assert.match(css, /voice-mouth/);
   assert.match(css, /voice-command-status/);

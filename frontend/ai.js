@@ -224,14 +224,6 @@
     },
     {
       group: 'เจาะลึกรายการ',
-      title: 'เปลี่ยนหน้ารายการ',
-      prompt: 'หน้าถัดไป',
-      hint: 'รายการยาวเป็นหน้า พิมพ์ “หน้าถัดไป” หรือ “หน้าก่อนหน้า” เพื่อเลื่อนดู เงื่อนไขเดิมยังอยู่ครบ',
-      needs: 'list',
-      matches: /หน้า(?:ถัดไป|ก่อนหน้า|ต่อไป)/u,
-    },
-    {
-      group: 'เจาะลึกรายการ',
       title: 'เลือกรายการตามลำดับ',
       prompt: 'เลือกคนที่ 1',
       hint: 'เลือกได้ด้วยคำว่า เลือกคนที่, เลือกรายการที่ หรือ เลือกลำดับที่',
@@ -253,6 +245,13 @@
       hint: 'ถามได้ เช่น “คนนี้เสี่ยงสูงเพราะอะไร” “คนนี้อายุเท่าไหร่” “คนนี้ผลตรวจยาล่าสุด” หรือ “เดือนที่แล้วเยี่ยมกี่ครั้ง”',
       needs: 'selection',
       matches: /คนนี้|บุคคลนี้|รายนี้/u,
+    },
+    {
+      group: 'เจาะลึกรายการ',
+      title: 'เปลี่ยนหน้ารายการ',
+      prompt: 'หน้าถัดไป',
+      hint: 'เลื่อนดูหน้าถัดไปด้วย “หน้าถัดไป” ย้อนด้วย “หน้าก่อนหน้า” — หน้าถัดไปเลขลำดับจะเปลี่ยน เช่น เลือกคนที่ 21',
+      matches: /หน้า(?:ถัดไป|ก่อนหน้า|ต่อไป)/u,
     },
     {
       group: 'เจาะลึกรายการ',
@@ -560,6 +559,22 @@
     if (voiceButton) voiceButton.disabled = state.sending;
   }
 
+  // Full-screen progress indicator for voice turns: shows while audio is
+  // transcribed or data is loading, disappears as soon as the turn ends.
+  function setFullscreenBusy(text) {
+    const overlay = $('#voice-busy-overlay');
+    if (!overlay) return;
+    const label = $('#voice-busy-text');
+    if (text) {
+      if (label) label.textContent = text;
+      overlay.classList.add('active');
+      overlay.setAttribute('aria-hidden', 'false');
+    } else {
+      overlay.classList.remove('active');
+      overlay.setAttribute('aria-hidden', 'true');
+    }
+  }
+
   function setMicStatus(text, isError, working = false) {
     const el = $('#mic-status');
     if (!el) return;
@@ -568,6 +583,86 @@
     if (dock) {
       dock.classList.toggle('is-error', Boolean(isError));
       dock.classList.toggle('is-working', Boolean(working));
+    }
+    // Every voice-flow transition flows through here: working states show the
+    // full-screen progress, errors and idle states clear it.
+    if (state.voiceMode) setFullscreenBusy(isError || !working ? null : String(text || '').replace(/…$/u, ''));
+  }
+
+  // ── Mic / speaker check panel (voice mode, desktop) ──
+  const audioCheck = { stream: null, ctx: null, raf: 0, speakerCtx: null };
+
+  async function startAudioCheck() {
+    const panel = $('#voice-audio-check');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioCheck.stream = stream;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      audioCheck.ctx = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const bar = $('#voice-mic-level');
+      const tick = () => {
+        if (!audioCheck.stream) return;
+        analyser.getByteFrequencyData(data);
+        let sum = 0;
+        for (const v of data) sum += v;
+        const level = Math.min(100, Math.round((sum / data.length) * 2.4));
+        if (bar) bar.style.width = level + '%';
+        audioCheck.raf = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (err) {
+      const bar = $('#voice-mic-level');
+      if (bar) { bar.style.width = '100%'; bar.classList.add('is-error'); }
+    }
+  }
+
+  function stopAudioCheck() {
+    if (audioCheck.raf) cancelAnimationFrame(audioCheck.raf);
+    audioCheck.raf = 0;
+    if (audioCheck.stream) { audioCheck.stream.getTracks().forEach((t) => t.stop()); audioCheck.stream = null; }
+    if (audioCheck.ctx) { audioCheck.ctx.close().catch(() => {}); audioCheck.ctx = null; }
+    const bar = $('#voice-mic-level');
+    if (bar) { bar.style.width = '0%'; bar.classList.remove('is-error'); }
+    const speakerBar = $('#voice-speaker-level');
+    if (speakerBar) speakerBar.style.width = '0%';
+  }
+
+  async function testSpeakerOutput() {
+    const btn = $('#voice-speaker-test');
+    const bar = $('#voice-speaker-level');
+    if (btn) btn.disabled = true;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = audioCheck.speakerCtx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.value = 0.16;
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      let step = 0;
+      const anim = setInterval(() => { if (bar) bar.style.width = (step % 2 ? 90 : 35) + '%'; step += 1; }, 140);
+      setTimeout(() => {
+        osc.stop();
+        ctx.close().catch(() => {});
+        clearInterval(anim);
+        if (bar) bar.style.width = '0%';
+        if (btn) btn.disabled = false;
+      }, 900);
+    } catch (err) {
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -622,6 +717,7 @@
     state.voiceMode = true;
     $('#voice-assistant-panel').classList.remove('hidden');
     document.body.classList.add('voice-mode-open');
+    startAudioCheck();
     if (state.tutorial.active) renderTutorialStep();
     setMicStatus(state.sttAvailable === false ? VoiceInput.micErrorMessage('STT_UNAVAILABLE') : 'พร้อมรับคำสั่งแล้ว • กดค้างปุ่มไมค์เพื่อพูด', state.sttAvailable === false);
     const greeted = sessionStorage.getItem('tp_voice_assistant_greeted') === '1';
@@ -635,6 +731,8 @@
   function closeVoiceAssistant() {
     abortMic();
     stopVoiceAudio();
+    stopAudioCheck();
+    setFullscreenBusy(null);
     state.voiceMode = false;
     $('#voice-assistant-panel').classList.add('hidden');
     $('#voice-tutorial-dock')?.classList.add('hidden');
@@ -661,6 +759,7 @@
 
   function finishVoiceTurn(json, message) {
     if (!state.voiceMode) return Promise.resolve();
+    setFullscreenBusy(null);
     if (state.tutorial.active && state.tutorial.lastAdvanced) {
       state.tutorial.lastAdvanced = false;
       return speakTutorial(tutorialSpeechFor(TUTORIAL_STEPS[state.tutorial.step])).finally(() => {
@@ -819,6 +918,7 @@
     updateSendDisabled();
     if (autoSendMessage) {
       setMicStatus('รับคำสั่งแล้ว กำลังประมวลผลคำสั่ง…', false, true);
+      setFullscreenBusy('กำลังโหลดข้อมูล…');
       await acknowledgement;
       sendMessage(autoSendMessage, { voice: true });
     }
@@ -1073,7 +1173,14 @@
     }
     const chosen = items.find((item) => item.ordinal === ordinal);
     if (!chosen) {
-      appendMessage('assistant', `ไม่มีรายการลำดับที่ ${ordinal} ให้เลือก (รายการล่าสุดมี ${items.length} รายการ)`);
+      // After flipping pages the visible ordinals shift (e.g. 21-40). Tell the
+      // officer exactly which range is on screen and how to get back.
+      const ordinals = items.map((item) => item.ordinal).filter(Number.isFinite).sort((a, b) => a - b);
+      const min = ordinals[0];
+      const max = ordinals[ordinals.length - 1];
+      appendMessage('assistant', min === max
+        ? `หน้าที่แสดงอยู่มีเฉพาะลำดับที่ ${min} ลองพิมพ์ เลือกคนที่ ${min}`
+        : `หน้าที่แสดงอยู่มีลำดับที่ ${min}-${max} ลองพิมพ์ เลือกคนที่ ${min} หรือพิมพ์ หน้าก่อนหน้า เพื่อกลับไปหน้าแรก`);
       return { handled: true };
     }
     if (chosen.personId) {
@@ -1968,6 +2075,7 @@
         clearTimeout(watchdog);
         settled = true;
         removeTypingIndicator();
+        setFullscreenBusy(null);
         const msg = await messageForError(err);
         appendMessage('assistant', msg, { error: true });
         if (voiceTurn) {
@@ -2059,6 +2167,7 @@
     bindMicButton();
     $('#voice-assistant-btn').addEventListener('click', () => { openVoiceAssistant(); });
     $('#voice-assistant-close').addEventListener('click', closeVoiceAssistant);
+    $('#voice-speaker-test').addEventListener('click', () => { testSpeakerOutput(); });
     setInterval(() => {
       if (state.token && state.sttAvailable !== true && state.mic !== 'recording' && state.mic !== 'uploading') {
         loadSttStatus();

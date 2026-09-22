@@ -63,7 +63,14 @@
 
   const TOPIC_TYPES = ['psychiatric', 'drug_user', 'dealer', 'released'];
   const TOPIC_PLACES = ['province', 'district', 'subdistrict', 'station'];
+  const TOPIC_LEVELS = ['all', 'high', 'watch'];
+  const TOPIC_KINDS = ['monitoring_list', 'people_list'];
+  const TOPIC_EXCLUDE_COLUMNS = ['tambon', 'amphoe', 'station_id'];
+  const MAX_TOPIC_EXCLUDES = 3;
+  const MAX_TOPIC_EXCLUDE_IDS = 1000;
 
+  // Narrowing query conditions that survive across turns (display context
+  // only — the backend re-authorizes and re-applies everything).
   function sanitizeTopic(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
     const topic = {};
@@ -78,6 +85,43 @@
     }
     if (raw.scope === 'all') topic.scope = 'all';
     if (raw.report_kind === 'target_person_aggregate') topic.report_kind = raw.report_kind;
+    if (TOPIC_LEVELS.includes(raw.level)) topic.level = raw.level;
+    if (TOPIC_KINDS.includes(raw.kind)) topic.kind = raw.kind;
+    if (Number.isSafeInteger(raw.page) && raw.page >= 1 && raw.page <= 1000) topic.page = raw.page;
+    if (raw.window && typeof raw.window === 'object' && !Array.isArray(raw.window)) {
+      const from = typeof raw.window.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.window.from) ? raw.window.from : null;
+      const to = typeof raw.window.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.window.to) ? raw.window.to : null;
+      if (from && to && from <= to) {
+        topic.window = { from, to, label: typeof raw.window.label === 'string' && raw.window.label.trim() ? raw.window.label.trim().slice(0, 100) : `${from} ถึง ${to}` };
+      }
+    }
+    if (Array.isArray(raw.exclude)) {
+      const exclude = [];
+      for (const entry of raw.exclude.slice(0, MAX_TOPIC_EXCLUDES)) {
+        if (!entry || typeof entry !== 'object') continue;
+        if (!TOPIC_EXCLUDE_COLUMNS.includes(entry.column)) continue;
+        if (entry.column === 'station_id') {
+          const ids = Array.isArray(entry.ids)
+            ? [...new Set(entry.ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, MAX_TOPIC_EXCLUDE_IDS)
+            : [];
+          if (ids.length) exclude.push({ column: 'station_id', ids, label: typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim().slice(0, 100) : 'พื้นที่ที่ยกเว้น' });
+        } else if (typeof entry.value === 'string' && entry.value.trim()) {
+          const value = entry.value.trim().slice(0, 100);
+          exclude.push({ column: entry.column, value, label: typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim().slice(0, 100) : value });
+        }
+      }
+      if (exclude.length) topic.exclude = exclude;
+    }
+    if (raw.pending && typeof raw.pending === 'object' && raw.pending.type === 'period_intent') {
+      const pending = { type: 'period_intent' };
+      if (TOPIC_TYPES.includes(raw.pending.person_type)) pending.person_type = raw.pending.person_type;
+      if (raw.pending.window && typeof raw.pending.window === 'object') {
+        const from = typeof raw.pending.window.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.pending.window.from) ? raw.pending.window.from : null;
+        const to = typeof raw.pending.window.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.pending.window.to) ? raw.pending.window.to : null;
+        if (from && to && from <= to) pending.window = { from, to, label: typeof raw.pending.window.label === 'string' && raw.pending.window.label.trim() ? raw.pending.window.label.trim().slice(0, 100) : `${from} ถึง ${to}` };
+      }
+      topic.pending = pending;
+    }
     return Object.keys(topic).length ? topic : null;
   }
 

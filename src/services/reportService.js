@@ -12,6 +12,37 @@ const DEFAULT_FONT = 'C:\\Windows\\Fonts\\tahoma.ttf';
 const LOGO_PATH = path.join(__dirname, '..', '..', 'frontend', 'thanipitak-logo.png');
 const REPORT_COLORS = { navy: '#172B46', blue: '#315A87', red: '#9E2532', pale: '#F4F8FC', line: '#DCE5EF', muted: '#64748B', ink: '#203247' };
 
+const EXCLUDE_COLUMNS = ['tambon', 'amphoe', 'station_id'];
+const MAX_EXCLUDES = 3;
+const MAX_EXCLUDE_IDS = 1000;
+
+function safeExcludeList(raw) {
+  if (!Array.isArray(raw)) return [];
+  const exclude = [];
+  for (const entry of raw.slice(0, MAX_EXCLUDES)) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (!EXCLUDE_COLUMNS.includes(entry.column)) continue;
+    if (entry.column === 'station_id') {
+      const ids = Array.isArray(entry.ids)
+        ? [...new Set(entry.ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, MAX_EXCLUDE_IDS)
+        : [];
+      if (ids.length) exclude.push({ column: 'station_id', ids, label: typeof entry.label === 'string' ? entry.label.slice(0, 100) : 'พื้นที่ที่ยกเว้น' });
+    } else if (typeof entry.value === 'string' && entry.value.trim()) {
+      const value = entry.value.trim().slice(0, 100);
+      exclude.push({ column: entry.column, value, label: typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim().slice(0, 100) : value });
+    }
+  }
+  return exclude;
+}
+
+function safeWindow(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const from = typeof raw.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.from) ? raw.from : null;
+  const to = typeof raw.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.to) ? raw.to : null;
+  if (!from || !to || from > to) return null;
+  return { from, to, label: typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim().slice(0, 100) : `${from} ถึง ${to}` };
+}
+
 function safeReportRequest(input) {
   const request = input && typeof input === 'object' ? input : {};
   const rawFilters = request.filters && typeof request.filters === 'object' ? request.filters : {};
@@ -21,6 +52,12 @@ function safeReportRequest(input) {
   }
   if (!['psychiatric', 'drug_user', 'dealer', 'released'].includes(filters.person_type)) delete filters.person_type;
   if (!['all', 'watch', 'high'].includes(filters.level)) filters.level = 'all';
+  const exclude = safeExcludeList(rawFilters.exclude);
+  if (exclude.length) filters.exclude = exclude;
+  // A time window is honored only on the recorded-monitoring path; for plain
+  // people lists the caller must refuse the export instead of dropping it.
+  const window = safeWindow(rawFilters.window);
+  if (window) filters.window = window;
   return {
     report_kind: request.report_kind === 'target_person_aggregate' ? 'target_person_aggregate' : undefined,
     filters,
@@ -37,6 +74,10 @@ function reportFilterLabels(filters) {
   if (filters.level === 'watch') labels.push('เฝ้าระวัง');
   for (const [key, label] of [['province', 'จังหวัด'], ['station', 'สภ.'], ['district', 'อำเภอ'], ['subdistrict', 'ตำบล'], ['search', 'ชื่อ']]) {
     if (filters[key]) labels.push(`${label}${filters[key]}`);
+  }
+  if (filters.window) labels.push(`ช่วง${filters.window.label}`);
+  if (Array.isArray(filters.exclude)) {
+    for (const entry of filters.exclude) labels.push(`ไม่รวม${entry.label || entry.value || ''}`);
   }
   return labels;
 }
@@ -173,11 +214,16 @@ function writeSummaryPdf(summary) {
     drawReportHeader(doc, summary);
     const when = new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' }).format(new Date());
     const labels = reportFilterLabels(summary.filters);
+    const notes = [];
+    if (summary.note) notes.push(summary.note);
+    if (summary.includeList && summary.total > summary.items.length) {
+      notes.push(`จำกัดรายการแสดง ${summary.items.length} แถวจากทั้งหมด ${summary.total} คน`);
+    }
     const metaTop = doc.y;
     doc.roundedRect(42, metaTop, 511, 62, 10).fillAndStroke('#FFFFFF', REPORT_COLORS.line);
     doc.fontSize(9).fillColor(REPORT_COLORS.muted).text('ขอบเขตข้อมูล', 56, metaTop + 11);
     doc.fontSize(11).fillColor(REPORT_COLORS.ink).text(labels.length ? labels.join(' • ') : 'ข้อมูลในพื้นที่ที่ผู้ใช้งานมีสิทธิ์เข้าถึง', 56, metaTop + 26, { width: 474, ellipsis: true });
-    doc.fontSize(8.5).fillColor(REPORT_COLORS.muted).text(`จัดทำเมื่อ ${when}`, 56, metaTop + 45);
+    doc.fontSize(8.5).fillColor(REPORT_COLORS.muted).text(`จัดทำเมื่อ ${when}${notes.length ? ` • ${notes.join(' • ')}` : ''}`, 56, metaTop + 45, { width: 386, ellipsis: true });
     doc.fontSize(17).fillColor(REPORT_COLORS.red).text(`${summary.total} คน`, 450, metaTop + 19, { width: 86, align: 'right' });
     doc.x = 42;
     doc.y = metaTop + 78;
@@ -221,6 +267,13 @@ function summaryRows(summary) {
   if (summary.filters.level === 'watch') labels.push('เฝ้าระวัง');
   for (const [key, label] of [['province', 'จังหวัด'], ['station', 'สภ.'], ['district', 'อำเภอ'], ['subdistrict', 'ตำบล']]) {
     if (summary.filters[key]) labels.push(`${label}${summary.filters[key]}`);
+  }
+  if (summary.filters.window) labels.push(`ช่วง${summary.filters.window.label}`);
+  if (Array.isArray(summary.filters.exclude)) {
+    for (const entry of summary.filters.exclude) labels.push(`ไม่รวม${entry.label || entry.value || ''}`);
+  }
+  if (summary.includeList && summary.total > (summary.items || []).length) {
+    labels.push(`จำกัดรายการแสดง ${(summary.items || []).length} แถวจากทั้งหมด ${summary.total} คน`);
   }
   const rows = [
     ['รายงานสรุปข้อมูลบุคคลธานีพิทักษ์'],

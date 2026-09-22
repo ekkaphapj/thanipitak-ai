@@ -757,3 +757,68 @@ live model and no real registry): `tests/timeWindow.test.js`,
   rejected with `Permission denied (publickey)`. Recovery without a key now
   requires physical console access. `sudo` on the server still uses the
   account password, which is unrelated to SSH authentication.
+
+### Continuation update — 2026-09-22 (condition preservation, shared query spec, conversation continuity)
+
+Scope: keep every query condition intact, use the same conditions for answers
+and reports, and let the conversation refine a query without losing or
+leaking conditions. Full `npm test` after the work: **401 tests, 25 suites,
+0 failures**. Working tree based on `e9f14fc`; not committed at the time of
+this note.
+
+**Period analysis v2 (`src/ai/timeWindow.js`).** `analyzePeriods()` returns
+every resolvable window, every matched-but-unresolvable period mention, and
+whether the wording compares two periods. New: named calendar months
+("เดือนสิงหาคม 2569", "ส.ค. 2569", no year = most recent) resolved as full
+calendar months in Asia/Bangkok; compound Thai numbers 21–99 so
+"ยี่สิบเอ็ดวันล่าสุด" is 21 days (never read as "สิบเอ็ด" = 11); oversized
+trailing windows ("400 วันล่าสุด" > 365-day cap) are reported as unresolved
+instead of silently ignored. A comparison question ("เดือนนี้เทียบกับเดือนที่แล้ว")
+is refused with a request to ask one period at a time — there is no
+comparison tool and none was added.
+
+**Area exclusion chaining (`src/ai/areaExclusion.js`).** "ยกเว้นตำบลโพนสูงและตำบลวังใหญ่"
+now produces both exclusions (segments chained with และ/กับ; later segments
+inherit the unit of the first). Each exclusion is still resolved against the
+server-verified scope catalogue before any `not.`-filter is applied.
+
+**Shared normalized query spec (`src/ai/querySpec.js`).** One validated
+structure (kind, person_type, area, exclude, window, level, page, person_id)
+plus `describeQuerySpec()` (short Thai line of what is being searched) and
+`filtersFromSpec()`. It carries only narrowing filters; authorization scope
+stays in the data adapters. `meta.querySummary` on monitoring/people answers
+names type, area, period, exclusions, and page.
+
+**Reports carry the same conditions.** `safeReportRequest` now accepts
+validated `exclude` and `window` filter shapes; `reportRequestFromExport`
+inherits level/window/exclusion from the conversation topic (an explicit
+level in the message still wins). Monitoring reports (level high/watch) run
+through the same windowed `listRecordedMonitoring` read as the chat answer,
+including area filters. A windowed plain-people report is refused at the
+endpoint (`REPORT_CONDITION_UNSUPPORTED`) because the registry exposes no
+registration date — the chat layer refuses earlier with the same limitation.
+Report headers/Excel rows print scope labels including exclusions and the
+period, plus a row-cap note when the list is truncated ("จำกัดรายการแสดง N
+แถวจากทั้งหมด M คน"; cap 200).
+
+**Conversation continuity.** `sanitizeTopic` (server and
+`frontend/chatContext.js`) now round-trips narrowing-only extensions: level,
+kind (monitoring_list/people_list), page, window {from,to,label}, exclude
+(≤3, validated columns), and a pending question marker. Merge rules: a fresh
+question replaces window/exclusions/page and keeps inherited area; a bare
+period follow-up ("เดือนก่อนล่ะ", "เดือนกรกฎาคมล่ะ") replaces only the window
+of the latest monitoring list; an area-only refinement ("เอาเฉพาะตำบลโพนสูง")
+narrows the latest list; "หน้าถัดไป" pages the latest list with all filters;
+"เริ่มใหม่" clears the topic server-side as well as client-side; logout and
+source switch already clear client state, and the server holds no session
+state at all (isolation tested). A period on a plain count/list now asks an
+explicit pending question ("ทะเบียนไม่เปิดวันที่ลงทะเบียน… 1. นับจากทะเบียนปัจจุบัน
+2. เฝ้าระวัง/เสี่ยงสูงในช่วงนี้"); the short reply "1"/"2" fills exactly that
+gap and the pending marker is then dropped, never leaked into later answers.
+
+**Limitations still standing.** No comparison of two periods; no windowed
+plain-people lists or reports (no readable registration date); monitoring
+reports are capped at 200 rows (stated, not silent); province-level area
+refinement must be asked as a full question; the pilot still needs deploy
+(not done in this task); time-windowed monitoring remains based on recorded
+visit/report dates only — not time-window production monitoring.

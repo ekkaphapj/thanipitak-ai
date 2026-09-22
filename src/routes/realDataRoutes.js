@@ -12,8 +12,9 @@ const {hasDBIntent}=require('../ai/intentDetector');
 rag=require('../ai/rag');
 const {detectDiscoveryIntent,discover}=require('../services/discoveryService');
 const {normalizeUtterance,matchPlaceNames,placeKey}=require('../ai/thaiText');
-const {extractTimeWindow,hasHardTimeReference}=require('../ai/timeWindow');
+const {analyzePeriods,extractTimeWindow,hasHardTimeReference}=require('../ai/timeWindow');
 const {parseAreaExclusions,removeSpans}=require('../ai/areaExclusion');
+const {normalizeQuerySpec,describeQuerySpec,filtersFromSpec}=require('../ai/querySpec');
 
 async function ollamaJson(path,body) {
  const response=await fetch(new URL(path,process.env.OLLAMA_HOST||'http://127.0.0.1:11434'),{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(120000),body:JSON.stringify(body)});
@@ -109,17 +110,27 @@ function isProvinceChangeOnly(message) {
 // Time windows and area exclusions are deterministic query modifiers. They are
 // extracted once per request and removed from the text handed to detectors and
 // the model, so an excluded area or a period can never re-enter the plan as a
-// positive filter. Period wording the parser cannot resolve is surfaced as
-// hardTimeReference so the caller can refuse instead of silently broadening.
+// positive filter. Every period mention is accounted for: one resolvable
+// window flows through, while comparisons, multiple periods, or unresolvable
+// wording set periodBlocked so the caller refuses instead of broadening.
 function prepareRoutingMessage(message) {
-  const timeWindow=extractTimeWindow(message);
+  const periods=analyzePeriods(message);
   const exclusions=parseAreaExclusions(message);
   const messageNoExclusion=exclusions.length?removeSpans(message,exclusions.map(item=>item.matchedText)):String(message);
-  const routingMessage=(timeWindow?removeSpans(messageNoExclusion,[timeWindow.matchedText]):messageNoExclusion)||messageNoExclusion||String(message);
+  let routingMessage=messageNoExclusion;
+  for(const window of periods.windows)routingMessage=removeSpans(routingMessage,[window.matchedText]);
+  for(const span of periods.unresolved)routingMessage=removeSpans(routingMessage,[span]);
+  if(periods.comparison)routingMessage=removeSpans(routingMessage,[/เดือนนี้เทียบกับเดือนที่แล้ว|เทียบกับ|เทียบกัน|เปรียบเทียบ/.exec(routingMessage)?.[0]].filter(Boolean));
+  routingMessage=routingMessage||messageNoExclusion||String(message);
+  let periodBlocked=null;
+  if(periods.comparison)periodBlocked={reason:'comparison'};
+  else if(periods.unresolved.length)periodBlocked={reason:'unresolved',text:periods.unresolved[0]};
+  else if(periods.windows.length>1)periodBlocked={reason:'multiple'};
   return {
-    timeWindow,
+    timeWindow:periods.windows[0]||null,
     exclusions,
-    hardTimeReference:!timeWindow&&hasHardTimeReference(message),
+    periodBlocked,
+    hardTimeReference:!periods.windows.length&&(periods.unresolved.length>0||periods.comparison||hasHardTimeReference(messageNoExclusion)),
     // Monitoring detection still needs the period wording, but never the
     // excluded area (which must not become a positive filter).
     messageNoExclusion,
@@ -127,7 +138,64 @@ function prepareRoutingMessage(message) {
   };
 }
 
-const PERIOD_CLARIFY='ขออภัย ช่วงเวลาที่ระบุขณะนี้ใช้ตรวจได้กับบันทึกการเยี่ยมและสถานะเฝ้าระวัง/เสี่ยงสูงเท่านั้น เช่น “ใครเสี่ยงสูงเดือนนี้” หรือ “เยี่ยมกี่ครั้งเดือนที่แล้ว” เมื่อเลือกบุคคลไว้ ช่วงเวลาที่เข้าใจได้คือ วันนี้ เมื่อวาน สัปดาห์นี้/ที่แล้ว เดือนนี้/ที่แล้ว ปีนี้/ที่แล้ว และ N วัน/สัปดาห์/เดือน/ปี ล่าสุด หากต้องการจำนวนหรือรายชื่อทั่วไป กรุณาถามโดยไม่ระบุช่วงเวลา';
+const PERIOD_HINT='ช่วงเวลาที่เข้าใจได้คือ วันนี้ เมื่อวาน สัปดาห์นี้/ที่แล้ว เดือนนี้/ที่แล้ว เดือนสิงหาคม 2569 ปีนี้/ที่แล้ว และ N วัน/สัปดาห์/เดือน/ปี ล่าสุด (ไม่เกิน 365 วัน)';
+function periodBlockedMessage(blocked){
+ if(blocked?.reason==='comparison')return 'ยังไม่รองรับการเปรียบเทียบสองช่วงเวลาในคำถามเดียว กรุณาถามทีละช่วง เช่น “ใครเสี่ยงสูงเดือนนี้” แล้วตามด้วย “เดือนก่อนล่ะ”';
+ if(blocked?.reason==='unresolved'&&/\d+\s*วัน|เกิน/.test(blocked.text||''))return `ช่วงเวลา “${blocked.text}” ยาวเกินที่รองรับ (สูงสุด 365 วันล่าสุด) กรุณาระบุช่วงที่สั้นกว่า`;
+ if(blocked?.reason==='unresolved')return `ช่วงเวลา “${blocked.text}” ยังไม่รองรับ ${PERIOD_HINT}`;
+ return 'คำถามนี้มีหลายช่วงเวลา กรุณาถามทีละช่วง';
+}
+// The people registry exposes no registration date to AI reads, so a period
+// on a plain count/list is genuinely ambiguous. Ask exactly what is missing
+// and remember the pending choice so a short reply can fill only the gap.
+function periodIntentQuestion(message,window){
+ const type=PERSON_TYPE_PATTERNS.find(([pattern])=>pattern.test(message))?.[1]||null;
+ const typeLabel=type?{psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[type]:'บุคคล';
+ return {
+  answer:`ทะเบียนบุคคลไม่เปิดวันที่ลงทะเบียนให้อ่าน จึงนับ${typeLabel}ตามช่วงเวลาตรงๆ ไม่ได้ ต้องการแบบใด?\n1. นับจากทะเบียนปัจจุบัน (ไม่กรองช่วงเวลา)\n2. รายการเฝ้าระวัง/เสี่ยงสูงที่บันทึกไว้ใน${window?window.label:'ช่วงเวลานั้น'}`,
+  presentation:{type:'summary_choices',choices:[
+   {label:`นับ${typeLabel}จากทะเบียนปัจจุบัน`,message:'นับจากทะเบียนปัจจุบัน'},
+   {label:'เฝ้าระวัง/เสี่ยงสูงในช่วงนี้',message:'เฝ้าระวังหรือเสี่ยงสูงช่วงนี้'},
+  ]},
+  pending:{type:'period_intent',person_type:type,window:window?{from:window.from,to:window.to,label:window.label}:undefined},
+ };
+}
+const PERSON_TYPE_PATTERNS=[
+ [/จิตเวช|ผู้ป่วย/,'psychiatric'],
+ [/ผู้เสพ/,'drug_user'],
+ [/ผู้ค้า/,'dealer'],
+ [/พ้นโทษ/,'released'],
+];
+const RESET_RE=/^(?:เริ่ม(?:ใหม่|ต้นใหม่|คุยใหม่|คำถามใหม่)|ล้างบริบท|ล้างการเลือก)(?:\s*(?:ครับ|ค่ะ|คะ|หน่อย))?$/u;
+const NEXT_PAGE_RE=/^(?:หน้าถัดไป|หน้าต่อไป|ต่อไป|ถัดไป|โชว์(?:หน้า)?ถัดไป|แสดงหน้าถัดไป)$/u;
+
+// Detects a follow-up that only adjusts the previous query: another period
+// ("เดือนก่อนล่ะ"), an area refinement ("เอาเฉพาะตำบลโพนสูง"), or the next
+// page. The conversation topic is display context only; every condition is
+// re-authorized and re-applied server-side.
+function detectContinuation(message,topic){
+ if(!topic||typeof topic!=='object')return null;
+ if(!topic.kind&&!topic.level&&!topic.person_type)return null;
+ const text=String(message||'').replace(/\s+/g,' ').trim();
+ if(!text)return null;
+ if(NEXT_PAGE_RE.test(text))return {type:'next_page',page:(Number(topic.page)||1)+1};
+ const periods=analyzePeriods(text);
+ let residue=text;
+ for(const window of periods.windows)residue=removeSpans(residue,[window.matchedText]);
+ for(const span of periods.unresolved)residue=removeSpans(residue,[span]);
+ residue=residue.replace(/(?:นะ)?(?:ครับ|ค่ะ|คะ)/gu,'').replace(/ล่ะ|ด้วย|หน่อย|จ้า|จ้ะ|อีก/gu,'').replace(/\s+/g,' ').trim();
+ if(residue===''){
+  if(periods.comparison)return {type:'period_block',blocked:{reason:'comparison'}};
+  if(periods.unresolved.length)return {type:'period_block',blocked:{reason:'unresolved',text:periods.unresolved[0]}};
+  if(periods.windows.length===1)return {type:'window_change',window:periods.windows[0]};
+ }
+ const area=/^(?:เอา(?:แค่)?\s*|แค่\s*)?เฉพาะ\s*(จังหวัด|อำเภอ|เขต|ตำบล|จ\.|อ\.|ต\.|สภ\.?|สถานี)?\s*([ก-๙A-Za-z0-9.\-]{2,60})$/u.exec(text);
+ if(area){
+  const unit=area[1]?(/จังหวัด|จ\./.test(area[1])?'province':/อำเภอ|เขต|อ\./.test(area[1])?'district':/ตำบล|ต\./.test(area[1])?'subdistrict':'station'):null;
+  return {type:'area_refine',unit,value:area[2].trim()};
+ }
+ return null;
+}
 
 const STATION_RANK_TYPES = [
   ['psychiatric', /ผู้ป่วยจิตเวช|จิตเวช|ผู้ป่วย/u],
@@ -561,8 +629,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(matches.length>1)throw exclusionChoices(item.value,matches.map(name=>({prefix:label,value:name})));
   throw exclusionNotFound(label,item.value);
  }
- async function resolveExclusions(req,exclusions) {
-  const resolved=[];
+ async function resolveExclusions(req,exclusions) {  const resolved=[];
   for(const item of exclusions.slice(0,3)){
    if(item.kind==='province')resolved.push(await excludeProvince(req,item));
    else if(item.kind==='subdistrict')resolved.push(await excludeArea(req,item,'ตำบล'));
@@ -578,6 +645,28 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    }
   }
   return resolved;
+ }
+ // Shared monitoring-list answer used by the direct question, conversation
+ // continuations, and pending-period replies. Conditions travel as explicit
+ // arguments; the registry read applies the station scope itself.
+ async function runMonitoringAnswer(req,{level,personType,area={},window=null,exclude=[],page=1}){
+  const result=await registry.listRecordedMonitoring(req,{level,personType,page,
+   ...(area.district?{district:area.district}:{}),...(area.subdistrict?{subdistrict:area.subdistrict}:{}),
+   ...(window?{from:window.from,to:window.to}:{}),
+   ...(exclude.length?{exclude}:{})});
+  const items=result.items.map(item=>({person_id:item.person_id,full_name:item.full_name,subdistrict:item.subdistrict,district:item.district,person_type:personType||null}));
+  const excludeNote=exclude.length?` (ไม่รวม${exclude.map(filter=>filter.label).join(' ')})`:'';
+  const answer=registry.formatMonitoringList(result,level,{windowLabel:window?.label})+excludeNote;
+  return {result,items,answer};
+ }
+ function monitoringPresentation(result,items,personType){
+  return {type:'person_list',total:result.total,returned:items.length,page:result.page,pageSize:result.pageSize,filters:{person_type:personType||null},items};
+ }
+ function monitoringSpec({level,personType,area,window,exclude,page}){
+  return normalizeQuerySpec({kind:'monitoring',person_type:personType||null,area,level,window,exclude,page});
+ }
+ function peopleListSpec({filters,page}){
+  return normalizeQuerySpec({kind:'list',person_type:filters.person_type||null,area:{province:filters.province,district:filters.district,subdistrict:filters.subdistrict,station:filters.station},exclude:filters.exclude||[],page});
  }
  router.get('/ai/status',(req,res)=>res.json({available:true,model:'ข้อมูลจริง • อ่านจาก Supabase'}));
  router.get('/ai/access-scope',(req,res)=>res.json({scope:req.user.aiScope||null,readOnly:true}));
@@ -645,9 +734,14 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   // before every detector and before the model sees the request.
   const message=normalizeUtterance(raw)||raw;
   const personId=selectedPersonId(req.body);
+  // Server-side session reset mirrors the client's own "เริ่มใหม่" so no
+  // condition survives an explicit restart, whatever client sent the text.
+  if(RESET_RE.test(message)){
+   return res.json({answer:'เริ่มบทสนทนาใหม่แล้ว เงื่อนไขที่เลือกไว้ทั้งหมดถูกล้างแล้ว',grounded:true,dataSource:'real',conversation:{topic:null},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
   const prepared=prepareRoutingMessage(message);
   const routingMessage=prepared.routingMessage;
-  const periodRequested=Boolean(prepared.timeWindow||prepared.hardTimeReference);
+  const periodRequested=Boolean(prepared.timeWindow||prepared.periodBlocked||prepared.hardTimeReference);
   // Choice follow-ups re-send the original command with the chosen verified
   // name substituted, so every choices presentation carries that text.
   const sendFailure=(e)=>{
@@ -659,7 +753,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   let showAll=!!ordered;
   if(!ranking&&ordered)ranking=[routingMessage,ordered[1],/น้อยไปมาก/.test(routingMessage)?'น้อยสุด':'มากสุด'];
   let plan=null;let ollamaCalls=0;
-  const incomingTopic=sanitizeTopic(req.body?.context?.topic);
+  let incomingTopic=sanitizeTopic(req.body?.context?.topic);
   const provinceResolution=canonicalProvince(req,provinceFromMessage(routingMessage));
   if(provinceResolution.error)return res.status(422).json({error:provinceResolution.error,code:'REAL_LOCATION_NOT_FOUND',dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   if(provinceResolution.choices){
@@ -695,23 +789,151 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(isProvinceChangeOnly(routingMessage)){
    return respond({answer:`ตั้งค่าจังหวัดที่ต้องการดูเป็นจังหวัด${selectedProvince} แล้ว คำสั่งถัดไปจะใช้จังหวัดนี้เป็นตัวกรองภายในสิทธิ์ของบัญชี`,grounded:true,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
+  // A pending period question accepts short answers that fill exactly the
+  // missing piece (registry count without the period, or windowed monitoring).
+  if(incomingTopic?.pending?.type==='period_intent'){
+   const pending=incomingTopic.pending;
+   const stripped=message.replace(/(?:นะ)?(?:ครับ|ค่ะ|คะ)/gu,'').replace(/\s+/g,' ').trim();
+   if(/^(?:ยกเลิก|เอาไว้ก่อน|ไม่(?:ละ|ครับ|ค่ะ)?)$/u.test(stripped)){
+    const {pending:_drop,...rest}=incomingTopic;
+    incomingTopic=sanitizeTopic(rest);
+   } else {
+    const choice=/^(?:(1|2|หนึ่ง|สอง)|นับ(?:จาก)?ทะเบียนปัจจุบัน|ทะเบียนปัจจุบัน|ปัจจุบัน|ทั้งหมด|เฝ้าระวังหรือเสี่ยงสูง(?:ช่วงนี้)?|เฝ้าระวัง|เสี่ยงสูง|ช่วงนี้)$/u.exec(stripped);
+    if(choice){
+     const pickRegistry=/^(?:1|หนึ่ง|นับ|ทะเบียน|ปัจจุบัน|ทั้งหมด)/.test(choice[0]);
+     const window=pending.window||null;
+     const type=pending.person_type||null;
+     const {pending:_drop,...baseTopic}=incomingTopic;
+     if(pickRegistry){
+      try{
+       const result=await search(req,type?{person_type:type}:{},1);
+       const category={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[type]||'บุคคล';
+       const answer=(result.total?`มี${category} ${result.total} คน`:`ไม่มี${category}`)+' (นับจากทะเบียนปัจจุบัน ไม่ได้กรองตามช่วงเวลา)';
+       return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],conversation:{topic:sanitizeTopic(baseTopic)},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+      }catch(e){return sendFailure(e);}
+     }
+     try{
+      const {result,items,answer}=await runMonitoringAnswer(req,{level:'all',personType:type,window});
+      const topic=sanitizeTopic({...baseTopic,person_type:type||undefined,level:'all',kind:'monitoring_list',window:window||undefined,page:result.page});
+      return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:'all',personType:type,window,page:result.page}))}});
+     }catch(e){return sendFailure(e);}
+    }
+    // Anything longer is a new request; the pending question no longer
+    // applies, so it must not leak into unrelated answers.
+    const {pending:_drop,...rest}=incomingTopic;
+    incomingTopic=sanitizeTopic(rest);
+   }
+  }
+  // Conversation continuations adjust the most recent list/monitoring query.
+  // Detection runs on the full normalized message because a bare period
+  // follow-up is the whole text; every condition is then re-applied through
+  // the same authorized read path as the original question.
+  const continuation=detectContinuation(message,incomingTopic);
+  if(continuation){
+   const t=incomingTopic;
+   const kind=t?.kind||((t?.level==='high'||t?.level==='watch'||t?.level==='all')?'monitoring_list':null);
+   if(continuation.type==='period_block'){
+    return respond({answer:periodBlockedMessage(continuation.blocked),grounded:false,dataSource:'real',conversation:{topic:t},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
+   if(!kind){
+    return respond({answer:'ไม่มีรายการล่าสุดให้ปรับ กรุณาถามใหม่ เช่น “ใครเสี่ยงสูงเดือนนี้” หรือ “ขอรายชื่อผู้เสพ”',grounded:false,dataSource:'real',conversation:{topic:t},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
+   if(continuation.type==='window_change'){
+    if(kind!=='monitoring_list'){
+     return respond({answer:'การกรองช่วงเวลาใช้ได้กับรายการเฝ้าระวัง/เสี่ยงสูง หรือประวัติเยี่ยมของบุคคลที่เลือกเท่านั้น (ทะเบียนทั่วไปไม่มีวันที่ให้กรอง)',grounded:false,dataSource:'real',conversation:{topic:t},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    }
+    try{
+     const window=continuation.window;
+     const {result,items,answer}=await runMonitoringAnswer(req,{level:t.level||'all',personType:t.person_type||null,area:{district:t.district,subdistrict:t.subdistrict},window,exclude:t.exclude||[],page:1});
+     const topic=sanitizeTopic({...t,window:window||undefined,page:result.page});
+     return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:t.level||'all',personType:t.person_type,area:{district:t.district,subdistrict:t.subdistrict},window,exclude:t.exclude,page:result.page}))}});
+    }catch(e){return sendFailure(e);}
+   }
+   if(continuation.type==='area_refine'){
+    if(continuation.unit==='province'){
+     return respond({answer:'การจำกัดรายการเฝ้าระวัง/เสี่ยงสูงตามจังหวัด กรุณาถามใหม่โดยระบุจังหวัดในคำถาม เช่น “ใครเสี่ยงสูงในจังหวัดร้อยเอ็ด”',grounded:false,dataSource:'real',conversation:{topic:t},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    }
+    let areaPatch={};
+    if(continuation.unit)areaPatch[continuation.unit==='station'?'station':continuation.unit]=continuation.value;
+    else{
+     try{
+      const catalogue=await areaCatalogue(req);
+      const sub=matchPlaceNames(continuation.value,catalogue.subdistricts);
+      const dis=matchPlaceNames(continuation.value,catalogue.districts);
+      if(sub.length===1)areaPatch.subdistrict=sub[0];
+      else if(sub.length>1)throw areaChoicesError('ตำบล',continuation.value,sub,catalogue.pairs);
+      else if(dis.length===1)areaPatch.district=dis[0];
+      else if(dis.length>1)throw areaChoicesError('อำเภอ',continuation.value,dis,catalogue.pairs);
+      else return respond({answer:`ไม่พบพื้นที่ “${continuation.value}” ในขอบเขตที่ท่านมีสิทธิ์เข้าถึง`,grounded:true,dataSource:'real',conversation:{topic:t},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+     }catch(e){return sendFailure(e);}
+    }
+    try{
+     if(kind==='monitoring_list'){
+      const area={district:t.district,subdistrict:t.subdistrict,...areaPatch};
+      const {result,items,answer}=await runMonitoringAnswer(req,{level:t.level||'all',personType:t.person_type||null,area,window:t.window||null,exclude:t.exclude||[],page:1});
+      const topic=sanitizeTopic({...t,...areaPatch,page:result.page});
+      return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:t.level||'all',personType:t.person_type,area,window:t.window,exclude:t.exclude,page:result.page}))}});
+     }
+     const filters={...(t.person_type?{person_type:t.person_type}:{}),...(t.province?{province:t.province}:{}),...(t.district?{district:t.district}:{}),...(t.subdistrict?{subdistrict:t.subdistrict}:{}),...(t.station?{station:t.station}:{}),...(t.exclude?.length?{exclude:t.exclude}:{}),...areaPatch};
+     const result=await search(req,filters,1);
+     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||''}));
+     const topic=sanitizeTopic({...t,...areaPatch,page:1});
+     return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:1,pageSize:20,filters:{person_type:t.person_type||null},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page:1}))}});
+    }catch(e){return sendFailure(e);}
+   }
+   if(continuation.type==='next_page'){
+    const page=Math.min(continuation.page,50);
+    try{
+     if(kind==='monitoring_list'){
+      const {result,items,answer}=await runMonitoringAnswer(req,{level:t.level||'all',personType:t.person_type||null,area:{district:t.district,subdistrict:t.subdistrict},window:t.window||null,exclude:t.exclude||[],page});
+      const topic=sanitizeTopic({...t,page:result.page});
+      return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:t.level||'all',personType:t.person_type,area:{district:t.district,subdistrict:t.subdistrict},window:t.window,exclude:t.exclude,page:result.page}))}});
+     }
+     const filters={...(t.person_type?{person_type:t.person_type}:{}),...(t.province?{province:t.province}:{}),...(t.district?{district:t.district}:{}),...(t.subdistrict?{subdistrict:t.subdistrict}:{}),...(t.station?{station:t.station}:{}),...(t.exclude?.length?{exclude:t.exclude}:{})};
+     const result=await search(req,filters,page);
+     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||''}));
+     const topic=sanitizeTopic({...t,page});
+     return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา (หน้า ${page})`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page,pageSize:20,filters:{person_type:t.person_type||null},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page}))}});
+    }catch(e){return sendFailure(e);}
+   }
+  }
   const stationRank=detectStationRanking(routingMessage);
   if(stationRank){
    if(prepared.exclusions.length)return respond({answer:'การยกเว้นพื้นที่ยังไม่รองรับกับการจัดอันดับ สภ. กรุณาถามแยกตามพื้นที่ที่ต้องการดู',grounded:false,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
-   if(periodRequested)return respond({answer:PERIOD_CLARIFY,grounded:false,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(prepared.periodBlocked)return respond({answer:periodBlockedMessage(prepared.periodBlocked),grounded:false,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(prepared.timeWindow)return respond({answer:periodIntentQuestion(routingMessage,prepared.timeWindow).answer,grounded:false,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    try { const result=await stationRanking(req,selectedProvince,stationRank);return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
    catch(e){return sendFailure(e);}
   }
   const exportIntent=detectExportIntent(routingMessage);
   if(exportIntent){
+   if(prepared.periodBlocked)return respond({answer:periodBlockedMessage(prepared.periodBlocked),grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   // Fresh in-message exclusions ride along; the report must carry exactly
+   // the conditions the officer named, never a silently wider list.
+   let freshExclude=[];
+   if(prepared.exclusions.length){
+    try{freshExclude=await resolveExclusions(req,prepared.exclusions);}catch(e){return sendFailure(e);}
+   }
+   const topicWindow=incomingTopic?.window||null;
+   const topicLevel=incomingTopic?.level||null;
+   const monitoringContext=topicLevel==='high'||topicLevel==='watch';
+   // A window is exportable only on the recorded-monitoring path; for plain
+   // people lists there is no date field, so refuse instead of dropping it.
+   if((prepared.timeWindow||topicWindow)&&!monitoringContext){
+    return respond({answer:'รายงานทะเบียนทั่วไปยังกรองตามช่วงเวลาไม่ได้ เพราะทะเบียนบุคคลไม่เปิดวันที่ลงทะเบียนให้อ่าน จึงไม่สร้างไฟล์ที่เงื่อนไขหายไป ' + PERIOD_HINT + ' ส่วนรายการเฝ้าระวัง/เสี่ยงสูงตามช่วงเวลาส่งออกเป็นไฟล์ได้',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
    const reportRequest=reportRequestFromExport(exportIntent,incomingTopic);
-   const bits=[];
-   if(reportRequest.filters.person_type)bits.push({psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[reportRequest.filters.person_type]);
+   if(prepared.timeWindow)reportRequest.filters.window={from:prepared.timeWindow.from,to:prepared.timeWindow.to,label:prepared.timeWindow.label};
+   const mergedExclude=[...(reportRequest.filters.exclude||[])];
+   for(const filter of freshExclude)if(!mergedExclude.some(item=>item.column===filter.column&&(item.value===filter.value||item.ids===filter.ids)))mergedExclude.push(filter);
+   if(mergedExclude.length)reportRequest.filters.exclude=mergedExclude;
    const files=exportIntent.formats.map(item=>item==='xlsx'?'Excel':'PDF').join(' และ ');
    const needsConfirm=exportIntent.confirm||Boolean(incomingTopic);
+   const spec=normalizeQuerySpec({kind:'report',person_type:reportRequest.filters.person_type||null,area:{province:reportRequest.filters.province,district:reportRequest.filters.district,subdistrict:reportRequest.filters.subdistrict,station:reportRequest.filters.station},level:reportRequest.filters.level,window:reportRequest.filters.window||null,exclude:reportRequest.filters.exclude||[]});
+   const summaryText=describeQuerySpec(spec);
    const answer=needsConfirm
-    ?'ต้องการสร้างรายงานของรายการหรือภาพรวมล่าสุดใช่หรือไม่? เลือก 1. ใช่ หรือ 2. ไม่'
-    :`พร้อมสร้างรายงาน${files} จากทะเบียนจริงตามสิทธิ์บัญชีนี้ กดดาวน์โหลดด้านล่าง (ไม่รวมเลขบัตรและเบอร์โทร)`;
+    ?`ต้องการสร้างรายงาน${files}ของรายการหรือภาพรวมล่าสุดใช่หรือไม่? เลือก 1. ใช่ หรือ 2. ไม่${summaryText?`\nเงื่อนไขรายงาน: ${summaryText}`:''}`
+    :`พร้อมสร้างรายงาน${files} จากทะเบียนจริงตามสิทธิ์บัญชีนี้ กดดาวน์โหลดด้านล่าง (ไม่รวมเลขบัตรและเบอร์โทร)${summaryText?`\nเงื่อนไขรายงาน: ${summaryText}`:''}`;
    return respond({answer,grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:exportIntent.formats,auto:needsConfirm?null:exportIntent.auto,confirm:needsConfirm,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
   const summary=parseSummaryIntent(routingMessage);const intent=detectFastPathIntent(routingMessage,selectedTopic);
@@ -728,7 +950,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const discoveryIntent=detectDiscoveryIntent(routingMessage);
   if(discoveryIntent){
    if(prepared.exclusions.length)return respond({answer:'การยกเว้นพื้นที่ยังไม่รองรับกับการวิเคราะห์ภาพรวมอัตโนมัติ กรุณาถามแยกตามพื้นที่ที่ต้องการดู',grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
-   if(periodRequested)return respond({answer:PERIOD_CLARIFY,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(prepared.periodBlocked)return respond({answer:periodBlockedMessage(prepared.periodBlocked),grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(prepared.timeWindow)return respond({answer:periodIntentQuestion(routingMessage,prepared.timeWindow).answer,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    try { const result=await realDiscovery(req,discoveryIntent);return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_aggregate_discovery'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
    catch(e){return sendFailure(e);}
   }
@@ -744,18 +967,24 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(overview){
    // This is the first audited aggregate tool supplied by the primary system.
    // It returns counts only; no direct registry read is made from this app.
+   const overviewGuard=prepared.exclusions.length
+    ?'การยกเว้นพื้นที่ยังไม่รองรับกับภาพรวมจากระบบกลาง กรุณาถามแยกตามพื้นที่'
+    :prepared.periodBlocked?periodBlockedMessage(prepared.periodBlocked)
+    :prepared.timeWindow?periodIntentQuestion(routingMessage,prepared.timeWindow).answer
+    :null;
    if(overview.filters.person_type==='psychiatric'){
-    if(prepared.exclusions.length||periodRequested)return respond({answer:prepared.exclusions.length?'การยกเว้นพื้นที่ยังไม่รองรับกับภาพรวมจากระบบกลาง กรุณาถามแยกตามพื้นที่':PERIOD_CLARIFY,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    if(overviewGuard)return respond({answer:overviewGuard,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
     try { const result=await psychiatricSummary(req,selectedProvince); return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/psychiatric_summary'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
     catch(e){return sendFailure(e);}
    }
    if(!overview.filters.person_type || ['drug_user','dealer','released'].includes(overview.filters.person_type)){
-    if(prepared.exclusions.length||periodRequested)return respond({answer:prepared.exclusions.length?'การยกเว้นพื้นที่ยังไม่รองรับกับภาพรวมจากระบบกลาง กรุณาถามแยกตามพื้นที่':PERIOD_CLARIFY,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    if(overviewGuard)return respond({answer:overviewGuard,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
     try { const result=await targetPersonSummary(req,selectedProvince);const reportTopic=sanitizeTopic({...(conversation.topic||{}),report_kind:'target_person_aggregate'}); return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation:{topic:reportTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
     catch(e){return sendFailure(e);}
    }
    try {
-    if(periodRequested)return respond({answer:PERIOD_CLARIFY,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    if(prepared.periodBlocked)return respond({answer:periodBlockedMessage(prepared.periodBlocked),grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    if(prepared.timeWindow)return respond({answer:periodIntentQuestion(routingMessage,prepared.timeWindow).answer,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
     const overviewFilters={...overview.filters};
     if(!overviewFilters.province&&selectedProvince)overviewFilters.province=selectedProvince;
     if(excludeFilters.length)overviewFilters.exclude=excludeFilters;
@@ -766,7 +995,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    catch(e){return sendFailure(e);}
   }
   if(personId && !isCollectionQuestion(routingMessage,intent,ranking,summary,personId)) {
-   if(prepared.hardTimeReference&&/เยี่ยม|ประวัติ|ปัสสาวะ|ฉี่|ตรวจยา|เสี่ยง|เฝ้าระวัง/.test(routingMessage))return respond({answer:PERIOD_CLARIFY,grounded:false,dataSource:'real',meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(prepared.periodBlocked)return respond({answer:periodBlockedMessage(prepared.periodBlocked),grounded:false,dataSource:'real',meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(prepared.hardTimeReference&&/เยี่ยม|ประวัติ|ปัสสาวะ|ฉี่|ตรวจยา|เสี่ยง|เฝ้าระวัง/.test(routingMessage))return respond({answer:`ช่วงเวลาที่ระบุยังไม่รองรับ ${PERIOD_HINT}`,grounded:false,dataSource:'real',meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    try {
     const found=await readSelectedPerson(req,personId);
     if(!found)return respond({answer:'ไม่พบบุคคลนี้ในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง',grounded:true,dataSource:'real',meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
@@ -777,14 +1007,21 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   const monitor=monitoringQuestion(prepared.messageNoExclusion);
   if(monitor) {
-   if(monitor.unsupported)return respond({answer:'ขณะนี้ตรวจได้เฉพาะสถานะเฝ้าระวัง/เสี่ยงสูงจากบันทึกที่มีวันที่ชัดเจน ช่วงเวลาที่เข้าใจได้คือ วันนี้ เมื่อวาน สัปดาห์นี้/ที่แล้ว เดือนนี้/ที่แล้ว ปีนี้/ที่แล้ว และ N วัน/สัปดาห์/เดือน/ปี ล่าสุด',grounded:false,dataSource:'real',meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(prepared.periodBlocked)return respond({answer:periodBlockedMessage(prepared.periodBlocked),grounded:false,dataSource:'real',meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(monitor.unsupported)return respond({answer:`ช่วงเวลาที่ระบุยังไม่รองรับ ${PERIOD_HINT}`,grounded:false,dataSource:'real',meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    try {
-    const result=await registry.listRecordedMonitoring(req,{level:monitor.level,personType:monitor.person_types[0]||null,page:monitor.page||1,
+    // A fresh monitoring question replaces the previous window/exclusion; the
+    // area (subdistrict/district) may persist from the conversation topic.
+    const {result,items,answer}=await runMonitoringAnswer(req,{level:monitor.level,personType:monitor.person_types[0]||null,area:{district:monitor.district,subdistrict:monitor.subdistrict},window:prepared.timeWindow,exclude:excludeFilters,page:monitor.page||1});
+    const monitoringTopic=sanitizeTopic({
+     ...(incomingTopic?{province:incomingTopic.province,station:incomingTopic.station,exclude:incomingTopic.exclude}:{}),
+     person_type:monitor.person_types[0]||undefined,
+     level:monitor.level,kind:'monitoring_list',page:result.page,
+     ...(prepared.timeWindow?{window:prepared.timeWindow}:{}),
+     ...(excludeFilters.length?{exclude:excludeFilters}:{}),
      ...(monitor.district?{district:monitor.district}:{}),...(monitor.subdistrict?{subdistrict:monitor.subdistrict}:{}),
-     ...(monitor.timeWindow?{from:monitor.timeWindow.from,to:monitor.timeWindow.to}:{}),
-     ...(excludeFilters.length?{exclude:excludeFilters}:{})});
-    const items=result.items.map(item=>({person_id:item.person_id,full_name:item.full_name,subdistrict:item.subdistrict,district:item.district,person_type:monitor.person_types[0]||null}));
-    return respond({answer:registry.formatMonitoringList(result,monitor.level,{windowLabel:monitor.timeWindow?.label})+(excludeNote||''),grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:result.page,pageSize:result.pageSize,filters:{person_type:monitor.person_types[0]||null},items},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    });
+    return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,monitor.person_types[0]),conversation:{topic:monitoringTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:monitor.level,personType:monitor.person_types[0],area:{district:monitor.district,subdistrict:monitor.subdistrict},window:prepared.timeWindow,exclude:excludeFilters,page:result.page}))}});
    } catch(e){return sendFailure(e);}
   }
   if(intent?.intent==='lookup_clarify')return respond({answer:intent.answer,grounded:false,dataSource:'real',presentation:intent.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
@@ -802,10 +1039,15 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    } catch(e) { console.error(`[real-rag] failure type=${e?.name||'Error'}`); }
   }
   try {
-   // Any period wording that reached this point belongs to a plain count,
-   // list, or ranking: the registry question itself is not time-filterable,
-   // so ask instead of silently answering the all-time variant.
-   if(periodRequested)return respond({answer:PERIOD_CLARIFY,grounded:false,dataSource:'real',conversation,meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
+   // A period on a plain count/list is genuinely ambiguous (the registry has
+   // no readable registration date), so ask exactly what is missing and keep
+   // the pending choice for a short reply.
+   if(prepared.periodBlocked)return respond({answer:periodBlockedMessage(prepared.periodBlocked),grounded:false,dataSource:'real',conversation,meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
+   if(prepared.timeWindow){
+    const question=periodIntentQuestion(routingMessage,prepared.timeWindow);
+    const pendingTopic=sanitizeTopic({...(selectedTopic||{}),pending:question.pending});
+    return respond({answer:question.answer,grounded:false,dataSource:'real',presentation:question.presentation,conversation:{topic:pendingTopic},meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
+   }
    if((!ranking&&!summary&&!intent)||summary?.intent==='summary_choices'||intent?.intent==='search_incomplete'){
     ollamaCalls=1;plan=await interpret(routingMessage);
     if(plan.action==='clarify')return respond({answer:'ต้องการจำนวน รายชื่อ หรือแยกยอดตามพื้นที่ใดครับ? กรุณาระบุประเภทบุคคลและพื้นที่ที่ต้องการ',grounded:false,dataSource:'real',meta:{fastPath:false,ollamaCalls,responseTimeMs:Date.now()-start}});
@@ -853,7 +1095,18 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     ?(result.total?`มี${category} ${result.total} คน${excludeNote||''}`:`ไม่มี${category}${excludeNote||''}`)
     :`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา${excludeNote||''}`;
    const presentation=countOnly?undefined:{type:'person_list',total:result.total,returned:items.length,page,pageSize:20,filters:{person_type:filters.person_type||null,province:filters.province||null,district:filters.district||null,subdistrict:filters.subdistrict||null},items};
-   respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation,conversation,meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
+   // The topic for a fresh people query carries only this message's own
+   // conditions plus inherited area — never the previous query's window,
+   // level, or exclusions.
+   const peopleTopic=sanitizeTopic({
+    ...(selectedTopic?{province:selectedTopic.province,station:selectedTopic.station}:{}),
+    person_type:filters.person_type||undefined,
+    district:filters.district||undefined,subdistrict:filters.subdistrict||undefined,station:filters.station||undefined,
+    kind:'people_list',page,
+    ...(excludeFilters.length?{exclude:excludeFilters}:{}),
+   });
+   const conversationOut=countOnly?conversation:{topic:peopleTopic||conversation.topic};
+   respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation,conversation:conversationOut,meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start,...(countOnly?{}:{querySummary:describeQuerySpec(peopleListSpec({filters,page}))})}});
   }catch(e){
    // Ambiguous-name choices re-send the corrected request, so the interface
    // needs the routing text this answer was built from.
@@ -883,10 +1136,22 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    return {report_kind:'target_person_aggregate',filters:{...filters,province:filters.province||req.user.province||undefined},includeCount:true,includeList:false,total:totals.total,counts:[{label:'ผู้ป่วยจิตเวช',count:totals.psychiatric},{label:'ผู้เสพ',count:totals.drugUser},{label:'ผู้ค้า',count:totals.dealer},{label:'ผู้พ้นโทษ',count:totals.released}],aggregateRows:aggregate.presentation.rows};
   }
   if(filters.level==='high'||filters.level==='watch'){
-   const listed=await registry.listRecordedMonitoring(req,{level:filters.level,personType:filters.person_type,page:1,pageSize:200});
+   // Same path as the chat answer: recorded monitoring, windowed when the
+   // conversation carried an explicit period, with the same area filters.
+   const listed=await registry.listRecordedMonitoring(req,{level:filters.level,personType:filters.person_type,page:1,pageSize:200,
+    ...(filters.district?{district:filters.district}:{}),...(filters.subdistrict?{subdistrict:filters.subdistrict}:{}),
+    ...(filters.window?{from:filters.window.from,to:filters.window.to}:{}),
+    ...(filters.exclude?.length?{exclude:filters.exclude}:{})});
    return {filters,includeCount:true,includeList:true,total:listed.total,counts:[{label:filters.level==='high'?'เสี่ยงสูง':'เฝ้าระวัง',count:listed.total}],items:listed.items.map(item=>({full_name:item.full_name,person_type:filters.person_type||'',level:item.level,subdistrict:item.subdistrict,district:item.district}))};
   }
-  const found=await collectPeople(req,{person_type:filters.person_type,province:filters.province,district:filters.district,subdistrict:filters.subdistrict,query:filters.search,station:filters.station},200);
+  // A window on a plain people report can never be honored (no registration
+  // date is readable), so refuse rather than silently drop the condition.
+  if(filters.window){
+   const error=new Error('รายงานทะเบียนทั่วไปยังกรองตามช่วงเวลาไม่ได้ จึงไม่สร้างไฟล์ที่เงื่อนไขหายไป');
+   error.code='REPORT_CONDITION_UNSUPPORTED';
+   throw error;
+  }
+  const found=await collectPeople(req,{person_type:filters.person_type,province:filters.province,district:filters.district,subdistrict:filters.subdistrict,query:filters.search,station:filters.station,exclude:filters.exclude},200);
   const label={psychiatric:'จิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[filters.person_type]||'บุคคล';
   return {filters,includeCount:true,includeList:true,total:found.total,counts:[{label,count:found.total}],items:found.data.map(person=>({full_name:`${person.first_name||''} ${person.last_name||''}`.trim(),person_type:filters.person_type||'',subdistrict:person.tambon||'',district:person.amphoe||''}))};
  }

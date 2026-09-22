@@ -9,6 +9,11 @@ const TYPE_LABELS = {
   dealer: 'ผู้ค้า',
   released: 'ผู้พ้นโทษ',
 };
+const VALID_LEVELS = ['all', 'high', 'watch'];
+const VALID_KINDS = ['monitoring_list', 'people_list'];
+const VALID_EXCLUDE_COLUMNS = ['tambon', 'amphoe', 'station_id'];
+const MAX_TOPIC_EXCLUDES = 3;
+const MAX_TOPIC_EXCLUDE_IDS = 1000;
 
 const COUNT_TYPE = {
   count_psychiatric: 'psychiatric',
@@ -31,6 +36,13 @@ function cleanText(value) {
   return text;
 }
 
+function cleanIsoDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+// Every topic extension is a narrowing filter or a UI marker only: the topic
+// can never carry authorization data, and a forged value can shrink results
+// but never widen them.
 function sanitizeTopic(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const topic = {};
@@ -47,6 +59,43 @@ function sanitizeTopic(raw) {
   }
   if (raw.barePsychiatric === true) topic.barePsychiatric = true;
   if (raw.scope === 'all') topic.scope = 'all';
+  if (VALID_LEVELS.includes(raw.level)) topic.level = raw.level;
+  if (VALID_KINDS.includes(raw.kind)) topic.kind = raw.kind;
+  if (Number.isSafeInteger(raw.page) && raw.page >= 1 && raw.page <= 1000) topic.page = raw.page;
+  if (raw.window && typeof raw.window === 'object' && !Array.isArray(raw.window)) {
+    const from = cleanIsoDate(raw.window.from);
+    const to = cleanIsoDate(raw.window.to);
+    if (from && to && from <= to) {
+      topic.window = { from, to, label: cleanText(raw.window.label) || `${from} ถึง ${to}` };
+    }
+  }
+  if (Array.isArray(raw.exclude)) {
+    const exclude = [];
+    for (const entry of raw.exclude.slice(0, MAX_TOPIC_EXCLUDES)) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (!VALID_EXCLUDE_COLUMNS.includes(entry.column)) continue;
+      if (entry.column === 'station_id') {
+        const ids = Array.isArray(entry.ids)
+          ? [...new Set(entry.ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, MAX_TOPIC_EXCLUDE_IDS)
+          : [];
+        if (ids.length) exclude.push({ column: 'station_id', ids, label: cleanText(entry.label) || 'พื้นที่ที่ยกเว้น' });
+      } else {
+        const value = cleanText(entry.value);
+        if (value) exclude.push({ column: entry.column, value, label: cleanText(entry.label) || value });
+      }
+    }
+    if (exclude.length) topic.exclude = exclude;
+  }
+  if (raw.pending && typeof raw.pending === 'object' && raw.pending.type === 'period_intent') {
+    const pending = { type: 'period_intent' };
+    if (VALID_TYPES.includes(raw.pending.person_type)) pending.person_type = raw.pending.person_type;
+    if (raw.pending.window && typeof raw.pending.window === 'object') {
+      const from = cleanIsoDate(raw.pending.window.from);
+      const to = cleanIsoDate(raw.pending.window.to);
+      if (from && to && from <= to) pending.window = { from, to, label: cleanText(raw.pending.window.label) || `${from} ถึง ${to}` };
+    }
+    topic.pending = pending;
+  }
   // This is a display/report format marker, not an authorization field.  The
   // real export endpoint still obtains every aggregate through the caller's
   // authenticated token and server-verified scope.
@@ -62,6 +111,11 @@ function mergeTopicFilters(filters, topic) {
     if (!out[key] && safe[key]) out[key] = safe[key];
   }
   if (!out.person_type && safe.person_type) out.person_type = safe.person_type;
+  // Only an explicit level in the message wins over the conversation topic;
+  // the export must carry the same level the officer is looking at.
+  if ((!out.level || out.level === 'all') && safe.level && safe.level !== 'all') out.level = safe.level;
+  if (!out.exclude?.length && safe.exclude?.length) out.exclude = safe.exclude;
+  if (!out.window && safe.window) out.window = safe.window;
   return out;
 }
 

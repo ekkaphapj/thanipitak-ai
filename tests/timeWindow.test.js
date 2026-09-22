@@ -1,5 +1,5 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');
-const {extractTimeWindow,hasHardTimeReference}=require('../src/ai/timeWindow');
+const {analyzePeriods,extractTimeWindow,hasHardTimeReference}=require('../src/ai/timeWindow');
 
 // 2026-09-22 10:00 Asia/Bangkok (UTC+7).
 const NOW=new Date('2026-09-22T03:00:00.000Z');
@@ -58,6 +58,43 @@ test('unrecognized period wording returns null but stays a hard time reference',
  assert.equal(extractTimeWindow('ไตรมาสที่แล้ว',{now:NOW}),null);
  assert.equal(hasHardTimeReference('ไตรมาสที่แล้ว'),true);
  assert.equal(hasHardTimeReference('เดือนที่แล้ว'),true);
+});
+
+test('เดือนสิงหาคม 2569 resolves to the full named calendar month',()=>{
+ const w=extractTimeWindow('ใครเสี่ยงสูงเดือนสิงหาคม 2569',{now:NOW});
+ assert.equal(w.from,'2026-08-01');
+ assert.equal(w.to,'2026-08-31');
+ assert.match(w.label,/สิงหาคม 2569/);
+});
+
+test('a named month without a year means the most recent one',()=>{
+ const w=extractTimeWindow('ใครเสี่ยงสูงเดือนสิงหาคม',{now:NOW});
+ assert.equal(w.from,'2026-08-01');
+ assert.equal(w.to,'2026-08-31');
+});
+
+test('ยี่สิบเอ็ดวันล่าสุด is 21 days, never 11',()=>{
+ const w=extractTimeWindow('ใครเสี่ยงสูงยี่สิบเอ็ดวันล่าสุด',{now:NOW});
+ assert.equal(w.from,'2026-09-02');
+ assert.equal(w.to,'2026-09-22');
+ assert.match(w.label,/21 วันล่าสุด/);
+});
+
+test('an oversized trailing window stays an unresolved period mention',()=>{
+ const analysis=analyzePeriods('ใครเสี่ยงสูง 400 วันล่าสุด',{now:NOW});
+ assert.equal(analysis.windows.length,0);
+ assert.deepEqual(analysis.unresolved,['400 วันล่าสุด']);
+ assert.equal(extractTimeWindow('ใครเสี่ยงสูง 400 วันล่าสุด',{now:NOW}),null);
+ assert.equal(hasHardTimeReference('ใครเสี่ยงสูง 400 วันล่าสุด'),true);
+});
+
+test('a comparison question reports two windows and comparison wording',()=>{
+ const analysis=analyzePeriods('ใครเสี่ยงสูงเดือนนี้เทียบกับเดือนที่แล้ว',{now:NOW});
+ assert.equal(analysis.comparison,true);
+ assert.equal(analysis.windows.length,2);
+ const labels=analysis.windows.map(w=>w.label).join(' ');
+ assert.match(labels,/เดือนนี้/);
+ assert.match(labels,/เดือนที่แล้ว/);
 });
 
 test('durations without a period suffix are not time windows',()=>{

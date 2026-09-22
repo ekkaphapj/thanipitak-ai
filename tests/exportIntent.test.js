@@ -70,3 +70,43 @@ test('summary excel endpoint returns an xlsx for the authorized station', async 
   assert.ok(response.body.subarray(0, 2).equals(Buffer.from('PK')));
   db.close();
 });
+
+test('report request inherits level, window, and exclusions from the conversation topic', () => {
+  const { reportRequestFromExport } = require('../src/ai/exportIntent');
+  const intent = detectExportIntent('ส่งรายการนี้เป็น Excel');
+  const topic = {
+    person_type: 'drug_user',
+    subdistrict: 'โพนสูง',
+    level: 'high',
+    kind: 'monitoring_list',
+    page: 2,
+    window: { from: '2026-07-01', to: '2026-07-31', label: 'เดือนกรกฎาคม 2569' },
+    exclude: [{ column: 'tambon', value: 'วังใหญ่', label: 'ตำบลวังใหญ่' }],
+  };
+  const request = reportRequestFromExport(intent, topic);
+  assert.equal(request.filters.person_type, 'drug_user');
+  assert.equal(request.filters.level, 'high');
+  assert.equal(request.filters.subdistrict, 'โพนสูง');
+  assert.equal(request.filters.window.from, '2026-07-01');
+  assert.deepEqual(request.filters.exclude.map((item) => item.value), ['วังใหญ่']);
+});
+
+test('a forged report request keeps only validated filter shapes', () => {
+  const { safeReportRequest } = require('../src/services/reportService');
+  const request = safeReportRequest({
+    filters: {
+      person_type: 'drug_user',
+      level: 'high',
+      window: { from: '2026-07-01', to: '2026-07-31', label: 'กรกฎาคม' },
+      exclude: [
+        { column: 'tambon', value: 'โพนสูง', label: 'ตำบลโพนสูง' },
+        { column: 'province', value: 'อุดรธานี' },
+        { column: 'station_id', ids: [1, 'x', 2], label: 'สถานี' },
+      ],
+    },
+  });
+  assert.equal(request.filters.level, 'high');
+  assert.equal(request.filters.window.to, '2026-07-31');
+  assert.deepEqual(request.filters.exclude.map((item) => item.column), ['tambon', 'station_id']);
+  assert.deepEqual(request.filters.exclude[1].ids, [1, 2]);
+});

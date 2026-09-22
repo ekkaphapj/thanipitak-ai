@@ -1,6 +1,6 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const express=require('express');const request=require('supertest');
 const {createRealDataRoutes}=require('../src/routes/realDataRoutes');
-const {extractTimeWindow}=require('../src/ai/timeWindow');
+const {extractTimeWindow,analyzePeriods}=require('../src/ai/timeWindow');
 
 function makeApp(user,mockRequest,overrides={}){
  const app=express();app.use(express.json());
@@ -83,8 +83,12 @@ test('a plain count with a period asks instead of silently answering all-time',a
  const res=await request(app).post('/ai/chat').send({message:'ผู้เสพเดือนนี้มีกี่คน'});
  assert.equal(res.status,200);
  assert.equal(res.body.grounded,false);
- assert.match(res.body.answer,/ช่วงเวลา/);
- assert.match(res.body.answer,/ใครเสี่ยงสูงเดือนนี้/);
+ assert.match(res.body.answer,/วันที่ลงทะเบียน/);
+ assert.match(res.body.answer,/นับจากทะเบียนปัจจุบัน/);
+ assert.equal(res.body.presentation.type,'summary_choices');
+ assert.equal(res.body.conversation.topic.pending.type,'period_intent');
+ assert.equal(res.body.conversation.topic.pending.person_type,'drug_user');
+ assert.ok(res.body.conversation.topic.pending.window.from);
 });
 
 test('an unresolvable period on a monitoring question stays unsupported',async()=>{
@@ -190,4 +194,151 @@ test('monitoring with an exclusion excludes the area from the people read',async
  assert.equal(res.status,200);
  assert.match(res.body.answer,/สมหญิง/);
  assert.match(res.body.answer,/ไม่รวมตำบลโพนสูง/);
+});
+
+test('ขอ Excel ผู้เสพไม่รวมตำบลโพนสูง carries the exclusion into the report request and file',async()=>{
+ const calls=[];
+ const areaRows=[{province:'นครพนม',amphoe:'เมือง',tambon:'โพนสูง'},{province:'นครพนม',amphoe:'เมือง',tambon:'วังใหญ่'}];
+ const peopleRows=[{id:1,first_name:'ก',last_name:'ทดสอบ',station_id:77,province:'นครพนม',amphoe:'เมือง',tambon:'วังใหญ่',type_id:2,status:'active'}];
+ const serve=(url)=>{
+  const u=new URL(url);calls.push(u);
+  if(u.pathname.endsWith('/people_type'))return ok([{type_id:2}],'0-0/1');
+  if(u.pathname.endsWith('/people')){
+   const select=u.searchParams.get('select');
+   if(select==='province,amphoe,tambon')return ok(areaRows,'0-1/2');
+   if(select.startsWith('id,first_name')){
+    assert.equal(u.searchParams.get('not.tambon'),'ilike.*โพนสูง*');
+    return ok(peopleRows,'0-0/1');
+   }
+  }
+  throw new Error('unexpected read '+url);
+ };
+ const app=makeApp({role:'officer',stationId:77},serve);
+ const offer=await request(app).post('/ai/chat').send({message:'ขอ Excel ผู้เสพไม่รวมตำบลโพนสูง'});
+ assert.equal(offer.status,200);
+ assert.equal(offer.body.presentation.type,'report_offer');
+ const reportRequest=offer.body.presentation.reportRequest;
+ assert.equal(reportRequest.filters.person_type,'drug_user');
+ assert.deepEqual(reportRequest.filters.exclude.map(item=>[item.column,item.value]),[['tambon','โพนสูง']]);
+ assert.match(offer.body.answer,/ยกเว้น|ไม่รวม/);
+ const file=await request(app).post('/reports/summary.xlsx').send({reportRequest});
+ assert.equal(file.status,200);
+ assert.match(file.headers['content-type'],/spreadsheetml/);
+ const filtered=calls.filter(u=>u.pathname.endsWith('/people')&&u.searchParams.get('not.tambon'));
+ assert.ok(filtered.length>=1);
+});
+
+test('ขอ Excel ผู้เสพเดือนนี้ states the limitation instead of offering a file',async()=>{
+ const app=makeApp({role:'officer',stationId:77},async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('/people_type'))return ok([{type_id:2}],'0-0/1');
+  throw new Error('no registry read may back an unsupported report: '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ขอ Excel ผู้เสพเดือนนี้'});
+ assert.equal(res.status,200);
+ assert.equal(res.body.grounded,false);
+ assert.equal(res.body.presentation,undefined);
+ assert.match(res.body.answer,/ช่วงเวลา/);
+ assert.match(res.body.answer,/ไม่สร้างไฟล์|ไม่ได้/);
+});
+
+test('ใครเสี่ยงสูงเดือนสิงหาคม 2569 filters the whole named calendar month',async()=>{
+ const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'วังใหญ่',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
+  if(u.pathname.endsWith('/visits')){
+   assert.deepEqual(u.searchParams.getAll('visit_date').sort(),['gte.2026-08-01','lte.2026-08-31']);
+   return ok([{id:9,person_id:2,visit_date:'2026-08-10',visit_status:'เสี่ยงสูง'}],'0-0/1');
+  }
+  if(u.pathname.endsWith('/person_report_status')){
+   assert.deepEqual(u.searchParams.getAll('last_report_date').sort(),['gte.2026-08-01','lte.2026-08-31']);
+   return ok([],'0--1/0');
+  }
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ใครเสี่ยงสูงเดือนสิงหาคม 2569'});
+ assert.equal(res.status,200);
+ assert.match(res.body.answer,/สิงหาคม 2569/);
+ assert.match(res.body.answer,/สมหญิง/);
+});
+
+test('เดือนนี้เทียบกับเดือนที่แล้ว is refused as a comparison, never half-answered',async()=>{
+ const app=makeApp({role:'officer',stationId:77},async(url)=>{throw new Error('comparison must not read the registry: '+url);});
+ const res=await request(app).post('/ai/chat').send({message:'ใครเสี่ยงสูงเดือนนี้เทียบกับเดือนที่แล้ว'});
+ assert.equal(res.status,200);
+ assert.equal(res.body.grounded,false);
+ assert.match(res.body.answer,/เปรียบเทียบ/);
+ assert.match(res.body.answer,/ทีละช่วง/);
+});
+
+test('ใครเสี่ยงสูงยี่สิบเอ็ดวันล่าสุด reads a 21-day window',async()=>{
+ const expected=analyzePeriods('ยี่สิบเอ็ดวันล่าสุด').windows[0];
+ const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([],'0--1/0');
+  if(u.pathname.endsWith('/visits')){
+   assert.deepEqual(u.searchParams.getAll('visit_date').sort(),[`gte.${expected.from}`,`lte.${expected.to}`].sort());
+   return ok([],'0--1/0');
+  }
+  if(u.pathname.endsWith('/person_report_status'))return ok([],'0--1/0');
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ใครเสี่ยงสูงยี่สิบเอ็ดวันล่าสุด'});
+ assert.equal(res.status,200);
+ assert.match(res.body.answer,/21 วันล่าสุด/);
+});
+
+test('two chained exclusions both become server-side not-filters',async()=>{
+ const peopleRows=[{id:1,first_name:'ก',last_name:'ทดสอบ',station_id:77,province:'นครพนม',amphoe:'เมือง',tambon:'บ้านคุ้ง',type_id:2,status:'active'}];
+ const app=makeApp({role:'officer',stationId:77},async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('/people')){
+   const select=u.searchParams.get('select');
+   if(select==='province,amphoe,tambon')return ok([{province:'นครพนม',amphoe:'เมือง',tambon:'โพนสูง'},{province:'นครพนม',amphoe:'เมือง',tambon:'วังใหญ่'},{province:'นครพนม',amphoe:'เมือง',tambon:'บ้านคุ้ง'}],'0-2/3');
+   if(select.startsWith('id,first_name')){
+    const excluded=u.searchParams.getAll('not.tambon');
+    assert.deepEqual(excluded.sort(),['ilike.*วังใหญ่*','ilike.*โพนสูง*'].sort());
+    return ok(peopleRows,'0-0/1');
+   }
+  }
+  if(u.pathname.endsWith('/people_type'))return ok([{type_id:2}],'0-0/1');
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ผู้เสพยกเว้นตำบลโพนสูงและตำบลวังใหญ่มีกี่คน'});
+ assert.equal(res.status,200);
+ assert.equal(res.body.answer,'มีผู้เสพ 1 คน (ไม่รวมตำบลโพนสูง ตำบลวังใหญ่)');
+});
+
+test('ใครเสี่ยงสูง 400 วันล่าสุด is refused without any registry read',async()=>{
+ const app=makeApp({role:'officer',stationId:77},async(url)=>{throw new Error('oversized window must not read: '+url);});
+ const res=await request(app).post('/ai/chat').send({message:'ใครเสี่ยงสูง 400 วันล่าสุด'});
+ assert.equal(res.status,200);
+ assert.equal(res.body.grounded,false);
+ assert.match(res.body.answer,/400 วันล่าสุด/);
+ assert.match(res.body.answer,/365/);
+});
+
+test('a windowed people report is refused at the report endpoint too',async()=>{
+ const app=makeApp({role:'officer',stationId:77},async(url)=>{throw new Error('must not read '+url);});
+ const res=await request(app).post('/reports/summary.xlsx').send({reportRequest:{filters:{person_type:'drug_user',window:{from:'2026-09-01',to:'2026-09-22',label:'เดือนนี้'}},includeList:true}});
+ assert.equal(res.status,400);
+ assert.match(res.body.error,/ช่วงเวลา/);
+});
+
+test('a windowed monitoring report keeps the window in the file request',async()=>{
+ const window=extractTimeWindow('เดือนนี้');
+ const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([],'0--1/0');
+  if(u.pathname.endsWith('/visits')){
+   assert.deepEqual(u.searchParams.getAll('visit_date').sort(),[`gte.${window.from}`,`lte.${window.to}`].sort());
+   return ok([],'0--1/0');
+  }
+  if(u.pathname.endsWith('/person_report_status'))return ok([],'0--1/0');
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/reports/summary.xlsx').send({reportRequest:{filters:{level:'high',window:{from:window.from,to:window.to,label:window.label}},includeCount:true,includeList:true}});
+ assert.equal(res.status,200);
+ assert.match(res.headers['content-type'],/spreadsheetml/);
+ assert.ok(res.headers['content-length']&&Number(res.headers['content-length'])>100);
 });

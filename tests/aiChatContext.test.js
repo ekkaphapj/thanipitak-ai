@@ -332,3 +332,29 @@ describe('STEP 2.5 end-to-end via real HTTP app (no Ollama needed)', () => {
     }
   });
 });
+
+test('sanitizeTopic preserves narrowing conditions and drops everything else', () => {
+  const topic = ChatContext.sanitizeTopic({
+    person_type: 'drug_user',
+    subdistrict: 'โพนสูง',
+    level: 'high',
+    kind: 'monitoring_list',
+    page: 2,
+    window: { from: '2026-08-01', to: '2026-08-31', label: 'สิงหาคม' },
+    exclude: [{ column: 'tambon', value: 'วังใหญ่', label: 'ตำบลวังใหญ่' }, { column: 'role', value: 'admin' }],
+    station_id: 5,
+    role: 'admin',
+    pending: { type: 'period_intent', person_type: 'drug_user', window: { from: '2026-09-01', to: '2026-09-22', label: 'เดือนนี้' } },
+  });
+  assert.equal(topic.level, 'high');
+  assert.equal(topic.kind, 'monitoring_list');
+  assert.equal(topic.page, 2);
+  assert.equal(topic.window.to, '2026-08-31');
+  assert.deepEqual(topic.exclude.map((item) => item.value), ['วังใหญ่']);
+  assert.equal(topic.pending.person_type, 'drug_user');
+  assert.equal(topic.station_id, undefined);
+  assert.equal(topic.role, undefined);
+  // Every field invalid -> nothing survives, so the whole topic is null.
+  const broken = ChatContext.sanitizeTopic({ level: 'admin', window: { from: 'x' }, exclude: [{ column: 'role' }], pending: { type: 'sql' } });
+  assert.equal(broken, null);
+});

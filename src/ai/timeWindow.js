@@ -20,17 +20,25 @@ function thaiDigitsToArabic(text) {
 const THAI_UNITS = { เอ็ด: 1, หนึ่ง: 1, สอง: 2, สาม: 3, สี่: 4, ห้า: 5, หก: 6, เจ็ด: 7, แปด: 8, เก้า: 9 };
 const THAI_TENS = { สิบ: 10, ยี่สิบ: 20, สามสิบ: 30, สี่สิบ: 40, ห้าสิบ: 50, หกสิบ: 60, เจ็ดสิบ: 70, แปดสิบ: 80, เก้าสิบ: 90, ร้อย: 100 };
 
+function thaiNumberText(value) {
+  if (!Number.isInteger(value) || value < 1 || value > 999) return null;
+  const units = ['', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า'];
+  let out = '';
+  const hundreds = Math.floor(value / 100);
+  const remainder = value % 100;
+  if (hundreds) out += `${units[hundreds]}ร้อย`;
+  if (remainder >= 20) out += `${Math.floor(remainder / 10) === 2 ? 'ยี่' : units[Math.floor(remainder / 10)]}สิบ`;
+  else if (remainder >= 10) out += 'สิบ';
+  const unit = remainder % 10;
+  if (unit) out += remainder >= 10 && unit === 1 ? 'เอ็ด' : units[unit];
+  return out;
+}
+
 function thaiNumberWords() {
-  const words = [];
-  for (const [word, value] of Object.entries(THAI_TENS)) words.push([word, value]);
-  for (const [unitWord, unitValue] of Object.entries(THAI_UNITS)) {
-    words.push([unitWord, unitValue]);
-    for (const [tensWord, tensValue] of Object.entries(THAI_TENS)) {
-      if (tensValue === 100) continue;
-      words.push([tensWord + unitWord, tensValue + unitValue]);
-    }
-  }
-  return words.sort((a, b) => b[0].length - a[0].length);
+  return Array.from({ length: 999 }, (_, index) => {
+    const value = index + 1;
+    return [thaiNumberText(value), value];
+  }).sort((a, b) => b[0].length - a[0].length);
 }
 const THAI_NUMBER_WORDS = thaiNumberWords();
 const WORD_NUMBER_ALT = THAI_NUMBER_WORDS.map(([word]) => word).join('|');
@@ -169,9 +177,7 @@ function rangeLabel(kind, n, unit, from, to, today) {
 // A missing year means the most recent August: this year when the month has
 // already begun, otherwise last year. The window always covers the whole
 // calendar month, never a 30-day approximation.
-function resolveNamedMonth(text, now) {
-  const normalized = thaiDigitsToArabic(text);
-  const match = /(?:เดือน\s*)?(มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม|ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)(?:\s*ปี\s*)?(\d{4})?/u.exec(normalized);
+function resolveNamedMonthMatch(match, now) {
   if (!match) return null;
   const nameToken = match[1];
   let month = MONTHS_TH.indexOf(nameToken);
@@ -182,14 +188,18 @@ function resolveNamedMonth(text, now) {
   if (month < 0) return null;
   const today = bangkokToday(now);
   let year = match[2] ? parseYear(match[2]) : null;
-  if (year === null) {
-    year = month + 1 <= today.m ? today.y : today.y - 1;
-  }
+  if (year === null) year = month + 1 <= today.m ? today.y : today.y - 1;
   if (year === null || year < 1900 || year > 2200) return { unsupported: true, label: match[0] };
   const from = { y: year, m: month + 1, d: 1 };
   const to = { y: year, m: month + 1, d: daysInMonth(year, month + 1) };
   const label = `เดือน${MONTHS_TH[month]} ${year + 543} (${from.d} ${MONTHS_TH_SHORT[month]}–${to.d} ${MONTHS_TH_SHORT[month]} ${year + 543})`;
   return { window: { from: iso(from.y, from.m, from.d), to: iso(to.y, to.m, to.d) }, label };
+}
+
+function resolveNamedMonths(text, now) {
+  const normalized = thaiDigitsToArabic(text);
+  const re = /(?:เดือน\s*)?(มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม|ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)(?:\s*(?:ปี\s*)?)?(\d{4})?/gu;
+  return [...normalized.matchAll(re)].map((match) => ({ match, resolved: resolveNamedMonthMatch(match, now) }));
 }
 
 // Scans a message for every period mention. Returns resolvable windows, the
@@ -230,14 +240,12 @@ function analyzePeriods(message, { now = new Date() } = {}) {
       windows.push({ from: window.from, to: window.to, label: rangeLabel(pattern.kind, null, null, window.fromParts, window.toParts, window.todayParts), matchedText: match[0] });
     }
   }
-  const monthMatch = resolveNamedMonth(text, now);
-  if (monthMatch) {
-    const span = /(?:เดือน\s*)?(?:มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม|ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)(?:\s*ปี\s*)?\d{0,4}/u.exec(text);
-    const start = span ? span.index : 0;
-    const end = span ? span.index + span[0].length : text.length;
+  for (const { match, resolved: monthMatch } of resolveNamedMonths(text, now)) {
+    const start = match.index;
+    const end = match.index + match[0].length;
     if (claim(start, end)) {
-      if (monthMatch.unsupported) unresolved.push(span ? span[0] : text);
-      else windows.push({ ...monthMatch.window, label: monthMatch.label, matchedText: span ? span[0] : text });
+      if (!monthMatch || monthMatch.unsupported) unresolved.push(match[0]);
+      else windows.push({ ...monthMatch.window, label: monthMatch.label, matchedText: match[0] });
     }
   }
   return { windows, unresolved, comparison };

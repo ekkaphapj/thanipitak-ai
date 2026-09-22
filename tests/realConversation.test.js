@@ -165,6 +165,36 @@ test('a short reply fills only the pending period question (registry or monitori
  assert.equal(second.body.conversation.topic.window.from,window.from);
 });
 
+test('a pending period choice retains the original area filters',async()=>{
+ const reads=[];
+ const app=makeApp({role:'officer',stationId:77},async(url)=>{
+  const u=new URL(url);reads.push(u);
+  if(u.pathname.endsWith('/people_type'))return ok([{type_id:2}],'0-0/1');
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')===PEOPLE_SEARCH_SELECT)return ok([],'0--1/0');
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')===PEOPLE_MONITOR_SELECT)return ok([],'0--1/0');
+  if(u.pathname.endsWith('/visits')||u.pathname.endsWith('/person_report_status'))return ok([],'0--1/0');
+  throw new Error('unexpected read '+url);
+ });
+ const first=await request(app).post('/ai/chat').send({message:'ผู้เสพตำบลโพนสูงเดือนนี้มีกี่คน'});
+ const topic=first.body.conversation.topic;
+ assert.equal(topic.subdistrict,'โพนสูง');
+ reads.length=0;
+ const second=await request(app).post('/ai/chat').send({message:'2',context:{topic}});
+ assert.equal(second.status,200);
+ const people=reads.find((u)=>u.pathname.endsWith('/people')&&u.searchParams.get('select')===PEOPLE_MONITOR_SELECT);
+ assert.equal(people.searchParams.get('tambon'),'ilike.*โพนสูง*');
+});
+
+test('an unresolved period blocks plain reads and exports',async()=>{
+ const app=makeApp({role:'officer',stationId:77},async()=>{throw new Error('must not read');});
+ for(const message of ['ผู้เสพไตรมาสที่แล้วมีกี่คน','ขอ Excel ผู้เสพไตรมาสที่แล้ว']){
+  const res=await request(app).post('/ai/chat').send({message});
+  assert.equal(res.status,200);
+  assert.equal(res.body.grounded,false);
+  assert.match(res.body.answer,/ช่วงเวลา/);
+ }
+});
+
 test('เริ่มใหม่ clears every condition server-side',async()=>{
  const app=makeApp({role:'officer',stationId:77},async()=>{throw new Error('reset must not read');});
  const res=await request(app).post('/ai/chat').send({message:'เริ่มใหม่',context:{topic:{person_type:'drug_user',level:'high',kind:'monitoring_list',window:{from:'2026-08-01',to:'2026-08-31',label:'x'}}}});

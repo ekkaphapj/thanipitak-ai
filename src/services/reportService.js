@@ -52,6 +52,8 @@ function safeReportRequest(input) {
   }
   if (!['psychiatric', 'drug_user', 'dealer', 'released'].includes(filters.person_type)) delete filters.person_type;
   if (!['all', 'watch', 'high'].includes(filters.level)) filters.level = 'all';
+  if (rawFilters.kind === 'monitoring_list') filters.kind = 'monitoring_list';
+  else delete filters.kind;
   const exclude = safeExcludeList(rawFilters.exclude);
   if (exclude.length) filters.exclude = exclude;
   // A time window is honored only on the recorded-monitoring path; for plain

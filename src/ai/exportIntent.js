@@ -64,6 +64,10 @@ function detectExportIntent(message) {
 function reportRequestFromExport(intent, topic) {
   const filters = mergeTopicFilters(intent.filters || {}, topic);
   if (!filters.level) filters.level = 'all';
+  // This distinguishes a monitoring list containing both levels from a plain
+  // registry list. It is a display/query kind only; authorization remains
+  // server-owned and safeReportRequest validates it again.
+  if (topic?.kind === 'monitoring_list') filters.kind = 'monitoring_list';
   return {
     report_kind: topic?.report_kind === 'target_person_aggregate' ? 'target_person_aggregate' : undefined,
     filters,

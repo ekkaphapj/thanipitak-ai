@@ -1124,6 +1124,13 @@
     }
 
     async function fetchPage(page) {
+      // Chat-originated real-data lists may include window/exclusion/monitoring
+      // conditions that /api/people cannot represent. Continue through chat so
+      // the server replays the validated query specification intact.
+      if (state.dataSource === 'real' && state.conversationTopic && state.conversationTopic.kind && page > ctx.page) {
+        sendMessage('หน้าถัดไป');
+        return;
+      }
       const qp = new URLSearchParams();
       qp.set('limit', String(ctx.pageSize));
       applyListFilters(qp);

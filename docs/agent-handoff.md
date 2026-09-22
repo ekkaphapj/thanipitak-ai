@@ -822,3 +822,23 @@ reports are capped at 200 rows (stated, not silent); province-level area
 refinement must be asked as a full question; the pilot still needs deploy
 (not done in this task); time-windowed monitoring remains based on recorded
 visit/report dates only — not time-window production monitoring.
+
+### Continuation update — 2026-09-22 (condition-preservation corrections)
+
+- Follow-up review found and corrected cases where a condition could still be
+  dropped: unsupported explicit periods such as `ไตรมาสที่แล้ว` now block
+  reads and report offers; Thai named-month years with whitespace, multi-month
+  requests, and compound number words such as `หนึ่งร้อยแปดสิบวันล่าสุด` are
+  fully accounted for before routing.
+- A short answer to the period clarification retains the original verified
+  area and exclusion filters. Monitoring-list reports preserve
+  `kind: monitoring_list` even when their level is `all`, so they use the
+  recorded-monitoring read rather than a general people report. The real-data
+  list pager sends `หน้าถัดไป` back through chat for a conversation-derived
+  list, preserving its validated filters.
+- Station-only monitoring refinements are explicitly clarified until an
+  allowlisted, scope-verified station filter is available on that read path;
+  they must not present a broader answer under a narrower heading.
+- Tests: full `npm test` passed after these corrections, together with focused
+  mocked-Supabase HTTP checks. No actual Ollama or authenticated real-data
+  read was used for the correction validation.

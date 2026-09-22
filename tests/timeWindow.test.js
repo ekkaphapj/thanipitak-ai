@@ -80,6 +80,21 @@ test('ยี่สิบเอ็ดวันล่าสุด is 21 days, neve
  assert.match(w.label,/21 วันล่าสุด/);
 });
 
+test('compound hundreds and named years keep every Thai number and year digit',()=>{
+ const days=extractTimeWindow('หนึ่งร้อยแปดสิบวันล่าสุด',{now:NOW});
+ assert.equal(days.from,'2026-03-27');
+ assert.match(days.label,/180 วันล่าสุด/);
+ const month=extractTimeWindow('เดือนสิงหาคม 2568',{now:NOW});
+ assert.equal(month.from,'2025-08-01');
+ assert.equal(month.to,'2025-08-31');
+});
+
+test('two named months are both surfaced so callers refuse a partial answer',()=>{
+ const analysis=analyzePeriods('เดือนสิงหาคมและกันยายน 2569',{now:NOW});
+ assert.equal(analysis.windows.length,2);
+ assert.deepEqual(analysis.windows.map((item)=>item.from),['2026-08-01','2026-09-01']);
+});
+
 test('an oversized trailing window stays an unresolved period mention',()=>{
  const analysis=analyzePeriods('ใครเสี่ยงสูง 400 วันล่าสุด',{now:NOW});
  assert.equal(analysis.windows.length,0);

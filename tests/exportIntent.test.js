@@ -86,6 +86,7 @@ test('report request inherits level, window, and exclusions from the conversatio
   const request = reportRequestFromExport(intent, topic);
   assert.equal(request.filters.person_type, 'drug_user');
   assert.equal(request.filters.level, 'high');
+  assert.equal(request.filters.kind, 'monitoring_list');
   assert.equal(request.filters.subdistrict, 'โพนสูง');
   assert.equal(request.filters.window.from, '2026-07-01');
   assert.deepEqual(request.filters.exclude.map((item) => item.value), ['วังใหญ่']);

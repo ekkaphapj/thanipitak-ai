@@ -719,7 +719,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    ...(area.district?{district:area.district}:{}),...(area.subdistrict?{subdistrict:area.subdistrict}:{}),
    ...(window?{from:window.from,to:window.to}:{}),
    ...(exclude.length?{exclude}:{})});
-  const items=result.items.map(item=>({person_id:item.person_id,full_name:item.full_name,subdistrict:item.subdistrict,district:item.district,person_type:personType||null}));
+  const items=result.items.map(item=>({person_id:item.person_id,full_name:item.full_name,subdistrict:item.subdistrict,district:item.district,province:item.province||null,station_name:item.station_name||null,person_type:personType||null}));
   const excludeNote=exclude.length?` (ไม่รวม${exclude.map(filter=>filter.label).join(' ')})`:'';
   const answer=registry.formatMonitoringList(result,level,{windowLabel:window?.label})+excludeNote;
   return {result,items,answer};
@@ -1222,10 +1222,29 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if(result.fuzzy)fuzzyNote=result.fuzzy;
    const category={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[filters.person_type]||'บุคคล';
    const countOnly=plan?.action==='count'||(intent&&/^count_/.test(intent.intent))||(!summary?.includeList&&(/กี่|จำนวน|มีมั้ย|มีไหม|มีหรือไม่|มีรึเปล่า/.test(routingMessage)));
-   const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:filters.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||''}));
+   // สภ./อำเภอ/จังหวัด context for the shown page: one shared source goes in
+   // the answer header, mixed sources stay per row in the presentation.
+   const ownStationId=countOnly?null:parseStationId(req.user.stationId);
+   const stationNames=new Map();
+   if(ownStationId&&req.user.stationName)stationNames.set(ownStationId,String(req.user.stationName).trim());
+   const unknownStationIds=countOnly?[]:[...new Set(result.data.map(p=>Number(p.station_id)).filter(id=>Number.isFinite(id)&&!stationNames.has(id)))];
+   if(unknownStationIds.length){
+    const st=await rows(req,'stations',new URLSearchParams({select:'station_id,station_name',station_id:`in.(${unknownStationIds.join(',')})`,limit:'1000'}));
+    for(const row of st.data)stationNames.set(Number(row.station_id),String(row.station_name||'').trim());
+   }
+   const stationNameOf=(p)=>{const id=Number(p.station_id);return Number.isFinite(id)?(stationNames.get(id)||null):null;};
+   const single=(values)=>{const set=new Set(values);return set.size===1?[...set][0]:null;};
+   const uniformStation=single(result.data.map(p=>stationNameOf(p)).filter(Boolean));
+   const uniformDistrict=single(result.data.map(p=>String(p.amphoe||'').trim()).filter(Boolean));
+   const uniformProvince=single(result.data.map(p=>String(p.province||'').trim()).filter(Boolean));
+   let uniform='';
+   if(!countOnly&&uniformStation)uniform+=` • สังกัด สภ.${String(uniformStation).replace(/^สภ\.?\s*/u,'')}`;
+   if(!countOnly&&uniformDistrict)uniform+=` • อำเภอ${uniformDistrict}`;
+   if(!countOnly&&uniformProvince)uniform+=` • จังหวัด${uniformProvince}`;
+   const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:filters.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',station_name:stationNameOf(p),province:String(p.province||'').trim()||null}));
    const answer=countOnly
     ?(result.total?`มี${category} ${result.total} คน${excludeNote||''}`:`ไม่มี${category}${excludeNote||''}`)
-    :`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา${excludeNote||''}`;
+    :`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา${uniform||''}${excludeNote||''}`;
    const presentation=countOnly?undefined:{type:'person_list',total:result.total,returned:items.length,page,pageSize:20,filters:{person_type:filters.person_type||null,province:filters.province||null,district:filters.district||null,subdistrict:filters.subdistrict||null},items};
    // The topic for a fresh people query carries only this message's own
    // conditions plus inherited area — never the previous query's window,

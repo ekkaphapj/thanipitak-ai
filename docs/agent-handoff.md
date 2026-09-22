@@ -946,3 +946,26 @@ Feedback round on the voice-mode changes:
   right above the centered hold button, no audio-check bars) while keeping
   the mascot clear of results.
 Full `npm test`: **417 tests, 25 suites, 0 failures**.
+
+### Continuation update — 2026-09-22 late night (list source context: สภ./อำเภอ/จังหวัด)
+
+Name lists now state where the people come from, per the owner's rule: when
+every person on a list shares one สภ./อำเภอ/จังหวัด, that context goes in the
+**header** (e.g. `• สังกัด สภ.ทดสอบ • อำเภอเมือง • จังหวัดนครพนม`); when the
+list spans multiple sources, the details are attached **per row** after the
+name. Implemented for both real-mode list surfaces:
+
+- `listRecordedMonitoring` now selects `province`, resolves station names
+  (the account's own `stationName` is used for its own station; a single
+  bounded `stations` read covers the rest), attaches
+  `result.scope {stationName,district,province}` + per-item
+  `station_name/province`, and `formatMonitoringList` renders the header
+  suffix and per-row `สภ.X • อำเภอY • จังหวัดZ` only for fields that vary.
+- The real-mode people-list answer resolves station names the same way over
+  the shown page, appends uniform context to the answer line, and puts
+  `station_name/province` on `person_list` items; the frontend list rows
+  (`normalizeItem` + tag) render `สภ.X อ.Y จ.Z ต.ตำบล` per row.
+Full `npm test`: **419 tests, 25 suites, 0 failures** (monitoring mocks
+updated for the `province` select; new uniform/mixed tests in
+`tests/realTimeFilter.test.js`). Limitation: test-mode (fixture) lists keep
+their current format; the reports' list section is unchanged.

@@ -14,6 +14,7 @@ function makeApp(user,mockRequest,overrides={}){
 }
 const ok=(rows,range)=>({ok:true,headers:new Headers({'content-range':range||`0-${rows.length-1}/${rows.length}`}),json:async()=>rows});
 const VISIT_SELECT='id,person_id,visit_date,visit_time,visit_status,drug_test_result,status_condition,notes,visitor_name,visitor_station,visit_category';
+const MONITOR_SELECT='id,prefix,first_name,last_name,tambon,amphoe,province,type_id,station_id,status';
 
 test('ใครเสี่ยงสูงเดือนนี้ reads only visits dated inside the requested month',async()=>{
  const window=extractTimeWindow('เดือนนี้');
@@ -25,7 +26,7 @@ test('ใครเสี่ยงสูงเดือนนี้ reads only vi
  const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
   const u=new URL(url);reads.push(u);
   if(u.pathname.endsWith('/people')){
-   if(u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok(peopleRows,'0-1/2');
+   if(u.searchParams.get('select')===MONITOR_SELECT)return ok(peopleRows,'0-1/2');
    throw new Error('unexpected people read '+u.searchParams.get('select'));
   }
   if(u.pathname.endsWith('/visits')){
@@ -179,7 +180,7 @@ test('monitoring with an exclusion excludes the area from the people read',async
  const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
   const u=new URL(url);calls.push(u);
   if(u.pathname.endsWith('/people')){
-   if(u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status'){
+   if(u.searchParams.get('select')===MONITOR_SELECT){
     assert.equal(u.searchParams.get('not.tambon'),'ilike.*โพนสูง*');
     return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'วังใหญ่',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
    }
@@ -245,7 +246,7 @@ test('ขอ Excel ผู้เสพเดือนนี้ states the limitat
 test('ใครเสี่ยงสูงเดือนสิงหาคม 2569 filters the whole named calendar month',async()=>{
  const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
   const u=new URL(url);
-  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'วังใหญ่',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')===MONITOR_SELECT)return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'วังใหญ่',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
   if(u.pathname.endsWith('/visits')){
    assert.deepEqual(u.searchParams.getAll('visit_date').sort(),['gte.2026-08-01','lte.2026-08-31']);
    return ok([{id:9,person_id:2,visit_date:'2026-08-10',visit_status:'เสี่ยงสูง'}],'0-0/1');
@@ -275,7 +276,7 @@ test('ใครเสี่ยงสูงยี่สิบเอ็ดวั�
  const expected=analyzePeriods('ยี่สิบเอ็ดวันล่าสุด').windows[0];
  const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
   const u=new URL(url);
-  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([],'0--1/0');
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')===MONITOR_SELECT)return ok([],'0--1/0');
   if(u.pathname.endsWith('/visits')){
    assert.deepEqual(u.searchParams.getAll('visit_date').sort(),[`gte.${expected.from}`,`lte.${expected.to}`].sort());
    return ok([],'0--1/0');
@@ -329,7 +330,7 @@ test('a windowed monitoring report keeps the window in the file request',async()
  const window=extractTimeWindow('เดือนนี้');
  const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
   const u=new URL(url);
-  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([],'0--1/0');
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')===MONITOR_SELECT)return ok([],'0--1/0');
   if(u.pathname.endsWith('/visits')){
    assert.deepEqual(u.searchParams.getAll('visit_date').sort(),[`gte.${window.from}`,`lte.${window.to}`].sort());
    return ok([],'0--1/0');
@@ -341,4 +342,42 @@ test('a windowed monitoring report keeps the window in the file request',async()
  assert.equal(res.status,200);
  assert.match(res.headers['content-type'],/spreadsheetml/);
  assert.ok(res.headers['content-length']&&Number(res.headers['content-length'])>100);
+});
+
+test('a single-source monitoring list names สภ./อำเภอ/จังหวัด in the header',async()=>{
+ const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')===MONITOR_SELECT)return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'วังใหญ่',amphoe:'เมือง',province:'นครพนม',type_id:2,station_id:77,status:'active'}],'0-0/1');
+  if(u.pathname.endsWith('/visits'))return ok([{id:9,person_id:2,visit_date:'2026-09-10',visit_status:'เสี่ยงสูง'}],'0-0/1');
+  if(u.pathname.endsWith('/person_report_status'))return ok([],'0--1/0');
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ใครเสี่ยงสูง'});
+ assert.equal(res.status,200);
+ assert.match(res.body.answer,/สังกัด สภ\.ทดสอบ • อำเภอเมือง • จังหวัดนครพนม/);
+ // Uniform context stays in the header; rows keep the level and visit line.
+ assert.match(res.body.answer,/1\. .*สมหญิง แสงทอง — เสี่ยงสูง • ตำบลวังใหญ่/);
+});
+
+test('a mixed-source monitoring list keeps สภ./จังหวัด details per row',async()=>{
+ const calls=[];
+ const app=makeApp({role:'admin',stationId:null,stationName:null},async(url)=>{
+  const u=new URL(url);calls.push(u);
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')===MONITOR_SELECT)return ok([
+   {id:1,prefix:'นาย',first_name:'สมชาย',last_name:'ใจดี',tambon:'โพนสูง',amphoe:'เมือง',province:'นครพนม',type_id:2,station_id:9,status:'active'},
+   {id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'โพนสูง',amphoe:'วาริน',province:'ร้อยเอ็ด',type_id:2,station_id:11,status:'active'},
+  ],'0-1/2');
+  if(u.pathname.endsWith('/stations')&&u.searchParams.get('select')==='station_id,station_name')return ok([{station_id:9,station_name:'สภ.ท่าอุเทน'},{station_id:11,station_name:'สภ.ธาตุพนม'}],'0-1/2');
+  if(u.pathname.endsWith('/visits'))return ok([
+   {id:9,person_id:1,visit_date:'2026-09-10',visit_status:'เสี่ยงสูง'},
+   {id:10,person_id:2,visit_date:'2026-09-11',visit_status:'เสี่ยงสูง'},
+  ],'0-1/2');
+  if(u.pathname.endsWith('/person_report_status'))return ok([],'0--1/0');
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ใครเสี่ยงสูง'});
+ assert.equal(res.status,200);
+ assert.doesNotMatch(res.body.answer,/สังกัด สภ\./);
+ assert.match(res.body.answer,/1\. .*สมชาย ใจดี — เสี่ยงสูง • ตำบลโพนสูง • สภ\.ท่าอุเทน • อำเภอเมือง • จังหวัดนครพนม/);
+ assert.match(res.body.answer,/2\. .*สมหญิง แสงทอง — เสี่ยงสูง • ตำบลโพนสูง • สภ\.ธาตุพนม • อำเภอวาริน • จังหวัดร้อยเอ็ด/);
 });

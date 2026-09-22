@@ -10,7 +10,7 @@ function makeApp(user,mockRequest,overrides={}){
  return app;
 }
 const ok=(rows,range)=>({ok:true,headers:new Headers({'content-range':range||`0-${rows.length-1}/${rows.length}`}),json:async()=>rows});
-const PEOPLE_MONITOR_SELECT='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status';
+const PEOPLE_MONITOR_SELECT='id,prefix,first_name,last_name,tambon,amphoe,province,type_id,station_id,status';
 const PEOPLE_SEARCH_SELECT='id,first_name,last_name,station_id,province,amphoe,tambon,type_id,status';
 
 test('multi-turn monitoring: window, area refine, window replace, then export with the same conditions',async()=>{
@@ -93,7 +93,7 @@ test('multi-turn list: exclusion survives pagination and is carried into the rep
   if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='province,amphoe,tambon')return ok([{province:'นครพนม',amphoe:'เมือง',tambon:'โพนสูง'}],'0-0/1');
   throw new Error('unexpected read '+url);
  };
- const app=makeApp({role:'officer',stationId:77},serve);
+ const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},serve);
  const turn1=await request(app).post('/ai/chat').send({message:'ขอรายชื่อผู้เสพไม่รวมตำบลโพนสูง'});
  assert.equal(turn1.status,200);
  assert.equal(turn1.body.presentation.type,'person_list');
@@ -133,7 +133,7 @@ test('a short reply fills only the pending period question (registry or monitori
   const u=new URL(url);
   if(u.pathname.endsWith('/people')){
    if(u.searchParams.get('select')==='province,amphoe,tambon')return ok([{province:'นครพนม',amphoe:'เมือง',tambon:'โพนสูง'}],'0-0/1');
-   if(u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([{id:3,prefix:'นาย',first_name:'สมชาย',last_name:'ใจดี',tambon:'โพนสูง',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
+   if(u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,province,type_id,station_id,status')return ok([{id:3,prefix:'นาย',first_name:'สมชาย',last_name:'ใจดี',tambon:'โพนสูง',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
    if(u.searchParams.get('select')===PEOPLE_SEARCH_SELECT)return ok([{id:3,first_name:'สมชาย',last_name:'ใจดี',station_id:77,province:'นครพนม',amphoe:'เมือง',tambon:'โพนสูง',type_id:2,status:'active'}],'0-0/1');
    throw new Error('unexpected people read');
   }
@@ -257,7 +257,7 @@ test('model failure on an incomplete search fails closed with a server error',as
 test('ใครเฝ้าระวัง stays watch-only while จับตา covers both levels',async()=>{
  const build=()=>makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
   const u=new URL(url);
-  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'วังใหญ่',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,province,type_id,station_id,status')return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'วังใหญ่',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
   if(u.pathname.endsWith('/visits'))return ok([{id:9,person_id:2,visit_date:'2026-09-10',visit_status:'เฝ้าระวัง'}],'0-0/1');
   if(u.pathname.endsWith('/person_report_status'))return ok([],'0--1/0');
   throw new Error('unexpected read '+url);
@@ -283,7 +283,7 @@ test('หน้าก่อนหน้า pages back through chat keeping every
  const calls=[];
  const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
   const u=new URL(url);calls.push(u);
-  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'โพนสูง',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,province,type_id,station_id,status')return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'โพนสูง',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
   if(u.pathname.endsWith('/visits'))return ok([],'0--1/0');
   if(u.pathname.endsWith('/person_report_status'))return ok([],'0--1/0');
   throw new Error('unexpected read '+url);
@@ -297,7 +297,7 @@ test('หน้าก่อนหน้า pages back through chat keeping every
  const visits=calls.find(u=>u.pathname.endsWith('/visits'));
  assert.ok(visits,'monitoring read should visit visits');
  assert.deepEqual(visits.searchParams.getAll('visit_date').sort(),['gte.2026-08-01','lte.2026-08-31']);
- const monitored=calls.find(u=>u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status');
+ const monitored=calls.find(u=>u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,province,type_id,station_id,status');
  assert.equal(monitored.searchParams.get('tambon'),'ilike.*โพนสูง*');
  // Previous from page 1 stays on page 1 instead of going negative.
  const again=await request(app).post('/ai/chat').send({message:'หน้าก่อนหน้า',context:{topic:res.body.conversation.topic}});

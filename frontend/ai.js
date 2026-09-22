@@ -1272,6 +1272,8 @@
         status: u.status,
         district: u.district,
         subdistrict: u.subdistrict,
+        station_name: u.station_name || null,
+        province: u.province || null,
       };
     }
 
@@ -1303,7 +1305,14 @@
         name.textContent = `${ordinal}. ${item.full_name || 'ไม่ระบุชื่อ'}`;
         const tag = document.createElement('span');
         tag.className = 'pc-tag';
-        tag.textContent = [TYPE_AI_LABEL[item.person_type] || item.person_type, item.subdistrict || item.district].filter(Boolean).join(' • ');
+        // Area context: shown per row only when the list spans more than one
+        // source (a single-source list names it in the answer header).
+        const placeBits = [];
+        if (item.subdistrict) placeBits.push('ต.' + item.subdistrict);
+        if (item.station_name) placeBits.push('สภ.' + String(item.station_name).replace(/^สภ\.?\s*/u, ''));
+        if (item.district) placeBits.push('อ.' + item.district);
+        if (item.province) placeBits.push('จ.' + item.province);
+        tag.textContent = [TYPE_AI_LABEL[item.person_type] || item.person_type, placeBits.join(' ') || item.district].filter(Boolean).join(' • ');
         info.append(name, tag);
         row.append(info, makeSelectButton({ personId: item.person_id, displayName: item.full_name }));
         list.appendChild(row);

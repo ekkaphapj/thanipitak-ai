@@ -1,7 +1,7 @@
 'use strict';
 
 const { detectMonitoringIntent, isSelectedMonitoringReasonFollowup } = require('../ai/monitoring');
-const { applyPeopleStationScope } = require('./stationScope');
+const { parseStationId, applyPeopleStationScope } = require('./stationScope');
 
 const VISIT_SELECT = 'id,person_id,visit_date,visit_time,visit_status,drug_test_result,status_condition,notes,visitor_name,visitor_station,visit_category';
 const HIGH = 'เสี่ยงสูง';
@@ -162,7 +162,7 @@ function createRealRegistryRead(rows) {
 
   async function listRecordedMonitoring(req, { level, personType, district, subdistrict, stationIds, page = 1, pageSize = 20, from, to, exclude } = {}) {
     const peopleParams = new URLSearchParams({
-      select: 'id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status',
+      select: 'id,prefix,first_name,last_name,tambon,amphoe,province,type_id,station_id,status',
       order: 'first_name.asc,id.asc',
       limit: '1000',
     });
@@ -229,17 +229,38 @@ function createRealRegistryRead(rows) {
         full_name: personName(person),
         subdistrict: person.tambon || '',
         district: person.amphoe || '',
+        province: (person.province || '').trim(),
+        station_id: Number.isFinite(Number(person.station_id)) ? Number(person.station_id) : null,
         level: current,
         latestVisit: visit || null,
         report: report || null,
       });
     }
+    // สภ./อำเภอ/จังหวัด context for the list: when every matched person shares
+    // one station/area it goes in the header, otherwise it stays per row.
+    const stationNames = new Map();
+    const ownId = parseStationId(req.user && req.user.stationId);
+    if (ownId && req.user.stationName) stationNames.set(ownId, String(req.user.stationName).trim());
+    const unknownIds = [...new Set(matched.map((m) => m.station_id).filter((id) => Number.isFinite(id) && !stationNames.has(id)))];
+    if (unknownIds.length) {
+      const st = await rows(req, 'stations', new URLSearchParams({ select: 'station_id,station_name', station_id: `in.(${unknownIds.join(',')})`, limit: '1000' }));
+      for (const row of st.data) stationNames.set(Number(row.station_id), String(row.station_name || '').trim());
+    }
+    for (const m of matched) m.station_name = m.station_id != null ? (stationNames.get(m.station_id) || null) : null;
+    const single = (values) => { const set = new Set(values); return set.size === 1 ? [...set][0] : null; };
+    const uniformStationId = single(matched.map((m) => m.station_id).filter((id) => Number.isFinite(id)));
+    const scope = {
+      stationName: uniformStationId != null && matched.length ? (stationNames.get(uniformStationId) || null) : null,
+      district: single(matched.map((m) => (m.district || '').trim()).filter(Boolean)),
+      province: single(matched.map((m) => m.province).filter(Boolean)),
+    };
     const start = (page - 1) * pageSize;
     return {
       total: matched.length,
       page,
       pageSize,
       asOf: thaiNow(),
+      scope,
       ...(from || to ? { window: { from: from || null, to: to || null } } : {}),
       items: matched.slice(start, start + pageSize),
     };
@@ -250,10 +271,21 @@ function createRealRegistryRead(rows) {
     if (!result.total) {
       return `ไม่พบบุคคลที่บันทึกว่า${label}${windowLabel ? `ใน${windowLabel}` : ''}ในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง (อ้างอิง${windowLabel ? `บันทึกใน${windowLabel}` : 'ผลเยี่ยมล่าสุดและรายงานผู้ดูแล'} ไม่ใช่การยืนยันว่าไม่มีความเสี่ยง)`;
     }
-    const lines = [`พบ ${result.total} คนที่บันทึกว่า${label} ณ ${result.asOf}${windowLabel ? ` • ช่วง${windowLabel}` : ''} (แสดงหน้า ${result.page})`];
+    const scope = result.scope || {};
+    let uniform = '';
+    if (scope.stationName) uniform += ` • สังกัด สภ.${String(scope.stationName).replace(/^สภ\.?\s*/u, '')}`;
+    if (scope.district) uniform += ` • อำเภอ${scope.district}`;
+    if (scope.province) uniform += ` • จังหวัด${scope.province}`;
+    const lines = [`พบ ${result.total} คนที่บันทึกว่า${label} ณ ${result.asOf}${uniform}${windowLabel ? ` • ช่วง${windowLabel}` : ''} (แสดงหน้า ${result.page})`];
     result.items.forEach((item, index) => {
       const bits = [`${index + 1 + (result.page - 1) * result.pageSize}. ${item.full_name} — ${item.level}`];
       if (item.subdistrict) bits.push(`ตำบล${item.subdistrict}`);
+      // Fields that vary inside the list are shown per row instead.
+      const rowPlace = [];
+      if (!scope.stationName && item.station_name) rowPlace.push(`สภ.${String(item.station_name).replace(/^สภ\.?\s*/u, '')}`);
+      if (!scope.district && item.district) rowPlace.push(`อำเภอ${item.district}`);
+      if (!scope.province && item.province) rowPlace.push(`จังหวัด${item.province}`);
+      if (rowPlace.length) bits.push(rowPlace.join(' • '));
       if (item.latestVisit) bits.push(`เยี่ยมล่าสุด ${visitWhen(item.latestVisit)}`);
       lines.push(bits.join(' • '));
     });

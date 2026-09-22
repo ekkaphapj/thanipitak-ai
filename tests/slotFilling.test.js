@@ -35,7 +35,7 @@ const ok = (rows, range) => ({
 });
 
 const PEOPLE_SEARCH_SELECT = 'id,first_name,last_name,station_id,province,amphoe,tambon,type_id,status';
-const PEOPLE_MONITOR_SELECT = 'id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status';
+const PEOPLE_MONITOR_SELECT = 'id,prefix,first_name,last_name,tambon,amphoe,province,type_id,station_id,status';
 
 test('underspecified question returns smart suggestion choices', async () => {
   const app = makeApp({ role: 'officer', stationId: 77, stationName: 'สภ.ทดสอบ' }, async () => {

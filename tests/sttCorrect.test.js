@@ -16,3 +16,10 @@ test('does not invent registry terms in unrelated text', () => {
   assert.equal(correctTranscript('สวัสดีครับ'), 'สวัสดีครับ');
   assert.equal(correctTranscript('ขอข้อมูลเพิ่มเติม'), 'ขอข้อมูลเพิ่มเติม');
 });
+
+test('corrects สภ. and บุคคล mishears so ranking questions route to the registry', () => {
+  assert.equal(correctTranscript('ขอสอบพอทที่มีบุลคลมากที่สุด 5 อันดับแรก'), 'ขอสภ.ที่มีบุคคลมากที่สุด 5 อันดับแรก');
+  assert.equal(correctTranscript('ขอสอบพอดที่มีบุคคัลมากที่สุด 5 อันดับแรก'), 'ขอสภ.ที่มีบุคคลมากที่สุด 5 อันดับแรก');
+  assert.equal(correctTranscript('สอพอทไหนมีผู้เสพมากที่สุด'), 'สภ.ไหนมีผู้เสพมากที่สุด');
+  assert.equal(correctTranscript('สถานีตำรวจที่มีบุคคลมากที่สุด'), 'สถานีตำรวจที่มีบุคคลมากที่สุด');
+});

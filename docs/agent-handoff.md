@@ -985,3 +985,12 @@ the real-mode chat answers with **guidance (200)** instead of a generic error:
 Implemented via `areaGuidance()`/`REAL_AREA_GUIDANCE` in `realDataRoutes.js`
 (handled only by the chat `sendFailure`). Full `npm test`:
 **419 tests, 25 suites, 0 failures**.
+
+### Continuation update — 2026-09-22 night (STT: สภ./บุคคล mishears)
+
+Field report: saying "ขอ สภ. ที่มีบุคคลมากที่สุด 5 อันดับแรก" transcribed as
+"ขอสอบพอทที่มีบุลคลมากที่สุด 5 อันดับแรก" and fell through to the knowledge
+RAG ("ไม่พบในคู่มือ"). `correctTranscript.js` gained exact repairs for the
+สภ. family (สอบพอท/สอบพอด/สอบพอต/สอปพอท/สอพอท/สายพอท/สถานีพอท → สภ.) and
+บุคคล (บุลคล/บุคคัล/บุคลคล → บุคคล). The corrected text routes to the สภ.
+station-ranking path. New assertions in `tests/sttCorrect.test.js`.

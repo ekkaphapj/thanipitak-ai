@@ -28,10 +28,9 @@ function detectMonitoringIntent(message) {
   if(/พ้นโทษ|ออกจากเรือนจำ/.test(text))categories.push('released');
   const high=/เสี่ยง\s*สูง|ความเสี่ยงสูง|high[ -]?risk/i.test(text),watch=/เฝ้า\s*ระวัง|เฝ้าดู|จับตา/.test(text);
   // Words such as "จับตา" and "เฝ้าดู" can ask for the whole monitored
-  // cohort, as covered by the existing Thai routing contract.  Treat only an
-  // explicit "เฝ้าระวัง" level request as the watch-only filter; exact
-  // follow-up level switches are handled deterministically by the route.
-  const explicitWatch=/(?:^|\s)(?:กลุ่ม\s*)?เฝ้า\s*ระวัง(?:\s|$)|เฉพาะ\s*(?:กลุ่ม\s*)?เฝ้า\s*ระวัง/u.test(text);
+  // cohort. Only the explicit "เฉพาะเฝ้าระวัง" filter narrows this route;
+  // short follow-up level switches are handled deterministically elsewhere.
+  const explicitWatch=/เฉพาะ\s*(?:กลุ่ม\s*)?เฝ้า\s*ระวัง/u.test(text);
   const level=high&&!watch?'high':watch&&!high&&explicitWatch?'watch':'all';
   const selected=/คนนี้|บุคคลนี้|รายนี้/.test(text);
   const group_by=detectLocationGroup(text);

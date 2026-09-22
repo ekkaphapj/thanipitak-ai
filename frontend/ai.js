@@ -1125,10 +1125,10 @@
 
     async function fetchPage(page) {
       // Chat-originated real-data lists may include window/exclusion/monitoring
-      // conditions that /api/people cannot represent. Continue through chat so
-      // the server replays the validated query specification intact.
-      if (state.dataSource === 'real' && state.conversationTopic && state.conversationTopic.kind && page > ctx.page) {
-        sendMessage('หน้าถัดไป');
+      // conditions that /api/people cannot represent. Continue through chat in
+      // both directions so the server replays the validated query spec intact.
+      if (state.dataSource === 'real' && state.conversationTopic && state.conversationTopic.kind && page !== ctx.page) {
+        sendMessage(page > ctx.page ? 'หน้าถัดไป' : 'หน้าก่อนหน้า');
         return;
       }
       const qp = new URLSearchParams();

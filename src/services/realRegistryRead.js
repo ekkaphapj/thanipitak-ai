@@ -160,14 +160,19 @@ function createRealRegistryRead(rows) {
     return null;
   }
 
-  async function listRecordedMonitoring(req, { level, personType, district, subdistrict, page = 1, pageSize = 20, from, to, exclude } = {}) {
+  async function listRecordedMonitoring(req, { level, personType, district, subdistrict, stationIds, page = 1, pageSize = 20, from, to, exclude } = {}) {
     const peopleParams = new URLSearchParams({
       select: 'id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status',
       order: 'first_name.asc,id.asc',
       limit: '1000',
     });
-    applyPeopleStationScope(req.user, peopleParams);
+    const scopedStationId=applyPeopleStationScope(req.user, peopleParams);
     const clean=value=>String(value||'').replace(/[%*(),]/g,'').slice(0,100);
+    const narrowedStationIds=[...new Set((stationIds||[]).map(Number).filter(Number.isSafeInteger))];
+    if(narrowedStationIds.length){
+      const allowedIds=scopedStationId?narrowedStationIds.filter(id=>id===scopedStationId):narrowedStationIds;
+      peopleParams.set('station_id',`in.(${allowedIds.length?allowedIds.join(','):'0'})`);
+    }
     if(district)peopleParams.set('amphoe',`ilike.*${clean(district)}*`);
     if(subdistrict)peopleParams.set('tambon',`ilike.*${clean(subdistrict)}*`);
     for(const ex of exclude||[]){

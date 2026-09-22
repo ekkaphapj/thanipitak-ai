@@ -106,6 +106,31 @@ test('an aggregate overview answers with the requested province in the heading',
  assert.equal(res.body.conversation.topic.report_kind,'target_person_aggregate');
 });
 
+test('a spoken sort follow-up reorders the preceding station aggregate instead of alphabetizing it',async()=>{
+ const bodies=[];
+ const app=makeApp({role:'officer',stationId:77,province:'อุดรธานี',aiScope:{level:'all',read_only:true,provinces:['อุดรธานี']}},async(url,opts)=>{
+  if(String(url).includes('/functions/v1/ai-summary')){
+   bodies.push(JSON.parse(opts.body));
+   return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'all',read_only:true},rows:[
+    {station_name:'สภ.กุดจับ',province:'อุดรธานี',psychiatric_total:2,drug_user_total:3,dealer_total:1,released_total:0,target_total:6},
+    {station_name:'สภ.เมืองอุดรธานี',province:'อุดรธานี',psychiatric_total:8,drug_user_total:12,dealer_total:2,released_total:1,target_total:23},
+   ]})};
+  }
+  throw new Error('unexpected read '+url);
+ });
+ const overview=await request(app).post('/ai/chat').send({message:'ขอภาพรวมราย สภ. ในจังหวัดอุดรธานี'});
+ assert.equal(overview.status,200);
+ assert.equal(overview.body.presentation.type,'target_person_summary');
+ assert.equal(overview.body.conversation.topic.report_kind,'target_person_aggregate');
+ const sorted=await request(app).post('/ai/chat').send({message:'ให้เรียยง (ลำดับจากมากไปน้อย)',context:{topic:overview.body.conversation.topic}});
+ assert.equal(sorted.status,200);
+ assert.equal(sorted.body.presentation.type,'station_ranking');
+ assert.deepEqual(sorted.body.presentation.rows.map(row=>row.stationName),['สภ.เมืองอุดรธานี','สภ.กุดจับ']);
+ assert.match(sorted.body.answer,/เรียงบุคคลทั้งหมดมากไปน้อย/);
+ assert.equal(bodies.length,2);
+ assert.ok(bodies.every(body=>body.province==='อุดรธานี'));
+});
+
 test('a typed aggregate request without an explicit province keeps the account default heading',async()=>{
  const app=makeApp({role:'officer',stationId:77,province:'ร้อยเอ็ด',aiScope:{level:'all',read_only:true}},async(url)=>{
   if(String(url).includes('/functions/v1/ai-summary')){
@@ -179,3 +204,26 @@ test('province-scoped station ranking states the requested province in the headi
  assert.match(res.body.answer,/ข้อมูลจริง • จังหวัดร้อยเอ็ด/);
  assert.match(res.body.answer,/ตำบลค้อ.*มีผู้ป่วยจิตเวชมากสุด 2 คน/);
 });
+
+test('a cross-station scope can search a station by name without own-station narrowing',async()=>{
+ const calls=[];
+ const app=makeApp({role:'officer',stationId:5,province:'อุดรธานี',aiScope:{level:'all',read_only:true,provinces:['อุดรธานี','นครพนม']}},async(url)=>{
+  const u=new URL(url);calls.push(u);
+  if(u.pathname.endsWith('/stations')&&u.searchParams.get('station_name')==='ilike.*ท่าอุเทน*'){
+   return okRows([{station_id:9}]);
+  }
+  if(u.pathname.endsWith('/people')){
+   assert.equal(u.searchParams.get('station_id'),'in.(9)');
+   return okRows([{id:1,first_name:'สมชาย',last_name:'ใจดี',station_id:9,province:'นครพนม',amphoe:'เมือง',tambon:'โพนสูง',type_id:2,status:'active'}]);
+  }
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).get('/people?station='+encodeURIComponent('ท่าอุเทน'));
+ assert.equal(res.status,200);
+ assert.equal(res.body.data.length,1);
+ assert.equal(res.body.data[0].station_id,9);
+ assert.equal(res.body.data[0].full_name,'สมชาย ใจดี');
+});
+function okRows(rows){
+ return {ok:true,headers:new Headers({'content-range':`0-${rows.length-1}/${rows.length}`}),json:async()=>rows};
+}

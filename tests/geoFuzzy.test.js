@@ -1,5 +1,6 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const express=require('express');const request=require('supertest');
 const {createRealDataRoutes}=require('../src/routes/realDataRoutes');
+const {detectOverview}=require('../src/services/overviewService');
 
 function makeApp(user,mockRequest,overrides={}){
  const app=express();app.use(express.json());
@@ -134,6 +135,47 @@ test('a mistyped station name resolves to the officer own station and never to a
  assert.equal(res.body.meta.fuzzy.to,'สภ.ท่าอุเทน');
  const peopleCall=calls.find(u=>u.pathname.endsWith('/people'));
  assert.equal(peopleCall.searchParams.get('station_id'),'eq.77');
+});
+
+test('overview gives a named station precedence over its province, including spoken station prefixes',async()=>{
+ for(const prefix of ['สภ.','สพ','สอพอ','สภอ']){
+  const parsed=detectOverview(`ขอภาพรวมของ ${prefix} ธวัชบุรี จังหวัดร้อยเอ็ด`);
+  assert.equal(parsed.requestedScope,'station');
+  assert.equal(parsed.filters.station,'ธวัชบุรี');
+ }
+ const calls=[];
+ const app=makeApp({role:'officer',stationId:77,aiScope:{level:'all',read_only:true,provinces:['ร้อยเอ็ด']}},async(url)=>{
+  const u=new URL(url);calls.push(u);
+  if(u.pathname.endsWith('/stations')){
+   if(u.searchParams.get('station_name')==='ilike.*ธวัชบูรี*'){
+    assert.equal(u.searchParams.get('province'),'eq.ร้อยเอ็ด');
+    return {ok:true,headers:new Headers({'content-range':'0--1/0'}),json:async()=>[]};
+   }
+   if(u.searchParams.get('select')==='station_id,station_name'){
+    assert.equal(u.searchParams.get('province'),'eq.ร้อยเอ็ด');
+    return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{station_id:201,station_name:'สภ.ธวัชบุรี'}]};
+   }
+   if(u.searchParams.get('province')==='eq.ร้อยเอ็ด')return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{station_id:201}]};
+  }
+  if(u.pathname.endsWith('/people_type'))return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{type_id:1,type_name:'ผู้ป่วยจิตเวช'}]};
+  if(u.pathname.endsWith('/people')){
+   if(u.searchParams.get('select')==='id,province,amphoe,tambon,type_id,station_id'){
+    assert.equal(u.searchParams.get('station_id'),'in.(201)');
+    return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{id:1,station_id:201,province:'ร้อยเอ็ด',amphoe:'ธวัชบุรี',tambon:'นิเวศน์',type_id:1}]};
+   }
+   // The two recorded-monitoring reads must keep the same selected station.
+   assert.equal(u.searchParams.get('station_id'),'in.(201)');
+   return {ok:true,headers:new Headers({'content-range':'0--1/0'}),json:async()=>[]};
+  }
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ขอภาพรวมของ สอพอ ธวัชบูรี จังหวัดร้อยเอ็ด'});
+ assert.equal(res.status,200);
+ assert.equal(res.body.presentation.type,'overview');
+ assert.equal(res.body.presentation.scopeLabel,'สภ.ธวัชบุรี');
+ assert.equal(res.body.presentation.filters.station,'สภ.ธวัชบุรี');
+ assert.equal(res.body.conversation.topic.station,'สภ.ธวัชบุรี');
+ assert.ok(calls.some(u=>u.pathname.endsWith('/stations')&&u.searchParams.get('select')==='station_id,station_name'));
 });
 
 test('voice-style politeness particles and Thai digits work on the real chat path',async()=>{

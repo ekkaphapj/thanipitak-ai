@@ -969,3 +969,19 @@ Full `npm test`: **419 tests, 25 suites, 0 failures** (monitoring mocks
 updated for the `province` select; new uniform/mixed tests in
 `tests/realTimeFilter.test.js`). Limitation: test-mode (fixture) lists keep
 their current format; the reports' list section is unchanged.
+
+### Continuation update — 2026-09-22 late night (area guidance instead of dead-end errors)
+
+When an officer names a ตำบล/อำเภอ that cannot be found in the working scope,
+the real-mode chat answers with **guidance (200)** instead of a generic error:
+- ตำบล not found → `ไม่พบตำบล"X" หรือไม่มีบุคคลเป้าหมายในเขต สภ.{ชื่อสถานีของบัญชี}
+  กรุณาระบุตำบล อำเภอ และจังหวัด เพื่อดำเนินการต่อไป` — applies to both
+  exclusion questions and positive area filters.
+- อำเภอ not found on accounts with verified multi-province scope
+  (`hasCrossStationRead`) → asks `อำเภอนี้อยู่จังหวัดอะไร` and shows how to
+  combine it in one command (`อำเภอXจังหวัด...มีกี่คน`).
+- Non-chat callers (pagination fetch, reports) keep the explicit 422
+  `REAL_LOCATION_NOT_FOUND` contract; `sendRealFailure` maps the guidance back.
+Implemented via `areaGuidance()`/`REAL_AREA_GUIDANCE` in `realDataRoutes.js`
+(handled only by the chat `sendFailure`). Full `npm test`:
+**419 tests, 25 suites, 0 failures**.

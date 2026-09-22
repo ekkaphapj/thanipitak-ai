@@ -126,16 +126,59 @@ test('ผู้เสพยกเว้นตำบลโพนสูงมี�
  assert.equal(res.body.answer,'มีผู้เสพ 3 คน (ไม่รวมตำบลโพนสูง)');
 });
 
-test('an exclusion naming an unknown area fails explicitly',async()=>{
- const app=makeApp({role:'officer',stationId:77},async(url)=>{
+test('an exclusion naming an unknown ตำบล guides with the officer station and asks for ตำบล/อำเภอ/จังหวัด',async()=>{
+ const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ',province:'นครพนม'},async(url)=>{
   const u=new URL(url);
   if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='province,amphoe,tambon')return ok([{province:'นครพนม',amphoe:'เมือง',tambon:'โพนสูง'}],'0-0/1');
   throw new Error('unexpected read '+url);
  });
  const res=await request(app).post('/ai/chat').send({message:'ผู้เสพยกเว้นตำบลกุกกุกมีกี่คน'});
- assert.equal(res.status,422);
- assert.equal(res.body.code,'REAL_LOCATION_NOT_FOUND');
- assert.match(res.body.error,/ยกเว้น/);
+ assert.equal(res.status,200);
+ assert.equal(res.body.grounded,true);
+ assert.match(res.body.answer,/ไม่พบตำบล“กุกกุก”/);
+ assert.match(res.body.answer,/เขต สภ\.ทดสอบ/);
+ assert.match(res.body.answer,/จังหวัดนครพนม/);
+ assert.match(res.body.answer,/ระบุตำบล อำเภอ และจังหวัด/);
+});
+
+test('an unknown อำเภอ on a multi-province account asks which province instead of erroring',async()=>{
+ const app=makeApp({role:'admin',stationId:null,aiScope:{level:'all',read_only:true,provinces:['นครพนม','ขอนแก่น']},province:'นครพนม'},async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('/people')){
+   const select=u.searchParams.get('select');
+   if(select==='province,amphoe,tambon')return ok([{province:'นครพนม',amphoe:'เมือง',tambon:'โพนสูง'}],'0-0/1');
+   if(select&&select.startsWith('id,first_name'))return ok([],'0--1/0');
+   throw new Error('unexpected people read '+select);
+  }
+  if(u.pathname.endsWith('/stations')&&u.searchParams.get('province')==='eq.นครพนม')return ok([{station_id:77}],'0-0/1');
+  if(u.pathname.endsWith('/people_type'))return ok([{type_id:2}],'0-0/1');
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ผู้เสพในอำเภอกุกกุกมีกี่คน'});
+ assert.equal(res.status,200);
+ assert.equal(res.body.grounded,true);
+ assert.match(res.body.answer,/อำเภอนี้อยู่จังหวัดอะไร/);
+ assert.match(res.body.answer,/ระบุจังหวัดในคำสั่งเดียวกัน/);
+});
+
+test('an unknown ตำบล on a positive filter guides instead of erroring',async()=>{
+ const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ',province:'นครพนม'},async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('/people')){
+   const select=u.searchParams.get('select');
+   if(select==='province,amphoe,tambon')return ok([{province:'นครพนม',amphoe:'เมือง',tambon:'โพนสูง'}],'0-0/1');
+   if(select&&select.startsWith('id,first_name'))return ok([],'0--1/0');
+   throw new Error('unexpected people read '+select);
+  }
+  if(u.pathname.endsWith('/stations')&&u.searchParams.get('province')==='eq.นครพนม')return ok([{station_id:77}],'0-0/1');
+  if(u.pathname.endsWith('/people_type'))return ok([{type_id:2}],'0-0/1');
+  throw new Error('unexpected read '+url);
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ผู้เสพในตำบลกุกกุกมีกี่คน'});
+ assert.equal(res.status,200);
+ assert.equal(res.body.grounded,true);
+ assert.match(res.body.answer,/ไม่พบตำบล“กุกกุก”/);
+ assert.match(res.body.answer,/เขต สภ\.ทดสอบ/);
 });
 
 test('an ambiguous exclusion offers verified choices and the follow-up resolves',async()=>{

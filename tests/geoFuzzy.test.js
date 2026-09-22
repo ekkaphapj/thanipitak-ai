@@ -109,7 +109,7 @@ test('an unknown subdistrict still fails with the explicit check-and-retry error
   throw new Error('unexpected read '+url);
  });
  const res=await request(app).get('/people?subdistrict='+encodeURIComponent('โพนสุง'));
- assert.equal(res.status,422);assert.equal(res.body.code,'REAL_LOCATION_NOT_FOUND');assert.match(res.body.error,/ไม่พบข้อมูลตามชื่อตำบล “โพนสุง”/);
+ assert.equal(res.status,422);assert.equal(res.body.code,'REAL_LOCATION_NOT_FOUND');assert.match(res.body.error,/ไม่พบตำบล“โพนสุง”/);assert.match(res.body.error,/ระบุตำบล อำเภอ และจังหวัด/);
 });
 
 test('a mistyped station name resolves to the officer own station and never to another',async()=>{

@@ -24,6 +24,9 @@ async function ollamaJson(path,body) {
 
 function realFailure(error) {
  const code=error&&error.code;
+ // Non-chat callers (for example the pagination fetch) keep the explicit
+ // error contract; the chat layer converts the guidance to a 200 answer.
+ if(code==='REAL_AREA_GUIDANCE')return {status:422,code:'REAL_LOCATION_NOT_FOUND',error:error.message||'ไม่พบพื้นที่ที่ระบุ'};
  const location=String(error?.stack||'').split('\n')[1]?.trim()||'unknown';
  // Keep server diagnostics free of messages, requests, transcripts, and row data.
  console.error(`[real-data] failure code=${code||'none'} type=${error?.name||'Error'} at ${location}`);
@@ -403,7 +406,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    const result=scoped.length!==found.data.length?{data:scoped,total:scoped.length}:found;
    if(result.total===0&&(filters.district||filters.subdistrict)){
     const label=filters.subdistrict?'ตำบล':'อำเภอ';const value=filters.subdistrict||filters.district;
-    const error=new Error(`ไม่พบข้อมูลตามชื่อ${label} “${value}” กรุณาตรวจสอบชื่อและลองใหม่`);error.code='REAL_LOCATION_NOT_FOUND';throw error;
+    const error=areaGuidanceError(req.user,label,value);error.code='REAL_AREA_GUIDANCE';throw error;
    }
    if(fuzzyApplied)result.fuzzy=fuzzyApplied;
    return result;
@@ -666,9 +669,30 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    choices:options.slice(0,6).map((option,index)=>({index:index+1,name:option.value,replaceWith:option.replaceWith||option.value,display:`${option.prefix}${option.value}`}))};
   return error;
  }
- function exclusionNotFound(label,value) {
-  const error=new Error(`ไม่พบชื่อ${label} “${value}” ที่ต้องการยกเว้น กรุณาตรวจสอบชื่อและลองใหม่`);
-  error.code='REAL_LOCATION_NOT_FOUND';
+ // An area the officer names but that cannot be found in the working scope is
+ // answered with guidance (200), never a dead-end error: ตำบล references are
+ // checked against the officer's own สภ. and the message says so; อำเภอ
+ // references ask which province — but only for accounts whose verified scope
+ // actually spans multiple provinces.
+ function areaGuidance(user,label,value){
+  const stationLabel=user&&user.stationName?`สภ.${String(user.stationName).replace(/^สภ\.?\s*/u,'')}`:'พื้นที่ที่ท่านสังกัด';
+  const provinceNote=user&&user.province?` (จังหวัด${user.province})`:'';
+  if(label==='อำเภอ'&&hasCrossStationRead(user)){
+   return `ไม่พบอำเภอ“${value}”ในพื้นที่ที่ท่านสังกัดอยู่${provinceNote} อำเภอนี้อยู่จังหวัดอะไร กรุณาระบุจังหวัดในคำสั่งเดียวกัน เช่น “อำเภอ${value}จังหวัด...มีกี่คน”`;
+  }
+  return `ไม่พบ${label}“${value}” หรือไม่มีบุคคลเป้าหมายในเขต ${stationLabel}${provinceNote} กรุณาระบุ${label} อำเภอ และจังหวัด เพื่อดำเนินการต่อไป`;
+ }
+ function areaGuidanceError(user,label,value){
+  const error=new Error(areaGuidance(user,label,value));
+  error.code='REAL_AREA_GUIDANCE';
+  error.answer=error.message;
+  return error;
+ }
+ function exclusionNotFound(label,value,user) {
+  const error=areaGuidanceError(user,label,value);
+  error.answer=label==='จังหวัด'
+   ?`ไม่พบจังหวัด“${value}” ที่ต้องการยกเว้น กรุณาระบุชื่อจังหวัดให้ถูกต้อง`
+   :`ไม่พบ${label}“${value}” ที่ต้องการยกเว้น ${areaGuidance(user,label,value)}`;
   return error;
  }
  // Each exclusion becomes either a not.<area column> filter or, for provinces,
@@ -685,14 +709,14 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   const fuzzy=matchPlaceNames(item.value,names);
   if(fuzzy.length>1)throw exclusionChoices(item.value,fuzzy.map(name=>({prefix:'จังหวัด',value:name})));
-  throw exclusionNotFound('จังหวัด',item.value); }
+  throw exclusionNotFound('จังหวัด',item.value,req.user); }
  async function excludeArea(req,item,label) {
   const catalogue=await areaCatalogue(req);
   const list=item.kind==='subdistrict'?catalogue.subdistricts:catalogue.districts;
   const matches=matchPlaceNames(item.value,list);
   if(matches.length===1)return {column:item.kind==='subdistrict'?'tambon':'amphoe',value:matches[0],label:`${label}${matches[0]}`};
   if(matches.length>1)throw exclusionChoices(item.value,matches.map(name=>({prefix:label,value:name})));
-  throw exclusionNotFound(label,item.value);
+  throw exclusionNotFound(label,item.value,req.user);
  }
  async function resolveExclusions(req,exclusions) {  const resolved=[];
   for(const item of exclusions.slice(0,3)){
@@ -829,6 +853,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   // Choice follow-ups re-send the original command with the chosen verified
   // name substituted, so every choices presentation carries that text.
   const sendFailure=(e)=>{
+   if(e&&e.code==='REAL_AREA_GUIDANCE')return res.json({answer:e.answer,grounded:true,dataSource:'real',meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    if(e&&e.code==='REAL_LOCATION_CHOICES'&&e.presentation&&!e.presentation.originalMessage)e.presentation={...e.presentation,originalMessage:message};
    return sendRealFailure(res,e,start);
   };

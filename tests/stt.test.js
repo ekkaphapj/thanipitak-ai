@@ -208,6 +208,13 @@ test('stt html includes hold-to-talk mic button', () => {
   assert.match(js, /ทำยังไง(?:ต่อ)?/);
   assert.match(js, /TUTORIAL_STEPS/);
   assert.match(js, /speechSynthesis/);
+  // The tutorial must cover every documented capability, not just the basics.
+  for (const prompt of ['ผู้เสพมีกี่คน','หน้าถัดไป','หน้าก่อนหน้า','คนนี้เยี่ยมล่าสุดเมื่อไหร่','ค้นหาชื่อทดสอบ5','ใครเสี่ยงสูง','เอาเฉพาะเฝ้าระวัง','ใครเสี่ยงสูงเดือนนี้','ยกเว้นตำบล','ในตำบลจำลอง','5 อันดับตำบล','เปลี่ยนจังหวัดอุดรธานี','ทำเป็น Excel','ธานีพิทักษ์คืออะไร']) {
+    assert.ok(js.includes(prompt), 'tutorial ต้องมีคำสั่ง: '+prompt);
+  }
+  assert.match(js, /needs:\s*'list'/);
+  assert.match(js, /needs:\s*'selection'/);
+  assert.doesNotMatch(js, /state\.tutorial\.step === \d/);
   assert.match(js, /ขอภาพรวม สภ\./);
   assert.match(js, /เลือกคนที่ 1/);
   assert.match(js, /วิเคราะห์ภาระงาน/);

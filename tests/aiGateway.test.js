@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const request = require('supertest');
 const { setup, USERS } = require('./helpers');
 const { createToolRouter } = require('../src/ai/toolRouter');
-const { chatWithTools, MAX_TOOL_ITERATIONS } = require('../src/ai/gateway');
+const { chatWithTools, chatWithToolsWithFastPath, MAX_TOOL_ITERATIONS } = require('../src/ai/gateway');
 
 const STATION1_USER = { id: 2, username: 'station1_off', name: 'เจ้าหน้าที่', role: 'officer', stationId: 1 };
 const STATION2_USER = { id: 4, username: 'station2_off', name: 'เจ้าหน้าที่ 2', role: 'officer', stationId: 2 };
@@ -439,6 +439,27 @@ test('ai gateway: search_persons summary respects status filter', async () => {
       0,
       'other statuses must be zero under a status filter'
     );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test('ai gateway: area exclusion requests refuse explicitly in test mode instead of returning unfiltered answers', async () => {
+  const ctx = make();
+  try {
+    let ollamaCalled = false;
+    const requestFn = async () => { ollamaCalled = true; return finalResponse('should not reach'); };
+    const toolCalls = [];
+    const res = await chatWithToolsWithFastPath('ผู้เสพยกเว้นตำบลจำลองมีกี่คน', ctx.toolRouter, STATION1_USER, null, {
+      requestFn,
+      onToolCall: (call) => toolCalls.push(call.toolName),
+    });
+    assert.strictEqual(res.grounded, false);
+    assert.strictEqual(res.fastPath, true);
+    assert.match(res.answer, /ยกเว้น|ไม่รวม/);
+    assert.match(res.answer, /ข้อมูลจริง/);
+    assert.strictEqual(toolCalls.length, 0, 'no tool call may back an unsupported exclusion');
+    assert.strictEqual(ollamaCalled, false, 'no model call may back an unsupported exclusion');
   } finally {
     ctx.cleanup();
   }

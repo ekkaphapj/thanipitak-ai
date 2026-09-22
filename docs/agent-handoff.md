@@ -902,3 +902,28 @@ anyway. **Decision: the app stays on `qwen3:8b-q6`;** `qwen3:14b` stays
 installed (9.3GB, deletable on explicit request). Report:
 `docs/qwen3-14b-holdout60-ab-2026-09-22.md`. Any future model switch must
 pass this same 3-runs-per-model harness first.
+
+### Continuation update — 2026-09-22 night (full-coverage tutorial)
+
+The in-app tutorial (เริ่มแบบฝึกหัด / วิธีใช้) expanded from 5 basic steps to
+**18 steps in 5 groups** covering every user-facing capability: ภาพรวม,
+นับจำนวน, รายชื่อ, เลื่อนหน้า (หน้าถัดไป/หน้าก่อนหน้า), เลือกตามลำดับ,
+ข้อมูลที่เลือก, ถามเจาะลึกคนที่เลือก, ค้นหาด้วยชื่อ, ใครเสี่ยงสูง,
+สลับเฉพาะเฝ้าระวัง, ช่วงเวลา (ใครเสี่ยงสูงเดือนนี้), ยกเว้นพื้นที่,
+กรองพื้นที่, จัดอันดับ, เลือกจังหวัด, รายงาน PDF/Excel, วิเคราะห์ภาพรวม,
+และถามความรู้การใช้งาน. Steps now carry `group` labels (shown in the card
+header) and a `needs` property ('list'/'selection') replacing the old
+hardcoded step-index checks in `completeTutorialStep`; exercises run the
+real commands through the ordinary chat so finishing the tutorial means the
+officer has executed every capability on live data. The finished card and
+`tutorialSpeechFor` narration list the full coverage and the เริ่มใหม่ reset.
+`renderUsageGuide` (คู่มือด่วน) expanded to the same 12-section coverage.
+
+Test-mode parity: area-exclusion questions now **refuse explicitly** in the
+test gateway (grounded:false, no tool call, no model call) instead of
+silently returning an unfiltered answer — matching the real-mode-only
+exclusion feature; the tutorial exclusion step's hint states this. Full
+`npm test` after the change: **417 tests, 25 suites, 0 failures** (new
+coverage assertions in `tests/stt.test.js` pin all 14 key exercise prompts
+and forbid the old hardcoded index checks; `tests/aiGateway.test.js` gains
+the exclusion-refusal test).

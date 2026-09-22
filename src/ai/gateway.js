@@ -483,6 +483,21 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
 
   // ── Tier 1: conservative count/list fast path ──
   const incomingTopic = sanitizeTopic((options.context || {}).topic);
+  // Area exclusions are implemented on the real-data path. The test/demo
+  // pipeline has no exclusion operation, so it must refuse explicitly instead
+  // of silently returning an unfiltered answer for a narrowed question.
+  if (/ยกเว้น|ไม่รวม|ไม่นับ/u.test(userMessage)) {
+    return {
+      answer: 'การยกเว้นพื้นที่ (ยกเว้น/ไม่รวม) รองรับบนข้อมูลจริงเท่านั้น โหมดทดสอบยังไม่มีการกรองนี้ จึงขอปฏิเสธแทนการตอบยอดที่กว้างกว่าที่ถาม',
+      toolsUsed: [],
+      grounded: false,
+      databaseIntent: true,
+      retryCount: 0,
+      fastPath: true,
+      executionTier: 1,
+      conversation: { topic: incomingTopic },
+    };
+  }
   const UNDERSPECIFIED_RE = /^(?:(?:ขอ)?ดูข้อมูล(?:หน่อย|บ้าง)?|มี(?:ข้อมูล)?อะไร(?:บ้าง|ให้ดู(?:บ้าง)?|ดูได้บ้าง)?|สถานการณ์(?:เป็นยังไง|ตอนนี้|ปัจจุบัน)|ขอข้อมูลหน่อย|ช่วย(?:แนะนำ)?หน่อย)(?:\s*(?:ครับ|ค่ะ|คะ))?$/u;
   if (UNDERSPECIFIED_RE.test(userMessage) || /^ขอดูข้อมูล$/u.test(userMessage) || /^มีอะไรบ้าง$/u.test(userMessage)) {
     return {

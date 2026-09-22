@@ -45,6 +45,32 @@ test('an own-station account asking another province gets an explicit empty resu
  assert.equal(res.body.meta.total,0);
 });
 
+test('a server-verified cross-province scope lists the chosen province, not the profile station',async()=>{
+ const calls=[];
+ const app=makeApp({role:'officer',stationId:77,province:'อุดรธานี',aiScope:{level:'all',read_only:true,provinces:['อุดรธานี','นครพนม']}},async(url)=>{
+  const u=new URL(url);calls.push(u);
+  if(u.pathname.endsWith('/stations')&&u.searchParams.get('province')==='eq.นครพนม'){
+   return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[{station_id:201},{station_id:202}]};
+  }
+  if(u.pathname.endsWith('/people')){
+   return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[
+    {id:1,first_name:'ก',last_name:'นครพนม',station_id:201,province:'นครพนม',amphoe:'เมือง',tambon:'ในเมือง',type_id:1,status:'active'},
+    {id:2,first_name:'ข',last_name:'นครพนม',station_id:202,province:'นครพนม',amphoe:'ท่าอุเทน',tambon:'พนม',type_id:1,status:'active'},
+   ]};
+  }
+  throw new Error('unexpected read '+url);
+ });
+ const selected=await request(app).post('/ai/chat').send({message:'เลือกจังหวัดนครพนม'});
+ assert.equal(selected.status,200);
+ assert.equal(selected.body.conversation.topic.province,'นครพนม');
+ const listed=await request(app).post('/ai/chat').send({message:'ขอรายชื่อ',context:{topic:selected.body.conversation.topic}});
+ assert.equal(listed.status,200);
+ assert.equal(listed.body.presentation.type,'person_list');
+ assert.equal(listed.body.presentation.total,2);
+ const people=calls.find((u)=>u.pathname.endsWith('/people'));
+ assert.equal(people.searchParams.get('station_id'),'in.(201,202)');
+});
+
 test('the confirmed aggregate PDF asks the audited tool for the requested province and uses its rows',async()=>{
  const bodies=[];
  const app=makeApp({role:'officer',stationId:77,province:'ร้อยเอ็ด',aiScope:{level:'all',read_only:true}},async(url,opts)=>{

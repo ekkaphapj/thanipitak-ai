@@ -1,12 +1,12 @@
 const express=require('express');
 const {detectFastPathIntent}=require('../ai/fastPath');
 const {parseSummaryIntent}=require('../services/summaryService');
-const {sanitizeTopic,topicFromIntent}=require('../ai/conversationTopic');
+const {sanitizeTopic,topicFromIntent,matchPersonType}=require('../ai/conversationTopic');
 const {createRealRegistryRead,monitoringQuestion,selectedReasonFollowup}=require('../services/realRegistryRead');
 const {detectExportIntent,reportRequestFromExport}=require('../ai/exportIntent');
 const {writeSummaryPdf,writeSummaryExcel,safeReportRequest}=require('../services/reportService');
 const fs=require('fs');
-const {parseStationId,applyPeopleStationScope,personInOwnStation}=require('../services/stationScope');
+const {parseStationId,hasCrossStationRead,applyPeopleStationScope,personInOwnStation}=require('../services/stationScope');
 const {detectOverview,formatOverview,TYPE_LABELS}=require('../services/overviewService');
 const {hasDBIntent}=require('../ai/intentDetector');
 rag=require('../ai/rag');
@@ -177,17 +177,45 @@ const PERSON_TYPE_PATTERNS=[
 ];
 const RESET_RE=/^(?:เริ่ม(?:ใหม่|ต้นใหม่|คุยใหม่|คำถามใหม่)|ล้างบริบท|ล้างการเลือก)(?:\s*(?:ครับ|ค่ะ|คะ|หน่อย))?$/u;
 const NEXT_PAGE_RE=/^(?:หน้าถัดไป|หน้าต่อไป|ต่อไป|ถัดไป|โชว์(?:หน้า)?ถัดไป|แสดงหน้าถัดไป)$/u;
+const UNDERSPECIFIED_RE = /^(?:(?:ขอ)?ดูข้อมูล(?:หน่อย|บ้าง)?|มี(?:ข้อมูล)?อะไร(?:บ้าง|ให้ดู(?:บ้าง)?|ดูได้บ้าง)?|สถานการณ์(?:เป็นยังไง|ตอนนี้|ปัจจุบัน)|ขอข้อมูลหน่อย|ช่วย(?:แนะนำ)?หน่อย)(?:\s*(?:ครับ|ค่ะ|คะ))?$/u;
 
-// Detects a follow-up that only adjusts the previous query: another period
-// ("เดือนก่อนล่ะ"), an area refinement ("เอาเฉพาะตำบลโพนสูง"), or the next
-// page. The conversation topic is display context only; every condition is
-// re-authorized and re-applied server-side.
+function isUnderspecifiedQuestion(message) {
+ const text = String(message || '').replace(/\s+/g, ' ').trim();
+ if (UNDERSPECIFIED_RE.test(text)) return true;
+ if (/^ขอดูข้อมูล$/u.test(text)) return true;
+ if (/^มีอะไรบ้าง$/u.test(text)) return true;
+ return false;
+}
+
+const LIST_REQUEST_RE = /^(?:ขอ(?:ดู)?รายชื่อ(?:หน่อย|ด้วย|ทั้งหมด)?|มีใครบ้าง|ใครบ้าง|คนไหนบ้าง|แสดงรายชื่อ(?:หน่อย|ด้วย)?)(?:\s*(?:ครับ|ค่ะ|คะ))?$/u;
+const LEVEL_SWITCH_RE = /^(?:(?:แล้ว|และ|ส่วน)\s*)?(?:เอา(?:แค่)?\s*|แค่\s*)?(?:เฉพาะ\s*)?(?:ที่|กลุ่ม)?(เสี่ยงสูง|เฝ้าระวัง)(?:\s*ล่ะ|\s*มีกี่คน|\s*หน่อย|\s*ด้วย)?(?:\s*(?:ครับ|ค่ะ|คะ))?$/u;
+const HAS_AREA_RE = /(?:จังหวัด|อำเภอ|เขต|ตำบล|สภ\.?|สถานีตำรวจ|ที่\s*ตำบล|ใน\s*ตำบล)/u;
+const TYPE_SWITCH_RE = /^(?:แล้ว|และ|ส่วน|ขอ(?:ดู|ยอด)?)?\s*(?:ผู้ป่วยจิตเวช|จิตเวช|ผู้ป่วย|ผู้เสพ|ผู้ใช้ยา|ผู้ค้า|ผู้จำหน่าย|ผู้พ้นโทษ|พ้นโทษ)(?:\s*(?:ล่ะ|มีกี่คน|กี่คน|มีมั้ย|มีไหม|รวมกี่คน|ด้วย|หน่อย))?(?:\s*(?:ครับ|ค่ะ|คะ))?$/u;
+
+// Detects a follow-up that adjusts the previous query: another period
+// ("เดือนก่อนล่ะ"), an area refinement ("เอาเฉพาะตำบลโพนสูง"), a person type
+// change ("แล้วผู้เสพล่ะ"), risk level change ("เอาเฉพาะเสี่ยงสูง"),
+// count-to-list ("ขอรายชื่อด้วย"), or the next page.
 function detectContinuation(message,topic){
  if(!topic||typeof topic!=='object')return null;
- if(!topic.kind&&!topic.level&&!topic.person_type)return null;
+ if(!topic.kind&&!topic.level&&!topic.person_type&&!topic.subdistrict&&!topic.district&&!topic.station&&!topic.province)return null;
  const text=String(message||'').replace(/\s+/g,' ').trim();
  if(!text)return null;
  if(NEXT_PAGE_RE.test(text))return {type:'next_page',page:(Number(topic.page)||1)+1};
+ if(LIST_REQUEST_RE.test(text))return {type:'count_to_list'};
+ const levelMatch=LEVEL_SWITCH_RE.exec(text);
+ if(levelMatch){
+  const level=levelMatch[1]==='เสี่ยงสูง'?'high':'watch';
+  const wantList=/รายชื่อ|ใคร/.test(text)||(topic.kind==='monitoring_list'||topic.kind==='people_list');
+  return {type:'level_switch',level,wantList};
+ }
+ if(!HAS_AREA_RE.test(text)&&TYPE_SWITCH_RE.test(text)){
+  const personType=matchPersonType(text);
+  if(personType){
+   const wantList=/รายชื่อ|ใคร/.test(text)||(!/กี่คน|จำนวน|ยอด|มีมั้ย|มีไหม/.test(text)&&topic.kind==='people_list');
+   return {type:'type_switch',personType,wantList};
+  }
+ }
  const periods=analyzePeriods(text);
  let residue=text;
  for(const window of periods.windows)residue=removeSpans(residue,[window.matchedText]);
@@ -233,7 +261,8 @@ function detectStationRanking(message) {
 }
 
 function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
- if(isProvinceChangeOnly(message)||detectExportIntent(message)||detectStationRanking(message)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson)return false;
+ if(isProvinceChangeOnly(message)||detectExportIntent(message)||detectStationRanking(message)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson||isUnderspecifiedQuestion(message))return false;
+ if(detectContinuation(message, topic))return false;
  const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,topic);
  if(summary||intent||/(ตำบล|อำเภอ|จังหวัด)(?:ไหน|ใด|อะไร).*?(มากที่สุด|เยอะที่สุด|น้อยที่สุด|มากสุด|เยอะสุด|น้อยสุด)/u.test(message))return false;
  if(process.env.RAG_ENABLED==='true'&&!hasDBIntent(message)&&rag.directAnswer(message))return false;
@@ -278,13 +307,13 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    // back silently empty whenever the stored text differed from the request.
    const scopedId=applyPeopleStationScope(req.user,new URLSearchParams());
    const st=await rows(req,'stations',new URLSearchParams({select:'station_id',province:`eq.${clean(filters.province)}`,limit:'1000'}));
-   const ids=st.data.map(x=>Number(x.station_id)).filter(id=>scopedId? id===scopedId : req.user.role==='admin');
+   const ids=st.data.map(x=>Number(x.station_id)).filter(id=>scopedId? id===scopedId : (hasCrossStationRead(req.user)||req.user.role==='admin'));
    if(!ids.length)return {data:[],total:0};
    provinceStationIds=ids;
    p.set('station_id', scopedId ? `eq.${scopedId}` : `in.(${ids.join(',')})`);
   }
   if(filters.station){
-   const own=parseStationId(req.user.stationId);
+   const own=hasCrossStationRead(req.user)?null:parseStationId(req.user.stationId);
    const s=await rows(req,'stations',new URLSearchParams({select:'station_id',station_name:`ilike.*${clean(filters.station)}*`,limit:'1000'}));
    let ids=s.data.map(x=>Number(x.station_id)).filter(id=>own?id===own:req.user.role==='admin');
    if(!ids.length && allowFuzzy){
@@ -295,7 +324,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     const all=await rows(req,'stations',new URLSearchParams({select:'station_id,station_name',limit:'1000'}));
     const allowed=all.data.filter(row=>{
      const id=Number(row.station_id);
-     return own ? id===own : req.user.role==='admin';
+     return own ? id===own : (hasCrossStationRead(req.user)||req.user.role==='admin');
     });
     const matches=matchPlaceNames(filters.station,allowed.map(row=>String(row.station_name||'').trim()).filter(Boolean));
     if(matches.length===1){
@@ -743,10 +772,29 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   // before every detector and before the model sees the request.
   const message=normalizeUtterance(raw)||raw;
   const personId=selectedPersonId(req.body);
+  let incomingTopic=sanitizeTopic(req.body?.context?.topic);
   // Server-side session reset mirrors the client's own "เริ่มใหม่" so no
   // condition survives an explicit restart, whatever client sent the text.
   if(RESET_RE.test(message)){
    return res.json({answer:'เริ่มบทสนทนาใหม่แล้ว เงื่อนไขที่เลือกไว้ทั้งหมดถูกล้างแล้ว',grounded:true,dataSource:'real',conversation:{topic:null},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
+  if(isUnderspecifiedQuestion(message)){
+   return res.json({
+    answer:'ผู้ช่วยธานีพิทักษ์ เอไอ พร้อมให้บริการสืบค้นข้อมูลทะเบียนและติดตามบุคคลเป้าหมายตามสิทธิ์ของท่าน สามารถเลือกดูข้อมูลที่สนใจได้ดังนี้:',
+    grounded:true,
+    dataSource:'real',
+    presentation:{
+     type:'summary_choices',
+     choices:[
+      {label:'ภาพรวมบุคคลเป้าหมาย',message:'ขอภาพรวมบุคคลเป้าหมาย'},
+      {label:'รายชื่อผู้มีความเสี่ยงสูง',message:'ใครเสี่ยงสูง'},
+      {label:'สถิติผู้ป่วยจิตเวชในพื้นที่',message:'ผู้ป่วยจิตเวชมีกี่คน'},
+      {label:'วิธีใช้งานระบบ',message:'ขอวิธีใช้'},
+     ]
+    },
+    conversation:{topic:incomingTopic},
+    meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}
+   });
   }
   const prepared=prepareRoutingMessage(message);
   const routingMessage=prepared.routingMessage;
@@ -762,7 +810,6 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   let showAll=!!ordered;
   if(!ranking&&ordered)ranking=[routingMessage,ordered[1],/น้อยไปมาก/.test(routingMessage)?'น้อยสุด':'มากสุด'];
   let plan=null;let ollamaCalls=0;
-  let incomingTopic=sanitizeTopic(req.body?.context?.topic);
   const provinceResolution=canonicalProvince(req,provinceFromMessage(routingMessage));
   if(provinceResolution.error)return res.status(422).json({error:provinceResolution.error,code:'REAL_LOCATION_NOT_FOUND',dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   if(provinceResolution.choices){
@@ -844,6 +891,53 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    const kind=t?.kind||((t?.level==='high'||t?.level==='watch'||t?.level==='all')?'monitoring_list':null);
    if(continuation.type==='period_block'){
     return respond({answer:periodBlockedMessage(continuation.blocked),grounded:false,dataSource:'real',conversation:{topic:t},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
+   if(continuation.type==='count_to_list'){
+    try{
+     if(kind==='monitoring_list'||t.level){
+      const area={district:t.district,subdistrict:t.subdistrict};
+      const {result,items,answer}=await runMonitoringAnswer(req,{level:t.level||'all',personType:t.person_type||null,area,window:t.window||null,exclude:t.exclude||[],page:1});
+      const topic=sanitizeTopic({...t,kind:'monitoring_list',page:result.page});
+      return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:t.level||'all',personType:t.person_type,area,window:t.window,exclude:t.exclude,page:result.page}))}});
+     }
+     const filters={...(t.person_type?{person_type:t.person_type}:{}),...(t.province?{province:t.province}:{}),...(t.district?{district:t.district}:{}),...(t.subdistrict?{subdistrict:t.subdistrict}:{}),...(t.station?{station:t.station}:{}),...(t.exclude?.length?{exclude:t.exclude}:{})};
+     const result=await search(req,filters,1);
+     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||''}));
+     const topic=sanitizeTopic({...t,kind:'people_list',page:1});
+     const excludeNote=t.exclude?.length?` (ไม่รวม${t.exclude.map(filter=>filter.label).join(' ')})`:'';
+     return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา${excludeNote}`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:1,pageSize:20,filters:{person_type:t.person_type||null},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page:1}))}});
+    }catch(e){return sendFailure(e);}
+   }
+   if(continuation.type==='level_switch'){
+    try{
+     const area={district:t.district,subdistrict:t.subdistrict};
+     const level=continuation.level;
+     const {result,items,answer}=await runMonitoringAnswer(req,{level,personType:t.person_type||null,area,window:t.window||null,exclude:t.exclude||[],page:1});
+     const topic=sanitizeTopic({...t,level,kind:'monitoring_list',page:result.page});
+     return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level,personType:t.person_type,area,window:t.window,exclude:t.exclude,page:result.page}))}});
+    }catch(e){return sendFailure(e);}
+   }
+   if(continuation.type==='type_switch'){
+    try{
+     const type=continuation.personType;
+     const category={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[type]||'บุคคล';
+     const filters={...(t.province?{province:t.province}:{}),...(t.district?{district:t.district}:{}),...(t.subdistrict?{subdistrict:t.subdistrict}:{}),...(t.station?{station:t.station}:{}),...(t.exclude?.length?{exclude:t.exclude}:{}),person_type:type};
+     const result=await search(req,filters,1);
+     const areaParts=[];
+     if(t.subdistrict)areaParts.push(`ตำบล${t.subdistrict}`);
+     if(t.district)areaParts.push(`อำเภอ${t.district}`);
+     if(t.station)areaParts.push(`สภ.${t.station}`);
+     const areaLabel=areaParts.length?` ในพื้นที่ ${areaParts.join(' ')}`:'';
+     const excludeNote=t.exclude?.length?` (ไม่รวม${t.exclude.map(filter=>filter.label).join(' ')})`:'';
+     if(continuation.wantList){
+      const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:type,subdistrict:p.tambon||'',district:p.amphoe||''}));
+      const topic=sanitizeTopic({...t,person_type:type,kind:'people_list',page:1});
+      return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา${excludeNote}`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:1,pageSize:20,filters:{person_type:type},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page:1}))}});
+     }
+     const answer=result.total?`มี${category} ${result.total} คน${areaLabel}${excludeNote}`:`ไม่มี${category}${areaLabel}${excludeNote}`;
+     const topic=sanitizeTopic({...t,person_type:type,page:1});
+     return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    }catch(e){return sendFailure(e);}
    }
    if(!kind){
     return respond({answer:'ไม่มีรายการล่าสุดให้ปรับ กรุณาถามใหม่ เช่น “ใครเสี่ยงสูงเดือนนี้” หรือ “ขอรายชื่อผู้เสพ”',grounded:false,dataSource:'real',conversation:{topic:t},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});

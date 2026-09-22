@@ -29,6 +29,21 @@ const LIST_TYPE = {
   list_released: 'released',
 };
 
+const PERSON_TYPE_PATTERNS = [
+  [/จิตเวช|ผู้ป่วย/u, 'psychiatric'],
+  [/ผู้เสพ|ผู้ใช้ยา/u, 'drug_user'],
+  [/ผู้ค้า|ผู้จำหน่าย/u, 'dealer'],
+  [/ผู้พ้นโทษ|พ้นโทษ/u, 'released'],
+];
+
+function matchPersonType(text) {
+  if (!text || typeof text !== 'string') return null;
+  for (const [re, type] of PERSON_TYPE_PATTERNS) {
+    if (re.test(text)) return type;
+  }
+  return null;
+}
+
 function cleanText(value) {
   if (typeof value !== 'string') return '';
   const text = value.trim().slice(0, 100);
@@ -166,6 +181,8 @@ function topicFromIntent(intentResult) {
 module.exports = {
   VALID_TYPES,
   TYPE_LABELS,
+  PERSON_TYPE_PATTERNS,
+  matchPersonType,
   sanitizeTopic,
   mergeTopicFilters,
   wantsExplicitAllList,

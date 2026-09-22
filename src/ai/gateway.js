@@ -483,6 +483,28 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
 
   // ── Tier 1: conservative count/list fast path ──
   const incomingTopic = sanitizeTopic((options.context || {}).topic);
+  const UNDERSPECIFIED_RE = /^(?:(?:ขอ)?ดูข้อมูล(?:หน่อย|บ้าง)?|มี(?:ข้อมูล)?อะไร(?:บ้าง|ให้ดู(?:บ้าง)?|ดูได้บ้าง)?|สถานการณ์(?:เป็นยังไง|ตอนนี้|ปัจจุบัน)|ขอข้อมูลหน่อย|ช่วย(?:แนะนำ)?หน่อย)(?:\s*(?:ครับ|ค่ะ|คะ))?$/u;
+  if (UNDERSPECIFIED_RE.test(userMessage) || /^ขอดูข้อมูล$/u.test(userMessage) || /^มีอะไรบ้าง$/u.test(userMessage)) {
+    return {
+      answer: 'ผู้ช่วยธานีพิทักษ์ เอไอ พร้อมให้บริการสืบค้นข้อมูลทะเบียนและติดตามบุคคลเป้าหมายตามสิทธิ์ของท่าน สามารถเลือกดูข้อมูลที่สนใจได้ดังนี้:',
+      toolsUsed: [],
+      grounded: true,
+      databaseIntent: true,
+      retryCount: 0,
+      fastPath: true,
+      executionTier: 1,
+      presentation: {
+        type: 'summary_choices',
+        choices: [
+          { label: 'ภาพรวมบุคคลเป้าหมาย', message: 'ขอภาพรวมบุคคลเป้าหมาย' },
+          { label: 'รายชื่อผู้มีความเสี่ยงสูง', message: 'ใครเสี่ยงสูง' },
+          { label: 'สถิติผู้ป่วยจิตเวชในพื้นที่', message: 'ผู้ป่วยจิตเวชมีกี่คน' },
+          { label: 'วิธีใช้งานระบบ', message: 'ขอวิธีใช้' },
+        ],
+      },
+      conversation: { topic: incomingTopic },
+    };
+  }
   const fastIntent = detectFastPathIntent(userMessage, incomingTopic);
   if (fastIntent && !options.forceQwen) {
     const fastResult = await runFastPath(fastIntent.intent, currentUser, toolRouter, {

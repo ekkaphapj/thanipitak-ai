@@ -794,7 +794,7 @@
     updateSendDisabled();
   }
 
-  const micCtl = { recorder: null, stream: null, chunks: [], timer: null, abort: null, held: false };
+  const micCtl = { starting: false, recorder: null, stream: null, chunks: [], timer: null, abort: null, held: false };
 
   function abortMic() {
     if (micCtl.timer) {
@@ -927,38 +927,45 @@
   }
 
   async function startRecording(event) {
-    if (state.sending || state.mic === 'recording' || state.mic === 'uploading') return;
-    // A user who starts speaking may interrupt the introduction or completion cue.
-    stopVoiceAudio();
-    micCtl.held = true;
-    if (state.sttAvailable !== true) {
-      setMicStatus('กำลังเชื่อมต่อระบบแปลงเสียง…', false, true);
-      await loadSttStatus();
+    // pointerdown and touchstart both reach this function within the same
+    // task, before state.mic flips to 'recording' — the synchronous starting
+    // flag is the only reliable double-start guard.
+    if (micCtl.starting || state.sending || state.mic === 'recording' || state.mic === 'uploading') return;
+    micCtl.starting = true;
+    try {
+      // A user who starts speaking may interrupt the introduction or completion cue.
+      stopVoiceAudio();
+      micCtl.held = true;
       if (state.sttAvailable !== true) {
-        micCtl.held = false;
-        setMicStatus(VoiceInput.micErrorMessage('STT_UNAVAILABLE'), true);
+        setMicStatus('กำลังเชื่อมต่อระบบแปลงเสียง…', false, true);
+        await loadSttStatus();
+        if (state.sttAvailable !== true) {
+          micCtl.held = false;
+          setMicStatus(VoiceInput.micErrorMessage('STT_UNAVAILABLE'), true);
+          return;
+        }
+      }
+      if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setMicStatus(VoiceInput.micErrorMessage('INSECURE_CONTEXT'), true);
         return;
       }
-    }
-    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setMicStatus(VoiceInput.micErrorMessage('INSECURE_CONTEXT'), true);
-      return;
-    }
-    if (event && event.currentTarget && event.pointerId != null) {
-      try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
-    }
-    try {
+      if (event && event.currentTarget && event.pointerId != null) {
+        try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+      }
       micCtl.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!micCtl.held) {
+        // The officer released while permission/capture was starting.
+        micCtl.stream.getTracks().forEach((track) => track.stop());
+        micCtl.stream = null;
+        return;
+      }
     } catch (err) {
       micCtl.held = false;
       const denied = err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError');
       setMicStatus(VoiceInput.micErrorMessage(denied ? 'PERMISSION_DENIED' : 'INSECURE_CONTEXT'), true);
       return;
-    }
-    if (!micCtl.held) {
-      micCtl.stream.getTracks().forEach((track) => track.stop());
-      micCtl.stream = null;
-      return;
+    } finally {
+      micCtl.starting = false;
     }
     const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
     micCtl.chunks = [];
@@ -980,6 +987,16 @@
     const btn = $('#mic-btn');
     if (!btn) return;
     btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Hold-to-talk. The CSS sets touch-action:none so the browser cannot fire
+    // pointercancel (double-tap zoom detection) and cut a hold short — the
+    // touch listeners below are a fallback for engines without Pointer Events.
+    // Double firing is safe: startRecording/finishRecording no-op unless the
+    // mic state matches.
+    btn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      startRecording(e);
+    }, { passive: false });
+    btn.addEventListener('touchend', (e) => { e.preventDefault(); finishRecording(); }, { passive: false });
     if (window.PointerEvent) {
       btn.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
@@ -988,12 +1005,6 @@
       });
       btn.addEventListener('pointerup', () => finishRecording());
       btn.addEventListener('pointercancel', () => finishRecording());
-    } else {
-      btn.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        startRecording(e);
-      }, { passive: false });
-      btn.addEventListener('touchend', () => finishRecording());
     }
   }
 

@@ -994,3 +994,15 @@ RAG ("ไม่พบในคู่มือ"). `correctTranscript.js` gained e
 สภ. family (สอบพอท/สอบพอด/สอบพอต/สอปพอท/สอพอท/สายพอท/สถานีพอท → สภ.) and
 บุคคล (บุลคล/บุคคัล/บุคลคล → บุคคล). The corrected text routes to the สภ.
 station-ranking path. New assertions in `tests/sttCorrect.test.js`.
+
+### Continuation update — 2026-09-22 night (mobile hold-to-talk fix)
+
+Field report: on mobile the hold-to-talk button worked once, then every
+subsequent press released instantly. Cause: without `touch-action` on the
+button, mobile browsers treat a quick second press as a double-tap-zoom
+gesture and fire `pointercancel` right after `pointerdown` — the recording
+stopped before the officer could speak. Fixes: `.voice-hold-btn` sets
+`touch-action:none` + no user-select/callout; `bindMicButton` binds BOTH
+pointer and touch listeners (safe: state guards no-op duplicates); and
+`startRecording` gained a synchronous `micCtl.starting` flag because the two
+events fire before the async `getUserMedia` flips `state.mic`.

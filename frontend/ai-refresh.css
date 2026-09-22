@@ -91,3 +91,8 @@ body{font-family:"Leelawadee UI","Noto Sans Thai","Segoe UI",Tahoma,sans-serif;l
   .voice-mode-open .voice-assistant-close{width:24px;height:24px;font-size:17px}
   .voice-mode-open .chat-messages{padding-bottom:150px}
 }
+
+/* ── Hold-to-talk must own its touch: without touch-action:none, mobile
+   browsers fire pointercancel on a quick second press (double-tap zoom
+   detection) and the recording stops instantly ── */
+.voice-hold-btn{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}

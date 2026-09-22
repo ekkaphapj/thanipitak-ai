@@ -1020,7 +1020,7 @@
     }
     box.appendChild(list);
     hostForPresentation(wrap).appendChild(box);
-    rememberOrdinalItems(items, 'ตัวเลือกพื้นที่');
+    rememberOrdinalItems(items, (presentation && presentation.choiceLabel) || 'ตัวเลือกพื้นที่');
   }
 
   function renderPersonList(wrap, presentation) {

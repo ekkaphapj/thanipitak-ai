@@ -84,6 +84,10 @@ latest_urine=ผลตรวจปัสสาวะล่าสุด, urine_su
 คำถาม: สมชายบ้านดุงล่าสุดสายตรวจไปหามื้อได๋ -> {"intent":"latest_visit","person_hint":"สมชาย","station_hint":"บ้านดุง"}
 คำถาม: ช่วงนี้สมชายเป็นจั่งได๋ -> {"intent":"person_summary","person_hint":"สมชาย"}
 คำถาม: ขอประวัติผลตรวจปัสสาวะของนายสมชาย -> {"intent":"urine_summary","person_hint":"สมชาย"}
+คำถาม: ทดสอบ4 สถานี1 ถูกเยี่ยมล่าสุดเมื่อไหร่ -> {"intent":"latest_visit","person_hint":"ทดสอบ4","station_hint":"สถานี1"}
+คำถาม: เอาประวัติทดสอบ1 ไม่ใช่ทดสอบ10 -> {"intent":"person_history","person_hint":"ทดสอบ1"}
+คำถาม: ช่วยหานายมานะ แสงทอง ให้หน่อย -> {"intent":"person_search","person_hint":"มานะ แสงทอง"}
+คำถาม: สมชายที่ท่าอุเทนเป็นคนแบบไหน -> {"intent":"person_summary","person_hint":"สมชาย","station_hint":"ท่าอุเทน"}
 คำถามที่ไม่ใช่ทะเบียนหรือขอข้อมูลที่รองรับไม่ได้ -> {"intent":"unsupported"}
 อย่าเดาชื่อหรือข้อมูลที่ผู้ใช้ไม่ได้พูด และอย่าใส่ฟิลด์นอก schema`;
 

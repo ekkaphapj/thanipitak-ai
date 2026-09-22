@@ -48,7 +48,12 @@ direction: desc = มากไปน้อย/เยอะก่อน, asc = �
 ขอรายชื่อผู้ค้า => action list, person_type dealer, group none, direction desc
 ตำบลไหนมีผู้ป่วยน้อยที่สุด => action group, person_type psychiatric, group ตำบล, direction asc
 ช่วยดูยอดแยกตามหมู่บ้าน => action clarify, person_type all, group none, direction desc
-ใครเสี่ยงสูง => action clarify, person_type all, group none, direction desc`;
+ใครเสี่ยงสูง => action clarify, person_type all, group none, direction desc
+ค้นหาสมชาย => action list, person_type all, group none, direction desc, search สมชาย
+ค้นหานายแดง ใจดี สภ.ท่าอุเทน => action list, person_type all, group none, direction desc, search แดง ใจดี, station ท่าอุเทน
+หาผู้ป่วยชื่อสมหญิงในตำบลโพนสูง => action list, person_type psychiatric, group none, direction desc, search สมหญิง, subdistrict โพนสูง
+ใครชื่อสมชายบ้านดุง => action list, person_type all, group none, direction desc, search สมชาย
+ชื่อใน search ใส่เฉพาะชื่อหรือนามสกุลที่ผู้ใช้พูด ไม่ต้องมีคำนำหน้านาย/นาง และไม่รวมชื่อสถานี`;
 
 const TEST_DOMAIN_HINT = [
   'ระบบธานีพิทักษ์มีทะเบียนบุคคล 4 ประเภท: จิตเวช (psychiatric; คำว่าผู้ป่วย/คนไข้หมายถึงจิตเวช), ผู้เสพ (drug_user), ผู้ค้า (dealer), ผู้พ้นโทษ (released)',

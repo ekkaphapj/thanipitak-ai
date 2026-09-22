@@ -42,6 +42,14 @@ function matchesLevel(level, wanted) {
   return false;
 }
 
+function dateInRange(value, { from, to } = {}) {
+  const raw = String(value == null ? '' : value).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  if (from && raw < from) return false;
+  if (to && raw > to) return false;
+  return true;
+}
+
 async function optionalRows(rows, req, table, params) {
   try {
     return await rows(req, table, params);
@@ -51,13 +59,21 @@ async function optionalRows(rows, req, table, params) {
 }
 
 function createRealRegistryRead(rows) {
-  async function readVisits(req, personId, limit = 20) {
+  // A time window is applied as server-side date filters on recorded visits.
+  // It can only narrow what is read; the station scope stays untouched.
+  function applyVisitWindow(params, { from, to } = {}) {
+    if (from) params.append('visit_date', `gte.${from}`);
+    if (to) params.append('visit_date', `lte.${to}`);
+  }
+
+  async function readVisits(req, personId, limit = 20, window = {}) {
     const params = new URLSearchParams({
       select: VISIT_SELECT,
       person_id: `eq.${personId}`,
       order: 'visit_date.desc,visit_time.desc,id.desc',
       limit: String(limit),
     });
+    applyVisitWindow(params, window);
     return optionalRows(rows, req, 'visits', params);
   }
 
@@ -71,15 +87,21 @@ function createRealRegistryRead(rows) {
     return found.data[0] || null;
   }
 
-  async function readDossier(req, personId, personMeta) {
-    const [visits, report] = await Promise.all([readVisits(req, personId, 20), readReport(req, personId)]);
+  async function readDossier(req, personId, personMeta, window = {}) {
+    const [visits, report] = await Promise.all([readVisits(req, personId, 20, window), readReport(req, personId)]);
+    // With a time window, a guardian report dated outside it must not raise
+    // the level shown for that period.
+    const windowed = Boolean(window.from || window.to);
+    const reportUsable = !windowed || !report || dateInRange(report.last_report_date, window) ? report : null;
     return {
       ...personMeta,
       visits: visits.data,
       visitTotal: visits.total,
       report,
+      reportOutsideWindow: Boolean(windowed && report && !reportUsable),
       latestVisit: visits.data[0] || null,
-      level: recordedLevel(visits.data[0], report),
+      level: recordedLevel(visits.data[0], reportUsable),
+      window: windowed ? window : null,
     };
   }
 
@@ -98,15 +120,24 @@ function createRealRegistryRead(rows) {
     const name = personName(dossier.person);
     const latest = dossier.latestVisit;
     const report = dossier.report;
+    const window = dossier.window;
+    const windowLabel = window?.label || '';
     const wantsVisits = /เยี่ยม|ประวัติ|ครั้ง/.test(message);
     const wantsDrug = /ปัสสาวะ|ฉี่|ตรวจยา|สารเสพติด/.test(message);
     const wantsRisk = /เสี่ยง|เฝ้าระวัง|เพราะ|ทำไม|เหตุผล|สถานะ/.test(message);
 
     if (wantsDrug && !wantsVisits) {
-      if (!latest || !latest.drug_test_result) return `ทะเบียนยังไม่มีผลตรวจยาของ ${name}`;
-      return `${name} ผลตรวจยาล่าสุด ${latest.drug_test_result} เมื่อ ${visitWhen(latest)}`;
+      if (!latest || !latest.drug_test_result) return `ทะเบียน${window ? `ใน${windowLabel}` : 'ยัง'}ไม่มีผลตรวจยาของ ${name}`;
+      return `${name} ผลตรวจยาล่าสุด${window ? `ใน${windowLabel}` : ''} ${latest.drug_test_result} เมื่อ ${visitWhen(latest)}`;
     }
     if (wantsVisits && !wantsRisk) {
+      if (window) {
+        if (!dossier.visits.length) return `ไม่มีบันทึกการเยี่ยมของ ${name} ใน${windowLabel}`;
+        const lines = [`บันทึกการเยี่ยมของ ${name} ใน${windowLabel}: ${dossier.visitTotal} ครั้ง`];
+        dossier.visits.slice(0, 8).forEach((visit, index) => lines.push(`${index + 1}. ${formatVisitLine(visit)}`));
+        lines.push('ข้อมูลนี้มาจากบันทึกการเยี่ยมในช่วงเวลาที่ระบุเท่านั้น ไม่ใช่การวินิจฉัย');
+        return lines.join('\n');
+      }
       if (!dossier.visits.length) return `ทะเบียนยังไม่มีประวัติการตรวจเยี่ยมของ ${name}`;
       const lines = [`ประวัติการตรวจเยี่ยมของ ${name} (แสดง ${dossier.visits.length} รายการล่าสุด จาก ${dossier.visitTotal} ครั้ง)`];
       dossier.visits.slice(0, 8).forEach((visit, index) => lines.push(`${index + 1}. ${formatVisitLine(visit)}`));
@@ -114,10 +145,11 @@ function createRealRegistryRead(rows) {
       return lines.join('\n');
     }
     if (wantsRisk || /เพราะ|ทำไม|เหตุผล/.test(message)) {
-      const lines = [`${name} สถานะจากบันทึกปัจจุบัน: ${dossier.level}`];
-      if (latest) lines.push(`ผลเยี่ยมล่าสุด ${visitWhen(latest)}: ${normalizeVisitLevel(latest.visit_status) || 'ไม่ระบุ'}${latest.drug_test_result ? ` • ผลตรวจยา ${latest.drug_test_result}` : ''}`);
-      else lines.push('ยังไม่มีผลเยี่ยมในทะเบียน');
-      if (report && report.alert_level && report.alert_level !== 'ปกติ') {
+      const lines = [`${name} สถานะจากบันทึก${window ? `ใน${windowLabel}` : 'ปัจจุบัน'}: ${dossier.level}`];
+      if (latest) lines.push(`ผลเยี่ยมล่าสุด${window ? `ใน${windowLabel}` : ''} ${visitWhen(latest)}: ${normalizeVisitLevel(latest.visit_status) || 'ไม่ระบุ'}${latest.drug_test_result ? ` • ผลตรวจยา ${latest.drug_test_result}` : ''}`);
+      else lines.push(window ? `ยังไม่มีผลเยี่ยมใน${windowLabel}` : 'ยังไม่มีผลเยี่ยมในทะเบียน');
+      if (dossier.reportOutsideWindow) lines.push('รายงานผู้ดูแลล่าสุดอยู่นอกช่วงเวลาที่ถาม จึงไม่นำมาพิจารณา');
+      else if (report && report.alert_level && report.alert_level !== 'ปกติ') {
         lines.push(`สถานะจากรายงานผู้ดูแล: ${report.alert_level}${report.alert_source && report.alert_source !== 'none' ? ` (แหล่ง ${report.alert_source})` : ''}${report.missed_days ? ` • ขาดรายงาน ${report.missed_days} วัน` : ''}${report.last_report_date ? ` • รายงานล่าสุด ${report.last_report_date}` : ''}`);
       } else if (report) {
         lines.push(`สถานะจากรายงานผู้ดูแล: ${report.alert_level || 'ปกติ'}`);
@@ -128,7 +160,7 @@ function createRealRegistryRead(rows) {
     return null;
   }
 
-  async function listRecordedMonitoring(req, { level, personType, district, subdistrict, page = 1, pageSize = 20 } = {}) {
+  async function listRecordedMonitoring(req, { level, personType, district, subdistrict, page = 1, pageSize = 20, from, to, exclude } = {}) {
     const peopleParams = new URLSearchParams({
       select: 'id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status',
       order: 'first_name.asc,id.asc',
@@ -138,6 +170,10 @@ function createRealRegistryRead(rows) {
     const clean=value=>String(value||'').replace(/[%*(),]/g,'').slice(0,100);
     if(district)peopleParams.set('amphoe',`ilike.*${clean(district)}*`);
     if(subdistrict)peopleParams.set('tambon',`ilike.*${clean(subdistrict)}*`);
+    for(const ex of exclude||[]){
+      if(ex.column==='station_id')peopleParams.append('not.station_id',`in.(${ex.ids.join(',')})`);
+      else peopleParams.append(`not.${ex.column}`,`ilike.*${clean(ex.value)}*`);
+    }
     if (personType) {
       const terms = { psychiatric: 'ผู้ป่วยจิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'พ้นโทษ' };
       const types = await rows(req, 'people_type', new URLSearchParams({ select: 'type_id', type_name: `ilike.*${terms[personType]}*`, limit: '1000' }));
@@ -158,6 +194,7 @@ function createRealRegistryRead(rows) {
         order: 'visit_date.desc,visit_time.desc,id.desc',
         limit: '1000',
       });
+      applyVisitWindow(visitParams, { from, to });
       const visitBatch = await optionalRows(rows, req, 'visits', visitParams);
       for (const visit of visitBatch.data) {
         if (!latest.has(visit.person_id)) latest.set(visit.person_id, visit);
@@ -167,6 +204,11 @@ function createRealRegistryRead(rows) {
         person_id: `in.(${chunk.join(',')})`,
         limit: '1000',
       });
+      // A windowed question counts only guardian reports dated inside it;
+      // PostgREST comparisons also drop undated rows, which is the
+      // conservative result for a period question.
+      if (from) reportParams.append('last_report_date', `gte.${from}`);
+      if (to) reportParams.append('last_report_date', `lte.${to}`);
       const reportBatch = await optionalRows(rows, req, 'person_report_status', reportParams);
       for (const row of reportBatch.data) reports.set(row.person_id, row);
     }
@@ -193,16 +235,17 @@ function createRealRegistryRead(rows) {
       page,
       pageSize,
       asOf: thaiNow(),
+      ...(from || to ? { window: { from: from || null, to: to || null } } : {}),
       items: matched.slice(start, start + pageSize),
     };
   }
 
-  function formatMonitoringList(result, wanted) {
+  function formatMonitoringList(result, wanted, { windowLabel } = {}) {
     const label = wanted === 'high' ? 'เสี่ยงสูง' : wanted === 'watch' ? 'เฝ้าระวัง' : 'เฝ้าระวังหรือเสี่ยงสูง';
     if (!result.total) {
-      return `ไม่พบบุคคลที่บันทึกว่า${label}ในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง (อ้างอิงผลเยี่ยมล่าสุดและรายงานผู้ดูแล ไม่ใช่การยืนยันว่าไม่มีความเสี่ยง)`;
+      return `ไม่พบบุคคลที่บันทึกว่า${label}${windowLabel ? `ใน${windowLabel}` : ''}ในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง (อ้างอิง${windowLabel ? `บันทึกใน${windowLabel}` : 'ผลเยี่ยมล่าสุดและรายงานผู้ดูแล'} ไม่ใช่การยืนยันว่าไม่มีความเสี่ยง)`;
     }
-    const lines = [`พบ ${result.total} คนที่บันทึกว่า${label} ณ ${result.asOf} (แสดงหน้า ${result.page})`];
+    const lines = [`พบ ${result.total} คนที่บันทึกว่า${label} ณ ${result.asOf}${windowLabel ? ` • ช่วง${windowLabel}` : ''} (แสดงหน้า ${result.page})`];
     result.items.forEach((item, index) => {
       const bits = [`${index + 1 + (result.page - 1) * result.pageSize}. ${item.full_name} — ${item.level}`];
       if (item.subdistrict) bits.push(`ตำบล${item.subdistrict}`);
@@ -210,6 +253,7 @@ function createRealRegistryRead(rows) {
       lines.push(bits.join(' • '));
     });
     lines.push('ระดับนี้อ้างอิงทะเบียนและบันทึก ไม่ใช่การวินิจฉัยหรือการทำนายพฤติกรรม');
+    if (windowLabel) lines.push(`อ้างอิงเฉพาะบันทึกที่อยู่ในช่วง${windowLabel} บันทึกนอกช่วงเวลาไม่ถูกนำมาพิจารณา`);
     return lines.join('\n');
   }
 

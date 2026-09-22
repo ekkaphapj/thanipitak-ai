@@ -681,4 +681,65 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
   per-choice `replaceText` in `frontend/ai.js`. Full `npm test`: **356 tests,
   25 suites, 0 failures**.
 
+### Continuation update — 2026-09-22 (time windows, area exclusions, fuzzy person names)
 
+Three capability upgrades, all on `experiment/typhoon25-intent-router` and not
+yet committed at the time of this note. Full `npm test` afterwards:
+**377 tests, 25 suites, 0 failures**.
+
+**Deterministic time windows on recorded data (real mode).**
+`src/ai/timeWindow.js` parses explicit Thai periods (วันนี้, เมื่อวาน,
+สัปดาห์/เดือน/ปี นี้-ที่แล้ว, and `N วัน/สัปดาห์/เดือน/ปี ล่าสุด` with Arabic
+digits, Thai digits, or number words) into Asia/Bangkok `from`/`to` dates.
+`prepareRoutingMessage()` in `src/routes/realDataRoutes.js` strips the matched
+span before any detector or the model sees the request. Windowed questions
+are supported for (a) recorded monitoring lists — `visits.visit_date` gets
+`gte`/`lte` filters and `person_report_status` rows are restricted to
+`last_report_date` inside the window, with the window named in the answer —
+and (b) a selected person's visit history/count/drug/risk answers, where a
+guardian report dated outside the window no longer raises the level. A plain
+count/list/ranking that still carries a period (parsed or unresolvable)
+answers with an explicit clarification instead of silently returning the
+all-time number. Test-mode `runMonitoring` refuses windowed questions
+explicitly; it does not fake them from fixtures.
+
+**Area exclusions (ยกเว้น/ไม่รวม/ไม่นับ).**
+`src/ai/areaExclusion.js` extracts the phrase and the route resolves the
+named ตำบล/อำเภอ/จังหวัด against the same server-verified sources as positive
+filters (scoped area catalogue from `people`, or `stations.province`), then
+applies PostgREST `not.<column>=ilike.*X*` (provinces as
+`not.station_id=in.(...)`). Exclusions therefore intersect the station scope
+and can only narrow. An unknown excluded area fails with
+`REAL_LOCATION_NOT_FOUND`; an ambiguous one returns a `place_choices`
+presentation whose buttons substitute the verified name back into the
+original command. Station ranking, aggregate discovery, and the central
+`ai-summary` aggregates reject exclusion requests explicitly rather than
+ignoring the filter. Successful answers append `(ไม่รวมตำบล…)`.
+
+**Fuzzy person names in real mode.**
+Name searches now match `or(first_name, last_name)` instead of first name
+only. When an exact name search returns zero rows, a name catalogue built
+from the same station-scoped `people` read (capped 20×1000) is consulted:
+one close candidate retries that exact person id and reports
+`meta.fuzzy {field:'search'}`; several candidates return a `place_choices`
+presentation (`choiceLabel:'ตัวเลือกชื่อ'`, displays name + ตำบล/อำเภอ) whose
+choice re-sends the command with the corrected full name; no candidate keeps
+the honest empty list. Shared first names stay ambiguous because each name
+tier maps to every scoped person carrying it. The retry re-authorizes via
+`id=eq.<id>` plus the normal station scope and `personInOwnStation` drop.
+
+**Prompt few-shots.**
+`INTERPRETER_SYSTEM_PROMPT` gained name-search examples (bare name, name +
+สภ. suffix, type + name + ตำบล) and a rule that `search` carries only the
+spoken name without titles or station names. The test-mode Intent Router
+prompt gained examples for name+station suffixes, "X ไม่ใช่ Y" (emit only the
+positive name), and titled lookups — the largest raw-model failure clusters
+in the frozen holdout-60 analysis.
+
+**Frontend.** `renderPlaceChoices` uses `presentation.choiceLabel` when
+present (fallback `ตัวเลือกพื้นที่`), so ordinal selection announces name
+choices correctly. `node --check frontend/ai.js` passed.
+
+New regression files (all with mocked Supabase and a mocked interpreter — no
+live model and no real registry): `tests/timeWindow.test.js`,
+`tests/realTimeFilter.test.js`, `tests/personNameFuzzy.test.js`.

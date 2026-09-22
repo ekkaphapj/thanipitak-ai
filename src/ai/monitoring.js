@@ -1,6 +1,7 @@
 'use strict';
 const {resolvePersonByName,stripEndParticles,normalizeCollapse}=require('./personNameResolver');
 const {detectLocationGroup}=require('./spokenGeo');
+const {extractTimeWindow,hasHardTimeReference}=require('./timeWindow');
 const TYPE_LABELS={psychiatric:'จิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'};
 const SOURCE_LABELS={visits:'ผลเยี่ยม',guardian_reports:'รายงานผู้ดูแล',people_type:'ทะเบียนประเภทบุคคล',dealer_profiles:'ทะเบียนผู้ค้า',sticky_alert:'สถานะแจ้งเตือนค้าง'};
 const LOCATION_BOUNDARY='(?=\\s*(?:ใน?จังหวัด|จังหวัด|จ\\.|สภ\\.?|สถานี|อำเภอ|เขต|ตำบล|ผู้ป่วย|จิตเวช|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ|เสี่ยงสูง|เฝ้าระวัง|ที่(?:เสี่ยง|ต้อง|มี)|มีใคร|ใครบ้าง|เพราะ|$))';
@@ -14,7 +15,12 @@ function displayLocation(label,name) { return String(name||'').startsWith(label)
 function detectMonitoringIntent(message) {
   const text=normalizeCollapse(message);
   if(!/(เฝ้า\s*ระวัง|เฝ้าดู|จับตา|เสี่ยง\s*สูง|ความเสี่ยงสูง|กลุ่มเสี่ยง|ติดตามเร่งด่วน|ดูแลเป็นพิเศษ|น่าเป็นห่วง|high[ -]?risk|most\s*wanted)/i.test(text))return null;
-  if(/ไม่(?:ต้อง)?เฝ้าระวัง|ไม่เสี่ยงสูง|ยกเว้น|ย้อนหลัง|เดือนที่แล้ว|สัปดาห์ที่แล้ว/.test(text))return {unsupported:true};
+  if(/ไม่(?:ต้อง)?เฝ้าระวัง|ไม่เสี่ยงสูง|ย้อนหลัง/.test(text))return {unsupported:true};
+  // A parseable period turns into an explicit recorded-visit window; a period
+  // wording we cannot resolve must stay unsupported rather than broaden the
+  // question to "all time".
+  const timeWindow=extractTimeWindow(text);
+  if(!timeWindow&&hasHardTimeReference(text))return {unsupported:true};
   const categories=[];
   if(/จิตเวช|ผู้ป่วย/.test(text))categories.push('psychiatric');
   if(/ผู้เสพ|คนเสพ|ผู้ใช้ยาเสพติด/.test(text))categories.push('drug_user');
@@ -37,6 +43,7 @@ function detectMonitoringIntent(message) {
     if(m && m[1].trim() && !/^(?:มี|คน|บุคคล|ผู้ใด|ระดับ)/.test(m[1].trim()))name=m[1].trim();
   }
   return {level,person_types:categories,selected,count,page,name,group_by,province,station,district,subdistrict,
+    ...(timeWindow?{timeWindow}:{}),
     psychiatric_subtype:/จิตเวชยาเสพติด/.test(text)?'drug':/จิตเวชอื่น/.test(text)?'other':undefined,
     most_wanted:/most\s*wanted/i.test(text)?true:undefined};
 }
@@ -63,7 +70,10 @@ function renderMonitoring(data,{count=false,group_by:groupBy}={}) {
   return header+` (แสดงหน้า ${data.page}, ${data.items.length} คน)\n`+data.items.map(p=>`${p.displayName} — ${p.typeName} — ${p.level}\n`+p.reasons.map(r=>`  • ${r.reason} [${SOURCE_LABELS[r.source]||r.source}${r.recordId?' #'+r.recordId:''}, ${r.date}]`).join('\n')).join('\n')+'\nระดับนี้อ้างอิงทะเบียนและบันทึก ไม่ใช่การวินิจฉัยหรือการทำนายพฤติกรรม';
 }
 async function runMonitoring(intent,context,router,user,onToolCall) {
-  if(intent.unsupported)return {answer:'ขณะนี้ตรวจได้เฉพาะสถานะเฝ้าระวัง/เสี่ยงสูงปัจจุบัน ยังไม่รองรับคำถามแบบยกเว้นหรือย้อนช่วงเวลา กรุณาระบุประเภทบุคคลและระดับที่ต้องการ',toolsUsed:[],grounded:false};
+  if(intent.unsupported)return {answer:'ขณะนี้ตรวจได้เฉพาะสถานะเฝ้าระวัง/เสี่ยงสูงปัจจุบัน คำถามช่วงเวลาที่ระบุไม่ชัดยังไม่รองรับ กรุณาระบุประเภทบุคคลและระดับที่ต้องการ เช่น ใครเสี่ยงสูงเดือนนี้',toolsUsed:[],grounded:false};
+  // The fixture/test pipeline has no windowed monitoring operation yet; fail
+  // explicitly instead of silently answering the all-time question.
+  if(intent.timeWindow)return {answer:`โหมดทดสอบยังไม่รองรับการกรองเฝ้าระวัง/เสี่ยงสูงตามช่วงเวลา (${intent.timeWindow.label}) ฟีเจอร์นี้ใช้ได้กับข้อมูลจริงที่บันทึกวันที่เยี่ยมไว้`,toolsUsed:[],grounded:false};
   let personId;
   if(intent.selected) {
     const value=Number(context?.personId);

@@ -842,3 +842,32 @@ visit/report dates only — not time-window production monitoring.
 - Tests: full `npm test` passed after these corrections, together with focused
   mocked-Supabase HTTP checks. No actual Ollama or authenticated real-data
   read was used for the correction validation.
+
+### Continuation update — 2026-09-22 evening (review of followup/scope commits)
+
+Reviewed and consolidated the concurrent follow-up commits (`b7dd0a3`,
+`80fc76b`, `d92aec5`) on top of `1492b04`. Verified that `req.user.aiScope`
+is rebuilt per request from the primary system's authenticated Edge Function
+(`realAuthRoutes.authenticate` → `profile()` → `aiTools.accessScope(token)`),
+never from browser context, so `stationScope.hasCrossStationRead()` is a
+server-verified boundary. Full `npm test` after consolidating: **416 tests,
+25 suites, 0 failures**.
+
+Additions kept from those commits: named-month and compound-number period
+parsing consolidated in `analyzePeriods`; `periodIntentAreas` carries named
+areas from a period question into the pending topic (with stop words so
+"ตำบลโพนสูงอำเภอเมือง" is not swallowed); pending replies inherit area and
+exclusions; monitoring reports also fire on `filters.kind==='monitoring_list'`
+(level "all"); deliberate continuation extensions — count-to-list, level
+switch, type switch; `stationScope.hasCrossStationRead` lets aiScope-verified
+province/region4/all accounts read across stations while test-mode and
+station officers keep the historic boundary; the station-name exact filter
+now honors that scope too (previously only the fuzzy branch did); chat-kind
+lists page in both directions through chat ("หน้าก่อนหน้า" added server-side,
+frontend routes any page change through chat so window/exclusion conditions
+are never dropped).
+
+Deliberate contract confirmed by tests: watch-worded questions ("ใครเฝ้าระวัง",
+"ใครถูกจับตา") list the whole monitored cohort with both levels; only
+"เฉพาะเฝ้าระวัง" narrows to watch-only, and deterministic level switches
+("แล้วกลุ่มเฝ้าระวังล่ะ") stay on the continuation path.

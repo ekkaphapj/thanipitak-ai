@@ -253,3 +253,76 @@ test('model failure on an incomplete search fails closed with a server error',as
  assert.equal(res.status,502);
  assert.equal(res.body.code,'REAL_READ_FAILED');
 });
+
+test('ใครเฝ้าระวัง stays watch-only while จับตา covers both levels',async()=>{
+ const build=()=>makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'วังใหญ่',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
+  if(u.pathname.endsWith('/visits'))return ok([{id:9,person_id:2,visit_date:'2026-09-10',visit_status:'เฝ้าระวัง'}],'0-0/1');
+  if(u.pathname.endsWith('/person_report_status'))return ok([],'0--1/0');
+  throw new Error('unexpected read '+url);
+ });
+ const app=build();
+ // Deliberate contract: watch-worded questions list the whole monitored
+ // cohort (both levels); only "เฉพาะเฝ้าระวัง" narrows to watch-only.
+ const watch=await request(app).post('/ai/chat').send({message:'ใครเฝ้าระวัง'});
+ assert.equal(watch.status,200);
+ assert.match(watch.body.answer,/เฝ้าระวังหรือเสี่ยงสูง/);
+ assert.equal(watch.body.conversation.topic.level,'all');
+ const watchOnly=await request(app).post('/ai/chat').send({message:'เฉพาะเฝ้าระวังมีกี่คน'});
+ assert.equal(watchOnly.status,200);
+ assert.match(watchOnly.body.answer,/พบ \d+ คนที่บันทึกว่าเฝ้าระวัง/);
+ assert.equal(watchOnly.body.conversation.topic.level,'watch');
+ const both=await request(app).post('/ai/chat').send({message:'ใครถูกจับตา'});
+ assert.equal(both.status,200);
+ assert.match(both.body.answer,/เฝ้าระวังหรือเสี่ยงสูง/);
+ assert.equal(both.body.conversation.topic.level,'all');
+});
+
+test('หน้าก่อนหน้า pages back through chat keeping every condition',async()=>{
+ const calls=[];
+ const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
+  const u=new URL(url);calls.push(u);
+  if(u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status')return ok([{id:2,prefix:'นาง',first_name:'สมหญิง',last_name:'แสงทอง',tambon:'โพนสูง',amphoe:'เมือง',type_id:2,station_id:77,status:'active'}],'0-0/1');
+  if(u.pathname.endsWith('/visits'))return ok([],'0--1/0');
+  if(u.pathname.endsWith('/person_report_status'))return ok([],'0--1/0');
+  throw new Error('unexpected read '+url);
+ });
+ const topic={level:'high',kind:'monitoring_list',page:2,subdistrict:'โพนสูง',window:{from:'2026-08-01',to:'2026-08-31',label:'สิงหาคม'}};
+ const res=await request(app).post('/ai/chat').send({message:'หน้าก่อนหน้า',context:{topic}});
+ assert.equal(res.status,200);
+ assert.equal(res.body.presentation.page,1);
+ assert.equal(res.body.conversation.topic.page,1);
+ // With people in scope the recorded reads must keep the window and area.
+ const visits=calls.find(u=>u.pathname.endsWith('/visits'));
+ assert.ok(visits,'monitoring read should visit visits');
+ assert.deepEqual(visits.searchParams.getAll('visit_date').sort(),['gte.2026-08-01','lte.2026-08-31']);
+ const monitored=calls.find(u=>u.pathname.endsWith('/people')&&u.searchParams.get('select')==='id,prefix,first_name,last_name,tambon,amphoe,type_id,station_id,status');
+ assert.equal(monitored.searchParams.get('tambon'),'ilike.*โพนสูง*');
+ // Previous from page 1 stays on page 1 instead of going negative.
+ const again=await request(app).post('/ai/chat').send({message:'หน้าก่อนหน้า',context:{topic:res.body.conversation.topic}});
+ assert.equal(again.status,200);
+ assert.equal(again.body.presentation.page,1);
+});
+
+test('pending period question keeps multi-area text without swallowing labels',async()=>{
+ const app=makeApp({role:'officer',stationId:77},async(url)=>{
+  const u=new URL(url);
+  if(u.pathname.endsWith('/people_type'))return ok([{type_id:1}],'0-0/1');
+  if(u.pathname.endsWith('/people')){
+   assert.equal(u.searchParams.get('tambon'),'ilike.*โพนสูง*');
+   assert.equal(u.searchParams.get('amphoe'),'ilike.*เมือง*');
+   return ok([{id:1,first_name:'ก',last_name:'ทดสอบ',station_id:77,province:'นครพนม',amphoe:'เมือง',tambon:'โพนสูง',type_id:1,status:'active'}],'0-0/1');
+  }
+  throw new Error('unexpected read '+url);
+ });
+ const asked=await request(app).post('/ai/chat').send({message:'ผู้ป่วยตำบลโพนสูงอำเภอเมืองเดือนนี้มีกี่คน'});
+ assert.equal(asked.status,200);
+ assert.equal(asked.body.conversation.topic.pending.type,'period_intent');
+ assert.equal(asked.body.conversation.topic.subdistrict,'โพนสูง');
+ assert.equal(asked.body.conversation.topic.district,'เมือง');
+ // The short reply "1" counts within the same named areas.
+ const counted=await request(app).post('/ai/chat').send({message:'1',context:{topic:asked.body.conversation.topic}});
+ assert.equal(counted.status,200);
+ assert.match(counted.body.answer,/นับจากทะเบียนปัจจุบัน/);
+});

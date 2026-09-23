@@ -7,6 +7,7 @@ const {detectExportIntent,reportRequestFromExport}=require('../ai/exportIntent')
 const {detectVisitPlanIntent}=require('../ai/visitPlanIntent');
 const {writeSummaryPdf,writeSummaryExcel,safeReportRequest}=require('../services/reportService');
 const {createRealVisitPlanTool}=require('../services/realVisitPlanTool');
+const {createRealProvincePeopleTool}=require('../services/realProvincePeopleTool');
 const {writeVisitPlanPdf}=require('../services/visitPlanPdf');
 const fs=require('fs');
 const {parseStationId,hasCrossStationRead,applyPeopleStationScope,personInOwnStation}=require('../services/stationScope');
@@ -303,6 +304,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  const { createRealAiTools } = require('../services/realAiTools');
  const aiTools = createRealAiTools({ url, key, request });
  const readVisitPlan=createRealVisitPlanTool({url,key,request});
+ const readProvincePeople=createRealProvincePeopleTool({url,key,request});
  async function rows(req,table,params) {
   let response;
   try { response=await request(`${url}/rest/v1/${table}?${params}`,{headers:{apikey:key,Authorization:`Bearer ${req.realToken}`,Prefer:'count=exact'},signal:AbortSignal.timeout(15000)}); }
@@ -315,8 +317,14 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  }
  async function search(req,filters={},page=1,aggregate=false,pageSize=20,allowFuzzy=true) {
   const size=Math.min(50,Math.max(1,Number(pageSize)||20));
+  // A province list must follow the registered province of the person, just
+  // like the primary registry. This caller-bound RPC also audits the read.
+  if(filters.province&&!filters.station&&!filters.district&&!filters.subdistrict
+     &&!filters.query&&!filters.search&&!filters.status&&!filters.person_id
+     &&!(filters.exclude||[]).length&&!aggregate){
+   return readProvincePeople(req,{province:filters.province,personType:filters.person_type||null,page,pageSize:size});
+  }
   let fuzzyApplied=null;
-  let provinceStationIds=null;
   const p=new URLSearchParams({select:'id,first_name,last_name,station_id,province,amphoe,tambon,type_id,status',order:'first_name.asc,id.asc',limit:String(size),offset:String((page-1)*size)});
   applyPeopleStationScope(req.user,p);
   const clean=v=>String(v).replace(/[%*(),]/g,'').slice(0,100);
@@ -331,16 +339,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(filters.query||filters.search)p.set('or',`(first_name.ilike.*${clean(filters.query||filters.search)}*,last_name.ilike.*${clean(filters.query||filters.search)}*)`);
   if(filters.status)throw new Error('การแปลสถานะทะเบียนจริงยังไม่พร้อม กรุณาค้นด้วยชื่อหรือพื้นที่');
   if(filters.province){
-   // Province names are resolved against stations.province — the same source
-   // the audited aggregate uses — and applied as a station filter.  Matching
-   // on free-text people.province made province-scoped lists and reports come
-   // back silently empty whenever the stored text differed from the request.
-   const scopedId=applyPeopleStationScope(req.user,new URLSearchParams());
-   const st=await rows(req,'stations',new URLSearchParams({select:'station_id',province:`eq.${clean(filters.province)}`,limit:'1000'}));
-   const ids=st.data.map(x=>Number(x.station_id)).filter(id=>scopedId? id===scopedId : (hasCrossStationRead(req.user)||req.user.role==='admin'));
-   if(!ids.length)return {data:[],total:0};
-   provinceStationIds=ids;
-   p.set('station_id', scopedId ? `eq.${scopedId}` : `in.(${ids.join(',')})`);
+   p.set('province',`eq.${clean(filters.province)}`);
   }
   if(filters.station){
    const own=hasCrossStationRead(req.user)?null:parseStationId(req.user.stationId);
@@ -361,7 +360,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     const all=await rows(req,'stations',catalogueParams);
     const allowed=all.data.filter(row=>{
      const id=Number(row.station_id);
-     return (own ? id===own : (hasCrossStationRead(req.user)||req.user.role==='admin')) && (!provinceStationIds||provinceStationIds.includes(id));
+     return own ? id===own : (hasCrossStationRead(req.user)||req.user.role==='admin');
     });
     const matches=matchPlaceNames(filters.station,allowed.map(row=>String(row.station_name||'').trim()).filter(Boolean));
     if(matches.length===1){
@@ -372,10 +371,6 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     } else if(matches.length>1)throw stationChoicesError(filters.station,matches);
    }
    if(!ids.length){const error=new Error(`ไม่พบชื่อ สภ. “${filters.station}” กรุณาตรวจสอบชื่อและลองใหม่`);error.code='REAL_LOCATION_NOT_FOUND';throw error;}
-   if(provinceStationIds){
-    ids=ids.filter(id=>provinceStationIds.includes(id));
-    if(!ids.length)return {data:[],total:0};
-   }
    if(!own&&ids.length>1){const error=new Error(`พบชื่อ สภ. “${filters.station}” มากกว่าหนึ่งแห่ง กรุณาระบุจังหวัดเพิ่ม`);error.code='REAL_LOCATION_AMBIGUOUS';throw error;}
    p.set('station_id', own ? `eq.${own}` : `in.(${ids.join(',')})`);
   }
@@ -746,6 +741,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  // arguments; the registry read applies the station scope itself.
  async function monitoringStationIds(req,area={}){
   if(!area.province&&!area.station)return undefined;
+  if(area.province&&!area.station&&hasCrossStationRead(req.user))return undefined;
   if(!hasCrossStationRead(req.user)){
    const own=parseStationId(req.user.stationId);
    if(own&&area.station&&req.user.stationName&&!matchPlaceNames(area.station,[req.user.stationName]).length)return [];
@@ -763,14 +759,27 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   return catalogue.data.filter(row=>String(row.station_name||'').trim()===matches[0]).map(row=>Number(row.station_id)).filter(Number.isSafeInteger);
  }
  async function runMonitoringAnswer(req,{level,personType,area={},window=null,exclude=[],page=1}){
-  const stationIds=await monitoringStationIds(req,area);
-  const result=await registry.listRecordedMonitoring(req,{level,personType,page,
-   ...(stationIds!==undefined?{stationIds}:{}),
-   ...(area.district?{district:area.district}:{}),...(area.subdistrict?{subdistrict:area.subdistrict}:{}),
-   ...(window?{from:window.from,to:window.to}:{}),
-   ...(exclude.length?{exclude}:{})});
+  let result;
+  if(area.province&&!area.station&&!area.district&&!area.subdistrict&&!window&&!exclude.length){
+   const found=await readProvincePeople(req,{province:area.province,personType:personType||null,level:level==='all'?'risk':level,page});
+   result={total:found.total,page:found.page,pageSize:found.pageSize,
+    asOf:new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Bangkok',dateStyle:'short',timeStyle:'short'}).format(new Date()),
+    scope:{stationName:null,district:null,province:area.province},
+    items:found.data.map(person=>({person_id:person.id,full_name:`${person.prefix||''}${person.first_name||''} ${person.last_name||''}`.trim(),
+     person_type:person.person_type,subdistrict:person.tambon||'',district:person.amphoe||'',province:person.province,
+     station_name:person.station_name||null,level:person.risk_level==='high'?'เสี่ยงสูง':'เฝ้าระวัง',
+     latestVisit:person.last_visit_date?{visit_date:person.last_visit_date}:null}))};
+  }else{
+   const stationIds=await monitoringStationIds(req,area);
+   result=await registry.listRecordedMonitoring(req,{level,personType,page,
+    ...(stationIds!==undefined?{stationIds}:{}),
+    ...(area.province?{province:area.province}:{}),
+    ...(area.district?{district:area.district}:{}),...(area.subdistrict?{subdistrict:area.subdistrict}:{}),
+    ...(window?{from:window.from,to:window.to}:{}),
+    ...(exclude.length?{exclude}:{})});
+  }
   result.appliedArea=area;
-  const items=result.items.map(item=>({person_id:item.person_id,full_name:item.full_name,subdistrict:item.subdistrict,district:item.district,province:item.province||null,station_name:item.station_name||null,person_type:personType||null,level:item.level||null}));
+  const items=result.items.map(item=>({person_id:item.person_id,full_name:item.full_name,subdistrict:item.subdistrict,district:item.district,province:item.province||null,station_name:item.station_name||null,person_type:personType||item.person_type||null,level:item.level||null}));
   const excludeNote=exclude.length?` (ไม่รวม${exclude.map(filter=>filter.label).join(' ')})`:'';
   const areaNote=[area.station?`สภ.${String(area.station).replace(/^สภ\.?\s*/u,'')}`:null,area.province?`จังหวัด${area.province}`:null].filter(Boolean).join(' • ');
   const answer=registry.formatMonitoringList(result,level,{windowLabel:window?.label})+(areaNote?`\nเงื่อนไขพื้นที่: ${areaNote}`:'')+excludeNote;
@@ -1032,7 +1041,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
      }
      const filters={...(t.person_type?{person_type:t.person_type}:{}),...(t.province?{province:t.province}:{}),...(t.district?{district:t.district}:{}),...(t.subdistrict?{subdistrict:t.subdistrict}:{}),...(t.station?{station:t.station}:{}),...(t.exclude?.length?{exclude:t.exclude}:{})};
      const result=await search(req,filters,1);
-     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null}));
+     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:p.station_name||(Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null)}));
      const topic=sanitizeTopic({...t,kind:'people_list',page:1});
      const excludeNote=t.exclude?.length?` (ไม่รวม${t.exclude.map(filter=>filter.label).join(' ')})`:'';
      return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา${excludeNote}`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:1,pageSize:20,filters:{person_type:t.person_type||null},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page:1}))}});
@@ -1060,7 +1069,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
      const areaLabel=areaParts.length?` ในพื้นที่ ${areaParts.join(' ')}`:'';
      const excludeNote=t.exclude?.length?` (ไม่รวม${t.exclude.map(filter=>filter.label).join(' ')})`:'';
      if(continuation.wantList){
-      const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:type,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null}));
+      const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:type,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:p.station_name||(Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null)}));
       const topic=sanitizeTopic({...t,person_type:type,kind:'people_list',page:1});
       return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา${excludeNote}`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:1,pageSize:20,filters:{person_type:type},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page:1}))}});
      }
@@ -1111,7 +1120,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
      }
      const filters={...(t.person_type?{person_type:t.person_type}:{}),...(t.province?{province:t.province}:{}),...(t.district?{district:t.district}:{}),...(t.subdistrict?{subdistrict:t.subdistrict}:{}),...(t.station?{station:t.station}:{}),...(t.exclude?.length?{exclude:t.exclude}:{}),...areaPatch};
      const result=await search(req,filters,1);
-     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null}));
+     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:p.station_name||(Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null)}));
      const topic=sanitizeTopic({...t,...areaPatch,page:1});
      return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:1,pageSize:20,filters:{person_type:t.person_type||null},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page:1}))}});
     }catch(e){return sendFailure(e);}
@@ -1126,7 +1135,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
      }
      const filters={...(t.person_type?{person_type:t.person_type}:{}),...(t.province?{province:t.province}:{}),...(t.district?{district:t.district}:{}),...(t.subdistrict?{subdistrict:t.subdistrict}:{}),...(t.station?{station:t.station}:{}),...(t.exclude?.length?{exclude:t.exclude}:{})};
      const result=await search(req,filters,page);
-     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null}));
+     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:p.station_name||(Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null)}));
      const topic=sanitizeTopic({...t,page});
      return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา (หน้า ${page})`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page,pageSize:20,filters:{person_type:t.person_type||null},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page}))}});
     }catch(e){return sendFailure(e);}
@@ -1336,7 +1345,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    const ownStationId=countOnly?null:parseStationId(req.user.stationId);
    const stationNames=new Map();
    if(ownStationId&&req.user.stationName)stationNames.set(ownStationId,String(req.user.stationName).trim());
-   const unknownStationIds=countOnly?[]:[...new Set(result.data.map(p=>Number(p.station_id)).filter(id=>Number.isFinite(id)&&!stationNames.has(id)))];
+   for(const person of result.data)if(person.station_name&&Number.isSafeInteger(Number(person.station_id)))stationNames.set(Number(person.station_id),String(person.station_name).trim());
+   const unknownStationIds=countOnly?[]:[...new Set(result.data.map(p=>Number(p.station_id)).filter(id=>Number.isSafeInteger(id)&&id>0&&!stationNames.has(id)))];
    if(unknownStationIds.length){
     const st=await rows(req,'stations',new URLSearchParams({select:'station_id,station_name',station_id:`in.(${unknownStationIds.join(',')})`,limit:'1000'}));
     for(const row of st.data)stationNames.set(Number(row.station_id),String(row.station_name||'').trim());
@@ -1398,9 +1408,23 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(filters.kind==='monitoring_list'||filters.level==='high'||filters.level==='watch'){
    // Same path as the chat answer: recorded monitoring, windowed when the
    // conversation carried an explicit period, with the same area filters.
+   if(filters.province&&!filters.station&&!filters.district&&!filters.subdistrict&&!filters.window&&!(filters.exclude||[]).length){
+    const wanted=filters.level==='all'?'risk':filters.level;
+    const first=await readProvincePeople(req,{province:filters.province,personType:filters.person_type||null,level:wanted,page:1,pageSize:100});
+    const people=[...first.data];
+    for(let page=2;people.length<Math.min(first.total,200);page++){
+     const next=await readProvincePeople(req,{province:filters.province,personType:filters.person_type||null,level:wanted,page,pageSize:100});
+     if(next.total!==first.total||!next.data.length){const error=new Error('ข้อมูลเปลี่ยนระหว่างนับ');error.code='REAL_DATA_UNVERIFIABLE';throw error;}
+     people.push(...next.data);
+    }
+    return {filters,includeCount:true,includeList:true,total:first.total,
+     counts:[{label:filters.level==='high'?'เสี่ยงสูง':filters.level==='watch'?'เฝ้าระวัง':'เฝ้าระวังหรือเสี่ยงสูง',count:first.total}],
+     items:people.slice(0,200).map(person=>({full_name:`${person.prefix||''}${person.first_name||''} ${person.last_name||''}`.trim(),person_type:person.person_type,level:person.risk_level==='high'?'เสี่ยงสูง':'เฝ้าระวัง',subdistrict:person.tambon||'',district:person.amphoe||''}))};
+   }
    const stationIds=await monitoringStationIds(req,filters);
    const listed=await registry.listRecordedMonitoring(req,{level:filters.level,personType:filters.person_type,page:1,pageSize:200,
     ...(stationIds!==undefined?{stationIds}:{}),
+    ...(filters.province?{province:filters.province}:{}),
     ...(filters.district?{district:filters.district}:{}),...(filters.subdistrict?{subdistrict:filters.subdistrict}:{}),
     ...(filters.window?{from:filters.window.from,to:filters.window.to}:{}),
     ...(filters.exclude?.length?{exclude:filters.exclude}:{})});

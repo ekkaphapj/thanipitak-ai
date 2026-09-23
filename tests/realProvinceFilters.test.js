@@ -23,8 +23,19 @@ function appWithRegistry(reads) {
     req.realToken = 'verified-session';
     req.user = { role: 'officer', stationId: 202, stationName: 'สภ.บ้านดุง', province: 'อุดรธานี', aiScope: { level: 'all', read_only: true, provinces: ['นครพนม', 'ร้อยเอ็ด', 'อุดรธานี'] } };
     next();
-  }, { url: 'https://example.test', key: 'anon', interpret: async () => { throw new Error('model unavailable'); }, request: async url => {
-    const u = new URL(url); reads.push(u);
+  }, { url: 'https://example.test', key: 'anon', interpret: async () => { throw new Error('model unavailable'); }, request: async (url, options) => {
+    const u = new URL(url); u.body = options?.body ? JSON.parse(options.body) : null; reads.push(u);
+    if (u.pathname.endsWith('/rpc/ai_people_province_list')) {
+      const body = u.body;
+      let found = people.filter(row => row.province === body.p_province);
+      if (body.p_person_type === 'drug_user') found = found.filter(row => [2, 3].includes(row.type_id));
+      if (body.p_level !== 'all') found = found.filter(row => body.p_level === 'high' || body.p_level === 'risk');
+      const start = (body.p_page - 1) * body.p_page_size;
+      return { ok: true, json: async () => ({ status: 'ok', province: body.p_province, person_type: body.p_person_type,
+        level: body.p_level, total: found.length, page: body.p_page, page_size: body.p_page_size,
+        items: found.slice(start, start + body.p_page_size).map(row => ({ ...row, station_name: stations.find(s => s.station_id === row.station_id)?.station_name || null,
+          person_type: [2, 3].includes(row.type_id) ? 'drug_user' : 'psychiatric', risk_level: 'high', last_visit_date: '2026-09-20' })) }) };
+    }
     if (u.pathname.endsWith('/stations')) {
       let found = stations;
       const province = u.searchParams.get('province');
@@ -65,9 +76,9 @@ test('ขอรายชื่อผู้เสพ จังหวัดนค�
   assert.equal(res.body.presentation?.type, 'person_list');
   assert.deepEqual(res.body.presentation.items.map(item => item.person_id), [11]);
   assert.equal(res.body.conversation.topic.province, 'นครพนม');
-  const list = reads.find(u => u.pathname.endsWith('/people'));
-  assert.equal(list.searchParams.get('station_id'), 'in.(101)');
-  assert.equal(list.searchParams.get('type_id'), 'in.(2,3)');
+  const list = reads.find(u => u.pathname.endsWith('/rpc/ai_people_province_list'));
+  assert.equal(list.body.p_province, 'นครพนม');
+  assert.equal(list.body.p_person_type, 'drug_user');
 });
 
 test('ขอรายชื่อ ผู้เสพที่เสี่ยงสูงของจังหวัดร้อยเอ็ด keeps category and province on the monitoring path', async () => {
@@ -76,9 +87,10 @@ test('ขอรายชื่อ ผู้เสพที่เสี่ยง�
   assert.equal(res.status, 200);
   assert.deepEqual(res.body.presentation?.items.map(item => item.person_id), [33]);
   assert.equal(res.body.conversation.topic.province, 'ร้อยเอ็ด');
-  const list = reads.find(u => u.pathname.endsWith('/people'));
-  assert.equal(list.searchParams.get('station_id'), 'in.(301)');
-  assert.equal(list.searchParams.get('type_id'), 'in.(2,3)');
+  const list = reads.find(u => u.pathname.endsWith('/rpc/ai_people_province_list'));
+  assert.equal(list.body.p_province, 'ร้อยเอ็ด');
+  assert.equal(list.body.p_person_type, 'drug_user');
+  assert.equal(list.body.p_level, 'high');
 });
 
 test('Nakhon Phanom high risk never includes Udon rows and keeps province on pagination', async () => {
@@ -91,7 +103,7 @@ test('Nakhon Phanom high risk never includes Udon rows and keeps province on pag
   const next = await request(app).post('/ai/chat').send({ message: 'หน้าถัดไป', context: { topic: first.body.conversation.topic } });
   assert.equal(next.status, 200);
   assert.equal(next.body.presentation?.filters.province, 'นครพนม');
-  assert.ok(reads.filter(u => u.pathname.endsWith('/people')).every(u => u.searchParams.get('station_id') === 'in.(101)'));
+  assert.ok(reads.filter(u => u.pathname.endsWith('/rpc/ai_people_province_list')).every(u => u.body.p_province === 'นครพนม'));
 });
 
 test('explicit province in a high-risk request overrides the previous conversation province', async () => {
@@ -100,7 +112,7 @@ test('explicit province in a high-risk request overrides the previous conversati
   const res = await request(app).post('/ai/chat').send({ message: 'ขอรายชื่อผู้ที่เสี่ยงสูงของจังหวัดนครพนม', context: { topic: { province: 'ร้อยเอ็ด' } } });
   assert.equal(res.status, 200);
   assert.deepEqual(res.body.presentation?.items.map(item => item.person_id), [11]);
-  assert.ok(reads.filter(u => u.pathname.endsWith('/people')).every(u => u.searchParams.get('station_id') === 'in.(101)'));
+  assert.ok(reads.filter(u => u.pathname.endsWith('/rpc/ai_people_province_list')).every(u => u.body.p_province === 'นครพนม'));
 });
 
 test('PDF follow-up on a recent province list proceeds without confirmation', async () => {

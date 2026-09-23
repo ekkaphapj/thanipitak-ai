@@ -161,7 +161,7 @@ function createRealRegistryRead(rows) {
     return null;
   }
 
-  async function listRecordedMonitoring(req, { level, personType, district, subdistrict, stationIds, page = 1, pageSize = 20, from, to, exclude } = {}) {
+  async function listRecordedMonitoring(req, { level, personType, province, district, subdistrict, stationIds, page = 1, pageSize = 20, from, to, exclude } = {}) {
     const peopleParams = new URLSearchParams({
       select: 'id,prefix,first_name,last_name,tambon,amphoe,province,type_id,station_id,status',
       order: 'first_name.asc,id.asc',
@@ -169,6 +169,7 @@ function createRealRegistryRead(rows) {
     });
     const scopedStationId=applyPeopleStationScope(req.user, peopleParams);
     const clean=value=>String(value||'').replace(/[%*(),]/g,'').slice(0,100);
+    if(province)peopleParams.set('province',`eq.${clean(province)}`);
     const narrowedStationIds=[...new Set((stationIds||[]).map(Number).filter(Number.isSafeInteger))];
     if(stationIds!==undefined){
       const allowedIds=scopedStationId?narrowedStationIds.filter(id=>id===scopedStationId):narrowedStationIds;

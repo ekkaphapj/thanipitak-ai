@@ -8,55 +8,44 @@ function makeApp(user,mockRequest,overrides={}){
  return app;
 }
 
-test('province people lists resolve through stations so stored text mismatch cannot empty them',async()=>{
+test('audited province lists use the verified person province and station fallback for legacy text',async()=>{
  const calls=[];
- const app=makeApp({role:'admin',stationId:null},async(url)=>{
-  const u=new URL(url);calls.push(u);
-  if(u.pathname.endsWith('/stations')&&u.searchParams.get('province')==='eq.ร้อยเอ็ด'){
-   return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[{station_id:201},{station_id:202}]};
-  }
-  if(u.pathname.endsWith('/people')){
-   // Registry rows whose stored province text does not match the requested
-   // name: the report must still be filled through the station mapping.
-   return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[
-    {id:1,first_name:'ก',last_name:'ใจดี',station_id:201,province:'รอยเอ็ด',amphoe:'เมือง',tambon:'ค้อ',type_id:1,status:'ปกติ'},
-    {id:2,first_name:'ข',last_name:'ใจดี',station_id:202,province:'',amphoe:'เมือง',tambon:'หนองใหม่',type_id:1,status:'ปกติ'}]};
+ const app=makeApp({role:'admin',stationId:null,aiScope:{level:'all',read_only:true}},async(url,options)=>{
+  const u=new URL(url);calls.push({u,body:JSON.parse(options.body)});
+  if(u.pathname.endsWith('/rpc/ai_people_province_list')){
+   return {ok:true,json:async()=>({status:'ok',province:'ร้อยเอ็ด',person_type:null,level:'all',total:2,page:1,page_size:20,items:[
+    {id:1,first_name:'ก',last_name:'ใจดี',station_id:201,station_name:'สภ.เมือง',province:'ร้อยเอ็ด',amphoe:'เมือง',tambon:'ค้อ',person_type:'psychiatric',risk_level:'normal'},
+    {id:2,first_name:'ข',last_name:'ใจดี',station_id:202,station_name:'สภ.หนองใหม่',province:'ร้อยเอ็ด',amphoe:'เมือง',tambon:'หนองใหม่',person_type:'psychiatric',risk_level:'normal'}]})};
   }
   throw new Error('unexpected read '+url);
  });
  const res=await request(app).get('/people?province='+encodeURIComponent('ร้อยเอ็ด'));
  assert.equal(res.status,200);
  assert.equal(res.body.data.length,2);
- const peopleCall=calls.find(u=>u.pathname.endsWith('/people'));
- assert.equal(peopleCall.searchParams.get('station_id'),'in.(201,202)');
- assert.equal(peopleCall.searchParams.get('province'),null);
+ const peopleCall=calls.find(call=>call.u.pathname.endsWith('/rpc/ai_people_province_list'));
+ assert.equal(peopleCall.body.p_province,'ร้อยเอ็ด');
+ assert.equal(peopleCall.body.p_station_id,undefined);
 });
 
-test('an own-station account asking another province gets an explicit empty result, never other stations',async()=>{
+test('an own-station account asking another province is denied by the audited tool',async()=>{
  const app=makeApp({role:'officer',stationId:77},async(url)=>{
   const u=new URL(url);
-  if(u.pathname.endsWith('/stations'))return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[{station_id:201},{station_id:202}]};
-  if(u.pathname.endsWith('/people'))throw new Error('must not query people outside the own station');
+  if(u.pathname.endsWith('/rpc/ai_people_province_list'))return {ok:false,status:403};
   throw new Error('unexpected read '+url);
  });
  const res=await request(app).get('/people?province='+encodeURIComponent('ร้อยเอ็ด'));
- assert.equal(res.status,200);
- assert.equal(res.body.data.length,0);
- assert.equal(res.body.meta.total,0);
+ assert.equal(res.status,403);
+ assert.equal(res.body.code,'REAL_ACCESS_DENIED');
 });
 
 test('a server-verified cross-province scope lists the chosen province, not the profile station',async()=>{
  const calls=[];
- const app=makeApp({role:'officer',stationId:77,province:'อุดรธานี',aiScope:{level:'all',read_only:true,provinces:['อุดรธานี','นครพนม']}},async(url)=>{
-  const u=new URL(url);calls.push(u);
-  if(u.pathname.endsWith('/stations')&&u.searchParams.get('province')==='eq.นครพนม'){
-   return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[{station_id:201},{station_id:202}]};
-  }
-  if(u.pathname.endsWith('/people')){
-   return {ok:true,headers:new Headers({'content-range':'0-1/2'}),json:async()=>[
-    {id:1,first_name:'ก',last_name:'นครพนม',station_id:201,province:'นครพนม',amphoe:'เมือง',tambon:'ในเมือง',type_id:1,status:'active'},
-    {id:2,first_name:'ข',last_name:'นครพนม',station_id:202,province:'นครพนม',amphoe:'ท่าอุเทน',tambon:'พนม',type_id:1,status:'active'},
-   ]};
+ const app=makeApp({role:'officer',stationId:77,province:'อุดรธานี',aiScope:{level:'all',read_only:true,provinces:['อุดรธานี','นครพนม']}},async(url,options)=>{
+  const u=new URL(url);calls.push({u,body:JSON.parse(options.body)});
+  if(u.pathname.endsWith('/rpc/ai_people_province_list')){
+   return {ok:true,json:async()=>({status:'ok',province:'นครพนม',person_type:null,level:'all',total:2,page:1,page_size:20,items:[
+    {id:1,first_name:'ก',last_name:'นครพนม',station_id:201,station_name:'สภ.เมือง',province:'นครพนม',amphoe:'เมือง',tambon:'ในเมือง',person_type:'psychiatric',risk_level:'normal'},
+    {id:2,first_name:'ข',last_name:'นครพนม',station_id:null,station_name:null,province:'นครพนม',amphoe:'ท่าอุเทน',tambon:'พนม',person_type:'psychiatric',risk_level:'normal'}]})};
   }
   throw new Error('unexpected read '+url);
  });
@@ -67,8 +56,9 @@ test('a server-verified cross-province scope lists the chosen province, not the 
  assert.equal(listed.status,200);
  assert.equal(listed.body.presentation.type,'person_list');
  assert.equal(listed.body.presentation.total,2);
- const people=calls.find((u)=>u.pathname.endsWith('/people'));
- assert.equal(people.searchParams.get('station_id'),'in.(201,202)');
+ const people=calls.find(call=>call.u.pathname.endsWith('/rpc/ai_people_province_list'));
+ assert.equal(people.body.p_province,'นครพนม');
+ assert.equal(people.body.p_station_id,undefined);
 });
 
 test('the confirmed aggregate PDF asks the audited tool for the requested province and uses its rows',async()=>{

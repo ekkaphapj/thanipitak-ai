@@ -959,23 +959,42 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   // Offer the province's stations from the same scoped catalogue the registry
   // reads use; choosing one re-sends a clean canonical command, and the choice
   // only names a station — authorization still happens on the new request.
-  async function stationChoicesPresentation(req,province,originalMessage){
-   try{
-    const catalogue=await rows(req,'stations',new URLSearchParams({select:'station_id,station_name',province:`eq.${province}`,limit:'1000'}));
-    const own=hasCrossStationRead(req.user)?null:parseStationId(req.user.stationId);
-    const names=catalogue.data.map(row=>({id:Number(row.station_id),name:String(row.station_name||'').trim()}))
-     .filter(row=>Number.isSafeInteger(row.id)&&row.name&&(own?row.id===own:true));
-    if(!names.length)return null;
-    const command=name=>`ขอแผนการตรวจเยี่ยม สภ.${name} จังหวัด${province}`;
-    return {type:'place_choices',field:'station',choiceLabel:'ตัวเลือก สภ.',replaceText:originalMessage,originalMessage,
-     choices:names.map((row,index)=>({index:index+1,name:row.name,replaceText:originalMessage,replaceWith:command(row.name),display:`สภ.${row.name}`,filters:{station:row.name}}))};
-   }catch(_){return null;}
+  async function stationCatalogue(req,province){
+   const catalogue=await rows(req,'stations',new URLSearchParams({select:'station_id,station_name',province:`eq.${province}`,limit:'1000'}));
+   const own=hasCrossStationRead(req.user)?null:parseStationId(req.user.stationId);
+   return catalogue.data.map(row=>({id:Number(row.station_id),name:String(row.station_name||'').trim()}))
+    .filter(row=>Number.isSafeInteger(row.id)&&row.name&&(own?row.id===own:true));
   }
-  const planResultResponse=async result=>{
+  // Registry station names already carry the สภ./ภ.จว. prefix; never double it.
+  const stationDisplay=name=>/^(?:สภ\.|ภ\.จว\.)/u.test(name)?name:`สภ.${name}`;
+  function stationChoicesPresentation(names,province,originalMessage){
+   if(!names||!names.length)return null;
+   const command=name=>`ขอแผนการตรวจเยี่ยม ${stationDisplay(name)} จังหวัด${province}`;
+   return {type:'place_choices',field:'station',choiceLabel:'ตัวเลือก สภ.',replaceText:originalMessage,originalMessage,
+    choices:names.map((row,index)=>({index:index+1,name:row.name,replaceText:originalMessage,replaceWith:command(row.name),display:stationDisplay(row.name),filters:{station:row.name}}))};
+  }
+  const planResultResponse=async(result,fuzzyStation)=>{
    if(result.status!=='ok'){
     const askProvince=explicitProvince||null;
-    if(['station_not_found','station_ambiguous','station_required'].includes(result.status)&&askProvince){
-     const choices=await stationChoicesPresentation(req,askProvince,message);
+    if(askProvince&&['station_not_found','station_ambiguous','station_required'].includes(result.status)){
+     let catalogue=null;
+     try{catalogue=await stationCatalogue(req,askProvince);}catch(_){catalogue=null;}
+     // A garbled spoken station name often only lost tone marks and spacing
+     // ("ทา อู เท น" → ท่าอุเทน). Resolve it against the same scoped catalogue:
+     // one close candidate retries directly, several narrow the choice list.
+     let candidates=catalogue;
+     if(catalogue&&result.status!=='station_required'&&visitPlanIntent&&visitPlanIntent.station){
+      const matches=matchPlaceNames(visitPlanIntent.station,catalogue.map(row=>row.name));
+      if(result.status==='station_not_found'&&matches.length===1){
+       try{
+        const retry=await readVisitPlan(req,{station:matches[0],province:askProvince});
+        if(retry.status==='ok')return planResultResponse(retry,{field:'station',from:visitPlanIntent.station,to:matches[0]});
+       }catch(_){/* retry failed; offer the choice list instead */}
+      } else if(matches.length>1){
+       candidates=catalogue.filter(row=>matches.includes(row.name));
+      }
+     }
+     const choices=catalogue?stationChoicesPresentation(candidates,askProvince,message):null;
      if(choices)return respond({answer:`ไม่สามารถระบุ สภ. ในจังหวัด${askProvince} จากคำสั่งได้ กรุณาเลือก สภ. โดยการพูดลำดับของ สภ. หรือกดเลือกที่ สภ. นั้น`,grounded:true,dataSource:'real',presentation:choices,conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
     }
     const answer={station_not_found:'ไม่พบ สภ. ที่ระบุ กรุณาตรวจสอบชื่อ สภ. และจังหวัด',station_ambiguous:'พบชื่อ สภ. ซ้ำ กรุณาระบุจังหวัดและชื่อ สภ. ให้ชัดเจน',station_required:'กรุณาระบุ สภ. ที่ต้องการจัดแผนในจังหวัดนี้'}[result.status]||'ไม่สามารถจัดแผนการตรวจเยี่ยมได้';
@@ -986,7 +1005,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    const title=`แผนการตรวจเยี่ยม ${result.station.station_name} • ภ.จว.${result.station.province}`;
    const answer=`${title}\n${counts}\nต้องไปตรวจเยี่ยมตามลำดับ ${result.totalDue} คน (แสดงหน้า ${result.page})`;
    const topic=sanitizeTopic({report_kind:'visit_plan',station:result.station.station_name,province:result.station.province,page:result.page});
-   return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai_visit_plan'}],presentation:{type:'visit_plan',...result},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai_visit_plan'}],presentation:{type:'visit_plan',...result},conversation:{topic},meta:{...(fuzzyStation?{fuzzy:fuzzyStation}:{}),fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   };
   const planExport=incomingTopic?.report_kind==='visit_plan'?detectExportIntent(routingMessage):null;
   if(planExport){
@@ -1004,7 +1023,9 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if(visitPlanIntent.missingStation){
     const askProvince=explicitProvince||null;
     if(askProvince){
-     const choices=await stationChoicesPresentation(req,askProvince,message);
+     let catalogue=null;
+     try{catalogue=await stationCatalogue(req,askProvince);}catch(_){catalogue=null;}
+     const choices=catalogue?stationChoicesPresentation(catalogue,askProvince,message):null;
      if(choices)return respond({answer:`ไม่สามารถระบุ สภ. ในจังหวัด${askProvince} จากคำสั่งได้ กรุณาเลือก สภ. โดยการพูดลำดับของ สภ. หรือกดเลือกที่ สภ. นั้น`,grounded:true,dataSource:'real',presentation:choices,conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
     }
     return respond({answer:'ได้ยินชื่อ สภ. ไม่ชัด กรุณาระบุอีกครั้ง เช่น “ขอแผนการตรวจเยี่ยม สภ.กลางใหญ่ จังหวัดอุดรธานี”',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});

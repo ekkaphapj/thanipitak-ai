@@ -61,8 +61,9 @@ test('unclear spoken station without a province does not silently fall back to c
   assert.ok(detectVisitPlanIntent('สรุปแผนการตรวจเยี่ยม'));
 });
 
-test('garbled spoken station is repaired and an unclear name offers the province station list', async () => {
+test('a garbled spoken station name is fuzzy-resolved to the province station and reported', async () => {
   const rpc = [];
+  const stations = [{ station_id: 71, station_name: 'สภ.ท่าอุเทน' }, { station_id: 72, station_name: 'สภ.นาแก' }];
   const app = makeApp(async (url, options) => {
     const u = new URL(url);
     if (u.pathname.endsWith('/rpc/ai_visit_plan')) {
@@ -72,26 +73,57 @@ test('garbled spoken station is repaired and an unclear name offers the province
       return { ok: true, json: async () => ({ ...plan(), station: { station_id: 71, station_name: 'สภ.ท่าอุเทน', province: 'นครพนม' } }) };
     }
     if (u.pathname.endsWith('/stations')) {
-      const stations = [{ station_id: 71, station_name: 'ท่าอุเทน' }, { station_id: 72, station_name: 'นาแก' }];
       return { ok: true, headers: new Headers({ 'content-range': `0-${stations.length - 1}/${stations.length}` }), json: async () => stations };
     }
     throw new Error(`unexpected read ${url}`);
   });
-  const garbled = await request(app).post('/ai/chat').send({ message: 'ขอแผนการตรวจเยี่ยมของ ส พอร์ ทา อู เท น จังหวัดนครพนม' });
-  assert.equal(garbled.status, 200);
-  assert.equal(garbled.body.presentation.type, 'place_choices');
-  assert.equal(garbled.body.presentation.choiceLabel, 'ตัวเลือก สภ.');
-  assert.match(garbled.body.answer, /กรุณาเลือก สภ\. โดยการพูดลำดับของ สภ\. หรือกดเลือกที่ สภ\. นั้น/);
-  assert.deepEqual(garbled.body.presentation.choices.map(choice => choice.display), ['สภ.ท่าอุเทน', 'สภ.นาแก']);
-  assert.equal(garbled.body.presentation.choices[0].replaceWith, 'ขอแผนการตรวจเยี่ยม สภ.ท่าอุเทน จังหวัดนครพนม');
-  assert.equal(garbled.body.presentation.originalMessage, 'ขอแผนการตรวจเยี่ยมของ สภ.ทา อู เท น จังหวัดนครพนม');
-  assert.equal(rpc.length, 1);
-  assert.equal(rpc[0].p_station_name, 'ทา อู เท น');
-  assert.equal(rpc[0].p_province, 'นครพนม');
-  const chosen = await request(app).post('/ai/chat').send({ message: garbled.body.presentation.choices[0].replaceWith });
-  assert.equal(chosen.status, 200);
-  assert.equal(chosen.body.presentation.type, 'visit_plan');
-  assert.match(chosen.body.answer, /^แผนการตรวจเยี่ยม สภ\.ท่าอุเทน • ภ\.จว\.นครพนม/);
+  const res = await request(app).post('/ai/chat').send({ message: 'ขอแผนการตรวจเยี่ยมของ ส พอร์ ทา อู เท น จังหวัดนครพนม' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.presentation.type, 'visit_plan');
+  assert.match(res.body.answer, /^แผนการตรวจเยี่ยม สภ\.ท่าอุเทน • ภ\.จว\.นครพนม/);
+  assert.deepEqual(res.body.meta.fuzzy, { field: 'station', from: 'ทา อู เท น', to: 'สภ.ท่าอุเทน' });
+  assert.deepEqual(rpc.map(call => call.p_station_name), ['ทา อู เท น', 'สภ.ท่าอุเทน']);
+  assert.ok(rpc.every(call => call.p_province === 'นครพนม'));
+});
+
+test('a garbled station with several close candidates offers only those stations', async () => {
+  const stations = [
+    { station_id: 71, station_name: 'สภ.หนองบ่อ' },
+    { station_id: 72, station_name: 'สภ.หนองฮี' },
+    { station_id: 73, station_name: 'สภ.นาแก' },
+  ];
+  const app = makeApp(async (url) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/rpc/ai_visit_plan')) return { ok: true, json: async () => ({ status: 'station_not_found' }) };
+    if (u.pathname.endsWith('/stations')) {
+      return { ok: true, headers: new Headers({ 'content-range': `0-${stations.length - 1}/${stations.length}` }), json: async () => stations };
+    }
+    throw new Error(`unexpected read ${url}`);
+  });
+  const res = await request(app).post('/ai/chat').send({ message: 'ขอแผนการตรวจเยี่ยมของ ส พอร์ หนอง จังหวัดนครพนม' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.presentation.type, 'place_choices');
+  assert.deepEqual(res.body.presentation.choices.map(choice => choice.display), ['สภ.หนองบ่อ', 'สภ.หนองฮี']);
+  assert.equal(res.body.presentation.choices[0].replaceWith, 'ขอแผนการตรวจเยี่ยม สภ.หนองบ่อ จังหวัดนครพนม');
+});
+
+test('a garbled station with no close candidate offers the whole province station list', async () => {
+  const stations = [{ station_id: 71, station_name: 'สภ.ท่าอุเทน' }, { station_id: 72, station_name: 'สภ.นาแก' }];
+  const app = makeApp(async (url) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/rpc/ai_visit_plan')) return { ok: true, json: async () => ({ status: 'station_not_found' }) };
+    if (u.pathname.endsWith('/stations')) {
+      return { ok: true, headers: new Headers({ 'content-range': `0-${stations.length - 1}/${stations.length}` }), json: async () => stations };
+    }
+    throw new Error(`unexpected read ${url}`);
+  });
+  const res = await request(app).post('/ai/chat').send({ message: 'ขอแผนการตรวจเยี่ยมของ ส พอร์ กลางใหญ่ จังหวัดนครพนม' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.presentation.type, 'place_choices');
+  assert.equal(res.body.presentation.choiceLabel, 'ตัวเลือก สภ.');
+  assert.match(res.body.answer, /กรุณาเลือก สภ\. โดยการพูดลำดับของ สภ\. หรือกดเลือกที่ สภ\. นั้น/);
+  assert.deepEqual(res.body.presentation.choices.map(choice => choice.display), ['สภ.ท่าอุเทน', 'สภ.นาแก']);
+  assert.equal(res.body.presentation.choices[0].replaceWith, 'ขอแผนการตรวจเยี่ยม สภ.ท่าอุเทน จังหวัดนครพนม');
 });
 
 test('a station cue with no readable name offers the province station list before any plan read', async () => {

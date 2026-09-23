@@ -1038,3 +1038,23 @@ answer dead-ended on “กรุณาระบุ สภ.” with nothing to c
   re-send → plan; cue without a name → list before any plan read). Full
   `npm test`: **442 tests, 25 suites, 0 failures** (mocked Supabase, no live
   model, no real registry).
+
+### Continuation update — 2026-09-23 night (fuzzy visit-plan station resolution)
+
+Follow-up to the station-choices work: a garbled spoken station name is now
+fuzzy-resolved before any list is offered. On a `station_not_found` visit-plan
+result with a named province, the route builds the same scoped station
+catalogue and runs `matchPlaceNames` (placeKey strips spacing, tone marks,
+and the สภ./ภ.จว. prefix, so “ทา อู เท น” ≈ “ท่าอุเทน”):
+
+- exactly one close candidate → the plan is retried with the verified name and
+  the answer carries `meta.fuzzy {field:'station', from, to}`;
+- several close candidates → the `place_choices` list is narrowed to just
+  those stations;
+- no candidate → the whole province station list is offered (unchanged).
+
+Registry station names already carry the สภ. prefix, so choice labels and
+canonical re-send commands never double it. `station_ambiguous` also narrows
+its list through the same matcher; `station_required` (no name spoken) keeps
+the full province list. Full `npm test`: **444 tests, 25 suites, 0 failures**
+(mocked Supabase; no live model, no real registry).

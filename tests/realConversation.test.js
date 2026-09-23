@@ -246,12 +246,16 @@ test('a forged topic can narrow but never widen: station scope stays enforced',a
  assert.equal(peopleRead.searchParams.get('not.station_id'),'in.(1,2,3)');
 });
 
-test('model failure on an incomplete search fails closed with a server error',async()=>{
+test('an incomplete search asks back without the model, and a model failure on a leftover sentence still fails closed',async()=>{
  const app=makeApp({role:'officer',stationId:77},async(url)=>{throw new Error('must not read '+url);},
   {interpret:async()=>{throw new Error('ollama down');}});
- const res=await request(app).post('/ai/chat').send({message:'ค้นหา'});
- assert.equal(res.status,502);
- assert.equal(res.body.code,'REAL_READ_FAILED');
+ const incomplete=await request(app).post('/ai/chat').send({message:'ค้นหา'});
+ assert.equal(incomplete.status,200);
+ assert.match(incomplete.body.answer,/^เงื่อนไขค้นหาไม่สมบูรณ์ กรุณาลองใหม่/);
+ assert.equal(incomplete.body.meta.ollamaCalls,0);
+ const leftover=await request(app).post('/ai/chat').send({message:'ช่วยดูยอดแยกตามหมู่บ้านแบบที่เยอะก่อน'});
+ assert.equal(leftover.status,502);
+ assert.equal(leftover.body.code,'REAL_READ_FAILED');
 });
 
 test('ใครเฝ้าระวัง stays watch-only while จับตา covers both levels',async()=>{

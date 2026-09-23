@@ -1,7 +1,7 @@
 const express=require('express');
-const {detectFastPathIntent}=require('../ai/fastPath');
+const {detectFastPathIntent,extractLookupFilters,SEARCH_INCOMPLETE_ANSWER}=require('../ai/fastPath');
 const {parseSummaryIntent}=require('../services/summaryService');
-const {sanitizeTopic,topicFromIntent,matchPersonType}=require('../ai/conversationTopic');
+const {sanitizeTopic,topicFromIntent,matchPersonType,inheritUnstatedSlots}=require('../ai/conversationTopic');
 const {createRealRegistryRead,monitoringQuestion,selectedReasonFollowup}=require('../services/realRegistryRead');
 const {detectExportIntent,reportRequestFromExport}=require('../ai/exportIntent');
 const {detectVisitPlanIntent}=require('../ai/visitPlanIntent');
@@ -1336,7 +1336,11 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     const dossier=await registry.readDossier(req,personId,found,prepared.timeWindow||{});
     const recorded=registry.formatDossier(dossier,routingMessage);
     const base=recorded||formatSelectedPerson(found.person,found.typeName,found.stationName,routingMessage);
-    const answer=reference?withReferenceDetail(base,dossier,reference):base;
+    // Ordinal answers already include the reason line. A select-button follow-up
+    // keeps the visit-plan topic but has no ordinal reference, so add the same
+    // recorded reasons without a list header. Other topics stay unchanged.
+    const answer=reference?withReferenceDetail(base,dossier,reference)
+     :(incomingTopic?.report_kind==='visit_plan'?`${base}\nต้องตรวจเยี่ยมเพราะ: ${visitReasonLines(dossier).join(' • ')}`:base);
     return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_person_read'}],meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    } catch(e) { return sendFailure(e); }
   }
@@ -1362,6 +1366,9 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    } catch(e){return sendFailure(e);}
   }
   if(intent?.intent==='lookup_clarify')return respond({answer:intent.answer,grounded:false,dataSource:'real',presentation:intent.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  // The same incomplete search asks back immediately on the test path. Do not
+  // send it to the model, and do not replace the conversation topic.
+  if(intent?.intent==='search_incomplete')return respond({answer:SEARCH_INCOMPLETE_ANSWER,grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   if(intent?.intent==='group_persons' && {subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด'}[intent.groupBy]){
    if(!ranking)ranking=[message,{subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด'}[intent.groupBy],alphaOrder?'alpha':explicitCountOrder||'alpha'];
    showAll=intent.showAll||showAll;
@@ -1385,7 +1392,28 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     const pendingTopic=sanitizeTopic({...(selectedTopic||{}),...periodIntentAreas(routingMessage),pending:question.pending});
     return respond({answer:question.answer,grounded:false,dataSource:'real',presentation:question.presentation,conversation:{topic:pendingTopic},meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
    }
-   if((!ranking&&!summary&&!intent)||summary?.intent==='summary_choices'||intent?.intent==='search_incomplete'){
+   if(intent?.intent==='statistics_summary'&&Array.isArray(intent.mentionedTypes)&&intent.mentionedTypes.length>1){
+    // Name each type separately. The single-type regex below would otherwise
+    // keep only the first type written in the sentence.
+    const spoken=extractLookupFilters(routingMessage).filters||{};
+    const area={};
+    for(const key of ['province','district','subdistrict','station'])if(spoken[key])area[key]=spoken[key];
+    if(excludeFilters.length)area.exclude=excludeFilters;
+    const parts=[];
+    for(const type of intent.mentionedTypes){
+     if(!TYPE_LABELS[type])continue;
+     const result=await search(req,{...area,person_type:type},1);
+     parts.push(`${TYPE_LABELS[type]} ${result.total} คน`);
+    }
+    const place=[];
+    if(area.subdistrict)place.push(`ตำบล${area.subdistrict}`);
+    if(area.district)place.push(`อำเภอ${area.district}`);
+    if(area.station)place.push(`สภ.${String(area.station).replace(/^สภ\.?\s*/u,'')}`);
+    if(area.province)place.push(`จังหวัด${area.province}`);
+    const answer=`${place.length?`ใน${place.join(' ')} `:''}${parts.join(' • ')}${excludeNote||''}`;
+    return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
+   if((!ranking&&!summary&&!intent)||summary?.intent==='summary_choices'){
     ollamaCalls=1;plan=await interpret(routingMessage);
     if(plan.action==='clarify')return respond({answer:'ต้องการจำนวน รายชื่อ หรือแยกยอดตามพื้นที่ใดครับ? กรุณาระบุประเภทบุคคลและพื้นที่ที่ต้องการ',grounded:false,dataSource:'real',meta:{fastPath:false,ollamaCalls,responseTimeMs:Date.now()-start}});
     if(plan.action==='group'){ranking=[routingMessage,plan.group,alphaOrder?'alpha':explicitCountOrder||'alpha'];showAll=true;}
@@ -1400,6 +1428,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    else if(/ผู้ค้า/.test(routingMessage))filters.person_type='dealer';
    else if(/พ้นโทษ/.test(routingMessage))filters.person_type='released';
    if(excludeFilters.length)filters.exclude=excludeFilters;
+   // Only a plan the detectors missed may borrow the previous topic, and only
+   // for slots this sentence did not name. Profile province is not a topic.
+   if(plan){
+    const filled=inheritUnstatedSlots(filters,routingMessage,incomingTopic);
+    for(const key of ['person_type','province','district','subdistrict','station'])if(!filters[key]&&filled[key])filters[key]=filled[key];
+   }
    if(ranking){
     const result=await search(req,filters,1,true);
     if(result.fuzzy)fuzzyNote=result.fuzzy;

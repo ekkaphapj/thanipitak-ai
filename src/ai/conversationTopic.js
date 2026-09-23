@@ -134,6 +134,35 @@ function mergeTopicFilters(filters, topic) {
   return out;
 }
 
+// Place words in the sentence mean that slot was spoken, even when the model
+// failed to copy it. Leaving it empty is safer than keeping the previous place.
+function sentenceStatesPlace(message, key) {
+  const text = String(message || '');
+  if (key === 'province') return /จังหวัด|จ\./u.test(text);
+  if (key === 'district') return /อำเภอ|เขต/u.test(text);
+  if (key === 'subdistrict') return /ตำบล/u.test(text);
+  if (key === 'station') return /สภ\.?|สถานี/u.test(text);
+  return false;
+}
+
+// Fill only slots this sentence left blank. Explicit words and a model plan
+// that already set a value win. A multi-type topic is not narrowed to one type.
+function inheritUnstatedSlots(filters, message, topic) {
+  const out = { ...(filters || {}) };
+  const safe = sanitizeTopic(topic);
+  if (!safe) return out;
+  const text = String(message || '');
+  const namedType = /จิตเวช|ผู้ป่วย|ผู้เสพ|ผู้ใช้ยา|ผู้ค้า|ผู้จำหน่าย|พ้นโทษ/u.test(text);
+  const asksAll = /ทั้งหมด|ทุกประเภท|ทุกชนิด|ทุกคน/u.test(text);
+  if (!out.person_type && !namedType && !asksAll && safe.person_type && !safe.person_types) {
+    out.person_type = safe.person_type;
+  }
+  for (const key of PLACE_KEYS) {
+    if (!out[key] && safe[key] && !sentenceStatesPlace(text, key)) out[key] = safe[key];
+  }
+  return out;
+}
+
 function wantsExplicitAllList(text, types) {
   if (types.length) return false;
   return /รายชื่อ|มีใครบ้าง|คนไหนบ้าง/.test(text) && /ทั้งหมด|ทุกประเภท|ทุกชนิด|ทุกคน/.test(text);
@@ -185,6 +214,7 @@ module.exports = {
   matchPersonType,
   sanitizeTopic,
   mergeTopicFilters,
+  inheritUnstatedSlots,
   wantsExplicitAllList,
   listClarify,
   topicFromIntent,

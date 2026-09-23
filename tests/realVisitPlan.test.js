@@ -229,3 +229,40 @@ test('ordinal detail from a visit-plan list shows the source list header and vis
   assert.ok(!plain.body.answer.includes('จากรายชื่อ'));
   assert.ok(!plain.body.answer.includes('ต้องตรวจเยี่ยมเพราะ'));
 });
+
+test('select-button follow-up on a visit plan adds recorded reasons without an ordinal header', async () => {
+  const app = makeApp(async (url) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/people_type')) {
+      return { ok: true, headers: new Headers({ 'content-range': '0-0/1' }), json: async () => [{ type_id: 5, type_name: 'ผู้เสพ' }] };
+    }
+    if (u.pathname.endsWith('/person_report_status')) {
+      return { ok: true, headers: new Headers({ 'content-range': '0-0/1' }), json: async () => [{ person_id: 9, alert_level: 'เฝ้าระวัง', missed_days: 3, last_report_date: '2026-09-18' }] };
+    }
+    if (u.pathname.endsWith('/visits')) {
+      return { ok: true, headers: new Headers({ 'content-range': '0-0/1' }), json: async () => [{ id: 3, person_id: 9, visit_date: '2026-09-12', visit_time: '10:15:00', visit_status: 'เฝ้าระวัง', notes: 'ติดตามต่อ' }] };
+    }
+    if (u.pathname.endsWith('/people')) {
+      return { ok: true, headers: new Headers({ 'content-range': '0-0/1' }), json: async () => [{ id: 9, prefix: 'นาย', first_name: 'สมหมาย', last_name: 'ใจดี', tambon: 'ท่าอุเทน', amphoe: 'เมือง', province: 'นครพนม', type_id: 5, station_id: 71, status: 'แดง' }] };
+    }
+    throw new Error(`unexpected read ${url}`);
+  });
+  const topic = { report_kind: 'visit_plan', station: 'สภ.ท่าอุเทน', province: 'นครพนม', page: 1 };
+  const selected = await request(app).post('/ai/chat').send({ message: 'ขอข้อมูลคนนี้', context: { personId: 9, topic } });
+  assert.equal(selected.status, 200);
+  assert.ok(!selected.body.answer.includes('จากรายชื่อ'));
+  assert.ok(!selected.body.answer.includes('ลำดับที่'));
+  assert.match(selected.body.answer, /ต้องตรวจเยี่ยมเพราะ: /);
+  assert.match(selected.body.answer, /ระดับเฝ้าระวัง จากผลเยี่ยมล่าสุดและรายงานผู้ดูแล/);
+  const otherList = await request(app).post('/ai/chat').send({
+    message: 'ขอข้อมูลคนนี้',
+    context: { personId: 9, topic: { kind: 'people_list', person_type: 'drug_user', province: 'นครพนม' } },
+  });
+  assert.equal(otherList.status, 200);
+  assert.ok(!otherList.body.answer.includes('ต้องตรวจเยี่ยมเพราะ'));
+  const both = await request(app).post('/ai/chat').send({
+    message: 'ขอข้อมูลคนนี้',
+    context: { personId: 9, topic, reference: { ordinal: 16, label: 'แผนการตรวจเยี่ยม สภ.ท่าอุเทน • ภ.จว.นครพนม หน้า 1' } },
+  });
+  assert.equal(both.body.answer.split('ต้องตรวจเยี่ยมเพราะ').length, 2);
+});

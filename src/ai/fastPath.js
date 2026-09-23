@@ -414,7 +414,7 @@ async function runFastPath(intent, currentUser, toolRouter, options = {}) {
   if (intent === 'search_incomplete') {
     return {
       ok: true,
-      answer: 'เงื่อนไขค้นหาไม่สมบูรณ์ กรุณาลองใหม่ เช่น “หาผู้เสพในอำเภอเมือง” หรือ “ค้นหาคนชื่อสมชาย”',
+      answer: SEARCH_INCOMPLETE_ANSWER,
       toolsUsed: [],
       toolArgs: {},
       grounded: true,
@@ -552,4 +552,14 @@ async function runFastPath(intent, currentUser, toolRouter, options = {}) {
   };
 }
 
-module.exports = { detectFastPathIntent, detectSpokenPersonSearch, runFastPath, PAGE_SIZE, MAX_PAGE_SIZE };
+const SEARCH_INCOMPLETE_ANSWER = 'เงื่อนไขค้นหาไม่สมบูรณ์ กรุณาลองใหม่ เช่น “หาผู้เสพในอำเภอเมือง” หรือ “ค้นหาคนชื่อสมชาย”';
+
+module.exports = {
+  detectFastPathIntent,
+  detectSpokenPersonSearch,
+  extractLookupFilters,
+  runFastPath,
+  PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  SEARCH_INCOMPLETE_ANSWER,
+};

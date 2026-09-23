@@ -123,6 +123,12 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
     assert.ok(!JSON.stringify(body).includes('station_id'));
   });
 
+  test('visit plan marker and station survive the PDF follow-up without scope fields', () => {
+    const body = ChatContext.buildChatBody('ทำเป็นรายงาน pdf ให้หน่อย', null, { province: 'อุดรธานี', station: 'สภ.กลางใหญ่', report_kind: 'visit_plan', page: 2, station_id: 999 });
+    assert.deepStrictEqual(body.context, { topic: { province: 'อุดรธานี', station: 'สภ.กลางใหญ่', page: 2, report_kind: 'visit_plan' } });
+    assert.ok(!JSON.stringify(body).includes('station_id'));
+  });
+
   test('ordinal references accept Thai list wording without becoming request context', () => {
     assert.strictEqual(ChatContext.ordinalFromMessage('ขอข้อมูลเพิ่มเติมของลำดับที่ 3'), 3);
     assert.strictEqual(ChatContext.ordinalFromMessage('เอาอันดับ 12'), 12);
@@ -216,6 +222,21 @@ describe('STEP 2.5 frontend wiring (static)', () => {
 });
 
 describe('STEP 2.5 end-to-end via real HTTP app (no Ollama needed)', () => {
+  test('test-data mode refuses a real visit plan without falling back to fixtures', async () => {
+    const ctx = setup();
+    try {
+      const { app } = createApp(ctx.db);
+      const token = await login(app, 'station1_off');
+      const res = await request(app).post('/api/ai/chat').set('Authorization', `Bearer ${token}`)
+        .send({ message: 'ขอแผนการตรวจเยี่ยม' }).timeout(5000);
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.code, 'REAL_FEATURE_REQUIRED');
+      assert.strictEqual(res.body.grounded, false);
+      assert.strictEqual(res.body.presentation, undefined);
+    } finally {
+      ctx.cleanup();
+    }
+  });
   test('body built by buildChatBody hits Tier-2 person_summary for the selected authorized person', async () => {
     const ctx = setup();
     try {

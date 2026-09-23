@@ -1640,6 +1640,84 @@
     hostForPresentation(wrap).appendChild(box);
   }
 
+  function renderVisitPlan(wrap, plan) {
+    const typeName = { psychiatric: 'ผู้ป่วยจิตเวช', drug_user: 'ผู้เสพ', released: 'บุคคลพ้นโทษ' };
+    const priorities = ['เสี่ยงสูง • เกิน 7 วัน', 'สีแดง • ยังไม่เคยเยี่ยม', 'เฝ้าระวัง • เกิน 14 วัน', 'สีส้ม • ยังไม่เคยเยี่ยม'];
+    const box = document.createElement('section'); box.className = 'visit-plan';
+    const hero = document.createElement('header'); hero.className = 'visit-plan-hero';
+    const heading = document.createElement('div');
+    const eyebrow = document.createElement('span'); eyebrow.textContent = 'แผนการตรวจเยี่ยม';
+    const title = document.createElement('h2'); title.textContent = `${plan.station.station_name} • ภ.จว.${plan.station.province}`;
+    const note = document.createElement('p'); note.textContent = `สถานะ ณ ${plan.asOf || 'ปัจจุบัน'} • เรียงตามความเร่งด่วน`;
+    heading.append(eyebrow, title, note);
+    const total = document.createElement('strong'); total.textContent = `${plan.totalDue} คน`;
+    hero.append(heading, total); box.appendChild(hero);
+    const body = document.createElement('div'); body.className = 'visit-plan-body';
+    const overview = document.createElement('section'); overview.className = 'visit-plan-section';
+    const overviewTitle = document.createElement('h3'); overviewTitle.textContent = 'จำนวนในพื้นที่แยกตามประเภท'; overview.appendChild(overviewTitle);
+    const summary = document.createElement('div'); summary.className = 'visit-plan-summary';
+    for (const type of ['psychiatric', 'drug_user', 'released']) {
+      const row = plan.counts[type] || {};
+      const card = document.createElement('article'); card.className = 'visit-plan-type';
+      const name = document.createElement('h4'); name.textContent = typeName[type]; card.appendChild(name);
+      const grid = document.createElement('div'); grid.className = 'visit-plan-stats';
+      for (const [label, field, tone] of [['เสี่ยงสูง','high','high'],['เฝ้าระวัง','watch','watch'],['สีแดง','red','red'],['สีส้ม','orange','orange'],['ไม่เคยเยี่ยม','never_visited','never']]) {
+        const stat = document.createElement('div'); stat.className = `visit-plan-stat ${tone}`;
+        const labelEl = document.createElement('span'); labelEl.textContent = label;
+        const value = document.createElement('strong'); value.textContent = String(row[field] || 0);
+        stat.append(labelEl,value); grid.appendChild(stat);
+      }
+      card.appendChild(grid); summary.appendChild(card);
+    }
+    overview.appendChild(summary); body.appendChild(overview);
+    const rank = document.createElement('section'); rank.className = 'visit-plan-section';
+    const rankTitle = document.createElement('h3'); rankTitle.textContent = 'ลำดับการลงพื้นที่'; rank.appendChild(rankTitle);
+    const rankGrid = document.createElement('div'); rankGrid.className = 'visit-plan-priorities';
+    priorities.forEach((label,index) => {
+      const cell = document.createElement('div'); cell.className = `visit-plan-priority priority-${index+1}`;
+      const number = document.createElement('b'); number.textContent = String(index+1);
+      const text = document.createElement('span'); text.textContent = label;
+      const count = document.createElement('strong'); count.textContent = `${plan.priorityCounts[index] || 0} คน`;
+      cell.append(number,text,count); rankGrid.appendChild(cell);
+    });
+    rank.appendChild(rankGrid); body.appendChild(rank);
+    const list = document.createElement('section'); list.className = 'visit-plan-section';
+    const listTitle = document.createElement('h3'); listTitle.textContent = `รายชื่อที่ต้องตรวจเยี่ยม • หน้า ${plan.page}`; list.appendChild(listTitle);
+    const desktop = document.createElement('div'); desktop.className = 'visit-plan-desktop';
+    const table = document.createElement('table'); table.className = 'visit-plan-table';
+    const thead = document.createElement('thead'); const headers = document.createElement('tr');
+    ['ลำดับ','รายชื่อ','ประเภท','เหตุผลเร่งด่วน','เยี่ยมล่าสุด','พื้นที่'].forEach(label => { const th=document.createElement('th');th.textContent=label;headers.appendChild(th); });
+    thead.appendChild(headers); table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    const mobile = document.createElement('div'); mobile.className = 'visit-plan-mobile';
+    (plan.items || []).forEach((item,index) => {
+      const ordinal = (plan.page-1)*plan.pageSize+index+1;
+      const area = [item.subdistrict && `ต.${item.subdistrict}`, item.district && `อ.${item.district}`].filter(Boolean).join(' • ') || 'ไม่ระบุพื้นที่';
+      const values = [ordinal, item.full_name || 'ไม่ระบุชื่อ', typeName[item.person_type] || '-', priorities[Number(item.priority)-1] || '-', item.last_visit_date || 'ยังไม่เคย', area];
+      const tr = document.createElement('tr'); tr.className = `priority-${item.priority}`;
+      values.forEach(value => { const td=document.createElement('td');td.textContent=String(value);tr.appendChild(td); }); tbody.appendChild(tr);
+      const card = document.createElement('article'); card.className = `visit-plan-person priority-${item.priority}`;
+      const top = document.createElement('div'); top.className = 'visit-plan-person-top';
+      const badge = document.createElement('span'); badge.textContent = String(ordinal);
+      const person = document.createElement('strong'); person.textContent = item.full_name || 'ไม่ระบุชื่อ';
+      top.append(badge,person); card.appendChild(top);
+      const reason = document.createElement('p'); reason.textContent = `${typeName[item.person_type] || '-'} • ${priorities[Number(item.priority)-1] || '-'}`;
+      const detail = document.createElement('small'); detail.textContent = `เยี่ยมล่าสุด ${item.last_visit_date || 'ยังไม่เคย'} • ${area}`;
+      card.append(reason,detail); mobile.appendChild(card);
+    });
+    table.appendChild(tbody); desktop.appendChild(table); list.append(desktop,mobile);
+    if (!plan.items?.length) { const empty=document.createElement('p');empty.className='visit-plan-empty';empty.textContent='ไม่มีรายชื่อที่เข้าเกณฑ์ในหน้านี้';list.appendChild(empty); }
+    if (plan.totalDue > plan.pageSize) {
+      const paging=document.createElement('div');paging.className='visit-plan-paging';
+      for (const [label,enabled,message] of [['ก่อนหน้า',plan.page>1,'หน้าก่อนหน้า'],['ถัดไป',plan.page*plan.pageSize<plan.totalDue,'หน้าถัดไป']]) {
+        const button=document.createElement('button');button.type='button';button.className='suggest-btn';button.textContent=label;button.disabled=!enabled;
+        button.addEventListener('click',()=>sendMessage(message));paging.appendChild(button);
+      }
+      list.appendChild(paging);
+    }
+    body.appendChild(list); box.appendChild(body); hostForPresentation(wrap).appendChild(box);
+  }
+
   function renderOverview(wrap, presentation) {
     const box = document.createElement('section');
     box.className = 'overview-card';
@@ -1810,8 +1888,10 @@
       noBtn.addEventListener('click',()=>{state.pendingSummaryReport=null;appendMessage('assistant','ต้องการสร้างรายงาน PDF หรือ Excel ของข้อมูลใดครับ? เช่น “รายงานผู้เสพในตำบลโพนสูง”');});box.appendChild(noBtn);
     }
     hostForPresentation(wrap).appendChild(box);
-    if (presentation.auto === 'pdf') downloadReport('pdf', presentation.reportRequest);
-    if (presentation.auto === 'xlsx') downloadReport('xlsx', presentation.reportRequest);
+    // The chat request releases its busy state in finally; start the file
+    // request on the next task so an explicit PDF follow-up downloads at once.
+    if (presentation.auto === 'pdf') setTimeout(() => downloadReport('pdf', presentation.reportRequest), 0);
+    if (presentation.auto === 'xlsx') setTimeout(() => downloadReport('xlsx', presentation.reportRequest), 0);
   }
   async function downloadReport(kind, reportRequest) {
     const requestBody = reportRequest || state.pendingSummaryReport;
@@ -1819,7 +1899,8 @@
     setBusy(true);
     const isExcel = kind === 'xlsx';
     try {
-      const response = await fetch(isExcel ? '/api/reports/summary.xlsx' : '/api/reports/summary.pdf', {
+      const visitPlan = requestBody.report_kind === 'visit_plan';
+      const response = await fetch(visitPlan ? '/api/reports/visit-plan.pdf' : isExcel ? '/api/reports/summary.xlsx' : '/api/reports/summary.pdf', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + state.token, 'Content-Type': 'application/json', 'X-Data-Source': state.dataSource },
         body: JSON.stringify({ reportRequest: requestBody }),
@@ -1829,7 +1910,7 @@
       const wrap = appendMessage('assistant', isExcel ? 'สร้างรายงาน Excel แล้ว' : 'สร้างรายงาน PDF แล้ว');
       const link = document.createElement('a');
       link.href = url;
-      link.download = isExcel ? 'thanipitak-summary.xlsx' : 'thanipitak-summary.pdf';
+      link.download = visitPlan ? 'thanipitak-visit-plan.pdf' : isExcel ? 'thanipitak-summary.xlsx' : 'thanipitak-summary.pdf';
       link.textContent = isExcel ? 'ดาวน์โหลดรายงาน Excel' : 'ดาวน์โหลดรายงาน PDF';
       link.className = 'suggest-btn';
       wrap.querySelector('.bubble').appendChild(document.createElement('br'));
@@ -2097,7 +2178,7 @@
           });
         }
 
-        const isOverview = json.presentation && json.presentation.type === 'overview';
+        const isOverview = json.presentation && ['overview','visit_plan'].includes(json.presentation.type);
         const wrap = appendMessage('assistant', isOverview ? '' : (json.answer || ''));
         if (json.presentation && ['person_list', 'target_person_summary', 'station_ranking'].includes(json.presentation.type)) {
           wrap.classList.add('msg-data-table');
@@ -2130,6 +2211,7 @@
         if (json.presentation && json.presentation.type === 'monitoring_location_summary') renderMonitoringLocationSummary(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'location_summary') renderLocationSummary(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'overview') renderOverview(wrap,json.presentation);
+        if (json.presentation && json.presentation.type === 'visit_plan') renderVisitPlan(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'target_person_summary') renderTargetPersonSummary(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'station_ranking') renderStationRanking(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);

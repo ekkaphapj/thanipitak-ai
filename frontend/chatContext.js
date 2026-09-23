@@ -84,7 +84,7 @@
       if (typeof raw[key] === 'string' && raw[key].trim()) topic[key] = raw[key].trim().slice(0, 100);
     }
     if (raw.scope === 'all') topic.scope = 'all';
-    if (raw.report_kind === 'target_person_aggregate') topic.report_kind = raw.report_kind;
+    if (raw.report_kind === 'target_person_aggregate' || raw.report_kind === 'visit_plan') topic.report_kind = raw.report_kind;
     if (TOPIC_LEVELS.includes(raw.level)) topic.level = raw.level;
     if (TOPIC_KINDS.includes(raw.kind)) topic.kind = raw.kind;
     if (Number.isSafeInteger(raw.page) && raw.page >= 1 && raw.page <= 1000) topic.page = raw.page;

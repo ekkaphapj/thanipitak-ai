@@ -4,7 +4,10 @@ const {parseSummaryIntent}=require('../services/summaryService');
 const {sanitizeTopic,topicFromIntent,matchPersonType}=require('../ai/conversationTopic');
 const {createRealRegistryRead,monitoringQuestion,selectedReasonFollowup}=require('../services/realRegistryRead');
 const {detectExportIntent,reportRequestFromExport}=require('../ai/exportIntent');
+const {detectVisitPlanIntent}=require('../ai/visitPlanIntent');
 const {writeSummaryPdf,writeSummaryExcel,safeReportRequest}=require('../services/reportService');
+const {createRealVisitPlanTool}=require('../services/realVisitPlanTool');
+const {writeVisitPlanPdf}=require('../services/visitPlanPdf');
 const fs=require('fs');
 const {parseStationId,hasCrossStationRead,applyPeopleStationScope,personInOwnStation}=require('../services/stationScope');
 const {detectOverview,formatOverview,TYPE_LABELS}=require('../services/overviewService');
@@ -61,7 +64,7 @@ function provinceFromMessage(message) {
  // Voice transcription commonly says “เลือกจังหวัด…” rather than
  // “เปลี่ยนจังหวัด…”.  This is a local filter command, so recognise it
  // before RAG or the model sees the utterance.
- const match=String(message||'').match(/(?:เปลี่ยน(?:เป็น)?|เลือก(?:เป็น)?|ตั้ง(?:เป็น)?)\s*(?:จังหวัด)?\s*([ก-๙A-Za-z.-]{2,80})|(?:ใน|ของ)?จังหวัด\s*([ก-๙A-Za-z.-]{2,80})/u);
+ const match=String(message||'').match(/(?:เปลี่ยน(?:เป็น)?|เลือก(?:เป็น)?|ตั้ง(?:เป็น)?)\s*(?:จังหวัด|จ\.)?\s*([ก-๙A-Za-z.-]{2,80})|(?:ใน|ของ)?(?:จังหวัด|จ\.)\s*([ก-๙A-Za-z.-]{2,80})/u);
  const province=match?.[1]||match?.[2];
  return province ? province.trim().slice(0,100) : null;
 }
@@ -287,7 +290,7 @@ function detectAggregateSortContinuation(message, topic) {
 }
 
 function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
- if(isProvinceChangeOnly(message)||detectExportIntent(message)||detectStationRanking(message)||detectAggregateSortContinuation(message,topic)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson||isUnderspecifiedQuestion(message))return false;
+ if(isProvinceChangeOnly(message)||detectVisitPlanIntent(message)||detectExportIntent(message)||detectStationRanking(message)||detectAggregateSortContinuation(message,topic)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson||isUnderspecifiedQuestion(message))return false;
  if(detectContinuation(message, topic))return false;
  const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,topic);
  if(summary||intent||/(ตำบล|อำเภอ|จังหวัด)(?:ไหน|ใด|อะไร).*?(มากที่สุด|เยอะที่สุด|น้อยที่สุด|มากสุด|เยอะสุด|น้อยสุด)/u.test(message))return false;
@@ -299,6 +302,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  const router=express.Router();router.use(authenticate);
  const { createRealAiTools } = require('../services/realAiTools');
  const aiTools = createRealAiTools({ url, key, request });
+ const readVisitPlan=createRealVisitPlanTool({url,key,request});
  async function rows(req,table,params) {
   let response;
   try { response=await request(`${url}/rest/v1/${table}?${params}`,{headers:{apikey:key,Authorization:`Bearer ${req.realToken}`,Prefer:'count=exact'},signal:AbortSignal.timeout(15000)}); }
@@ -877,6 +881,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   const prepared=prepareRoutingMessage(message);
   const routingMessage=prepared.routingMessage;
+  const visitPlanIntent=detectVisitPlanIntent(routingMessage);
   // A named station is a narrowing condition. If a voice transcript still
   // contains a station-like cue that our deterministic parsers cannot keep,
   // stop before any registry read rather than silently showing a whole province.
@@ -884,7 +889,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const stationCue=/(?:^|[\s,])(?:สภ\.?|สถานี(?:ตำรวจ)?|ศพ|สพ|สอพอ|สภอ)(?=\s|[ก-๙]|$)/u.test(routingMessage);
   const namedStationBeforeProvince=/(?:สภ\.?|สถานี(?:ตำรวจ)?)\s*[ก-๙A-Za-z0-9.-]{2,80}\s*(?:จังหวัด|จ\.)/u.test(routingMessage);
   const genericStationOverview=/ภาพรวม/u.test(routingMessage)&&/(?:ราย\s*)?สภ\.?\s*(?:ใน?จังหวัด|$)/u.test(routingMessage);
-  if(stationCue&&!genericStationOverview&&/(?:รายชื่อ|ภาพรวม|สรุป|ผู้ป่วย|จิตเวช|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ)/u.test(routingMessage)&&(!detectStationRanking(routingMessage)||namedStationBeforeProvince)){
+  if(stationCue&&!visitPlanIntent&&!genericStationOverview&&/(?:รายชื่อ|ภาพรวม|สรุป|ผู้ป่วย|จิตเวช|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ)/u.test(routingMessage)&&(!detectStationRanking(routingMessage)||namedStationBeforeProvince)){
    requestedStation=detectFastPathIntent(routingMessage)?.filters?.station
     ||parseSummaryIntent(routingMessage)?.filters?.station
     ||detectOverview(routingMessage)?.filters?.station||null;
@@ -940,6 +945,35 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const selectedTopic=selectedProvince?sanitizeTopic({...(incomingTopic||{}),province:selectedProvince}):incomingTopic;
   if(isProvinceChangeOnly(routingMessage)){
    return respond({answer:`ตั้งค่าจังหวัดที่ต้องการดูเป็นจังหวัด${selectedProvince} แล้ว คำสั่งถัดไปจะใช้จังหวัดนี้เป็นตัวกรองภายในสิทธิ์ของบัญชี`,grounded:true,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
+  const planResultResponse=result=>{
+   if(result.status!=='ok'){
+    const answer={station_not_found:'ไม่พบ สภ. ที่ระบุ กรุณาตรวจสอบชื่อ สภ. และจังหวัด',station_ambiguous:'พบชื่อ สภ. ซ้ำ กรุณาระบุจังหวัดและชื่อ สภ. ให้ชัดเจน',station_required:'กรุณาระบุ สภ. ที่ต้องการจัดแผนในจังหวัดนี้'}[result.status]||'ไม่สามารถจัดแผนการตรวจเยี่ยมได้';
+    return respond({answer,grounded:true,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
+   const typeLabel={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',released:'บุคคลพ้นโทษ'};
+   const counts=['psychiatric','drug_user','released'].map(type=>`${typeLabel[type]}: เสี่ยงสูง ${result.counts[type].high} • เฝ้าระวัง ${result.counts[type].watch} • สีแดง ${result.counts[type].red} • สีส้ม ${result.counts[type].orange} • ยังไม่เคยเยี่ยม ${result.counts[type].never_visited}`).join('\n');
+   const title=`แผนการตรวจเยี่ยม ${result.station.station_name} • ภ.จว.${result.station.province}`;
+   const answer=`${title}\n${counts}\nต้องไปตรวจเยี่ยมตามลำดับ ${result.totalDue} คน (แสดงหน้า ${result.page})`;
+   const topic=sanitizeTopic({report_kind:'visit_plan',station:result.station.station_name,province:result.station.province,page:result.page});
+   return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai_visit_plan'}],presentation:{type:'visit_plan',...result},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  };
+  const planExport=incomingTopic?.report_kind==='visit_plan'?detectExportIntent(routingMessage):null;
+  if(planExport){
+   if(planExport.formats.length!==1||planExport.formats[0]!=='pdf')return respond({answer:'แผนการตรวจเยี่ยมรองรับรายงาน PDF กรุณาระบุ “ทำเป็นรายงาน PDF”',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   const reportRequest={report_kind:'visit_plan',station:incomingTopic.station||null,province:incomingTopic.province||null};
+   return respond({answer:`กำลังสร้างรายงาน PDF แผนการตรวจเยี่ยม ${incomingTopic.station||''} • ภ.จว.${incomingTopic.province||''}`,grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:['pdf'],auto:'pdf',confirm:false,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
+  if(incomingTopic?.report_kind==='visit_plan'&&/^(?:หน้า\s*ถัดไป|หน้าต่อไป|หน้าก่อนหน้า|ย้อน\s*หน้า)$/u.test(routingMessage)){
+   const page=/ก่อน|ย้อน/u.test(routingMessage)?Math.max(1,(incomingTopic.page||1)-1):Math.min(1000,(incomingTopic.page||1)+1);
+   try{return planResultResponse(await readVisitPlan(req,{station:incomingTopic.station||null,province:incomingTopic.province||null,page}));}
+   catch(e){return sendFailure(e);}
+  }
+  if(visitPlanIntent){
+   if(prepared.periodBlocked||prepared.timeWindow||prepared.hardTimeReference)return respond({answer:'แผนการตรวจเยี่ยมแสดงสถานะปัจจุบันเท่านั้น กรุณาขอแผนโดยไม่ระบุช่วงเวลา',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(visitPlanIntent.missingStation)return respond({answer:'ได้ยินชื่อ สภ. ไม่ชัด กรุณาระบุอีกครั้ง เช่น “ขอแผนการตรวจเยี่ยม สภ.กลางใหญ่ จังหวัดอุดรธานี”',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   try{return planResultResponse(await readVisitPlan(req,{station:visitPlanIntent.station,province:explicitProvince||null}));}
+   catch(e){return sendFailure(e);}
   }
   // A pending period question accepts short answers that fill exactly the
   // missing piece (registry count without the period, or windowed monitoring).
@@ -1417,6 +1451,31 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    const report=await writeSummaryPdf(summary);
    return sendReportFile(res,report,'thanipitak-summary.pdf');
   }catch(e){return res.status(400).json({error:e.message||'สร้างรายงานไม่สำเร็จ',code:'REPORT_FAILED'});}
+ });
+ router.post('/reports/visit-plan.pdf',async(req,res)=>{
+  try{
+   const input=req.body?.reportRequest;
+   if(!input||input.report_kind!=='visit_plan')return res.status(400).json({error:'คำขอรายงานไม่ถูกต้อง',code:'REPORT_FAILED'});
+   const station=typeof input.station==='string'?input.station:null;
+   const province=typeof input.province==='string'?input.province:null;
+   if(!station||!province)return res.status(400).json({error:'กรุณาระบุ สภ. และจังหวัด',code:'REPORT_FAILED'});
+   const first=await readVisitPlan(req,{station,province,page:1,pageSize:100});
+   if(first.status!=='ok')return res.status(422).json({error:'ไม่พบ สภ. สำหรับรายงานนี้',code:'REPORT_FAILED'});
+   if(first.totalDue>10000)return res.status(422).json({error:'รายการมากเกินขนาดรายงาน กรุณาติดต่อผู้ดูแลระบบ',code:'REPORT_TOO_LARGE'});
+   const items=[...first.items];
+   for(let page=2;items.length<first.totalDue;page++){
+    const next=await readVisitPlan(req,{station:first.station.station_name,province:first.station.province,page,pageSize:100});
+    if(next.status!=='ok'||next.station.station_id!==first.station.station_id||next.totalDue!==first.totalDue||next.asOf!==first.asOf||!next.items.length){
+     const error=new Error('ข้อมูลเปลี่ยนระหว่างจัดทำรายงาน');error.code='REAL_DATA_UNVERIFIABLE';throw error;
+    }
+    items.push(...next.items);
+   }
+   if(items.length!==first.totalDue||new Set(items.map(item=>item.person_id)).size!==items.length){
+    const error=new Error('ข้อมูลเปลี่ยนระหว่างจัดทำรายงาน');error.code='REAL_DATA_UNVERIFIABLE';throw error;
+   }
+   const report=await writeVisitPlanPdf({...first,items});
+   return sendReportFile(res,report,'thanipitak-visit-plan.pdf');
+  }catch(e){return sendRealFailure(res,e);}
  });
  router.post('/reports/summary.xlsx',async(req,res)=>{
   try{

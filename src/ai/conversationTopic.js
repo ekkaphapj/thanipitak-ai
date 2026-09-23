@@ -114,7 +114,7 @@ function sanitizeTopic(raw) {
   // This is a display/report format marker, not an authorization field.  The
   // real export endpoint still obtains every aggregate through the caller's
   // authenticated token and server-verified scope.
-  if (raw.report_kind === 'target_person_aggregate') topic.report_kind = raw.report_kind;
+  if (raw.report_kind === 'target_person_aggregate' || raw.report_kind === 'visit_plan') topic.report_kind = raw.report_kind;
   return Object.keys(topic).length ? topic : null;
 }
 

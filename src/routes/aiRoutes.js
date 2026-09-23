@@ -10,6 +10,7 @@ const {
 } = require('../ai/gateway');
 const { createAIAuditor } = require('../repositories/aiAuditRepo');
 const { sanitizePersonContext } = require('../ai/personFastPath');
+const { detectVisitPlanIntent } = require('../ai/visitPlanIntent');
 
 const MAX_MESSAGE_LENGTH = 2000;
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
@@ -87,6 +88,9 @@ function createAIRoutes(db, authRequired, options = {}) {
     const user = req.user;
     const context = sanitizePersonContext(req.body.context);
     aiAudit.logChat(user);
+    if (detectVisitPlanIntent(message)) {
+      return res.json({ answer: 'แผนการตรวจเยี่ยมใช้ข้อมูลทะเบียนและผลตรวจจริง กรุณาเลือกโหมดข้อมูลจริงและเข้าสู่ระบบด้วยบัญชีตำรวจ', grounded: false, dataSource: 'test', code: 'REAL_FEATURE_REQUIRED' });
+    }
 
     const onToolCall = ({ toolName, toolArgs, userId }) => {
       aiAudit.logToolCall({ id: userId }, toolName, toolArgs);

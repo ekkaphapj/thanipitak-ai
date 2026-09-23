@@ -56,6 +56,12 @@ function detectPersonFactualIntent(message) {
   text = text.replace(/\s*(?:ให้หน่อย|หน่อย)?\s*(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ)$/, '').trim();
   text = text.replace(/\s*(?:ให้หน่อย|หน่อย)$/, '').trim();
   if (!text) return null;
+  // Ordinal detail rewrites produce these forms (“ขอข้อมูลบุคคลลำดับที่ 2” →
+  // “ขอข้อมูลบุคคลคนนี้”, “ขอข้อมูลเพิ่มเติมของลำดับที่ 3” → “ขอข้อมูลเพิ่มเติมของคนนี้”).
+  // They ask for the selected person's summary card; resolving them here keeps
+  // the answer deterministic instead of falling through to the model, which
+  // used to answer with a privacy refusal after a long wait.
+  if (/^ขอข้อมูล(?:\s*เพิ่มเติม)?(?:\s*ของ)?(?:\s*(?:บุคคล|รายการ|คน))?\s*(?:คน)?นี้$/u.test(text)) return 'person_history';
   for (const [intent, phrase] of PERSON_FACTUAL_PHRASES) {
     if (text === phrase) return intent;
   }

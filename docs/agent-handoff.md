@@ -1086,3 +1086,21 @@ ordinal detail answer names its source list:
 - Full `npm test`: **447 tests, 26 suites, 0 failures** (mocked Supabase; no
   live model, no real registry). Test-mode (fixture) person lists keep their
   existing behavior; the header/reasons block is real-mode only for now.
+
+### Continuation update — 2026-09-23 night (fix: ordinal detail fell to the model and was refused)
+
+Field report “ตอบไม่ได้” reproduced in the browser: after any numbered list,
+“ขอข้อมูลบุคคลลำดับที่ N” / “ขอข้อมูลเพิ่มเติมของลำดับที่ N” (even the UI's own
+suggested phrasing) selected the row correctly but the rewritten message
+(“ขอข้อมูลคนนี้”, “ขอข้อมูลเพิ่มเติมของคนนี้”, …) matched no deterministic path in
+the test-mode gateway, fell through to the model/RAG, and came back after
+6-17 s with a privacy refusal (“ไม่พบข้อมูลบุคคลในคู่มือ ห้ามเปิดเผย…”).
+
+Fix: `detectPersonFactualIntent` (src/ai/personFastPath.js) now resolves the
+rewrite products of the ordinal flow — /^ขอข้อมูล(เพิ่มเติม)?(ของ)?(บุคคล|รายการ|คน)?คน?นี้$/ —
+directly to `person_history`, so the answer is the deterministic
+get_person_summary card (tier 2, zero model calls). Real mode was already
+covered by the selected-person branch and is unchanged. Regression tests in
+`tests/aiPersonSummary.test.js` (detector forms + gateway-level determinism
+with a throwing requestFn). Full `npm test`: **454 tests, 26 suites, 0
+failures** (fixture SQLite; no live model, no real registry).

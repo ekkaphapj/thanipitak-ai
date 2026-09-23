@@ -465,3 +465,38 @@ describe('Tier-2 HTTP route', () => {
     }
   });
 });
+describe('Tier-2: ordinal detail rewrite phrasings', () => {
+  test('rewritten ordinal-detail forms resolve to the person summary, others stay out', () => {
+    const rewritten = [
+      'ขอข้อมูลคนนี้',
+      'ขอข้อมูลบุคคลคนนี้',
+      'ขอข้อมูลบุคคลนี้',
+      'ขอข้อมูลเพิ่มเติมคนนี้',
+      'ขอข้อมูลเพิ่มเติม คนนี้',
+      'ขอข้อมูลเพิ่มเติมของคนนี้',
+      'ขอข้อมูลเพิ่มเติมของบุคคลนี้',
+      'ขอข้อมูลรายการคนนี้',
+    ];
+    for (const phrase of rewritten) {
+      assert.equal(detectPersonFactualIntent(phrase), 'person_history', phrase);
+    }
+    // These must keep their ordinary routing (registry request / no selection).
+    assert.equal(detectPersonFactualIntent('ขอข้อมูลผู้ป่วยจิตเวช'), null);
+    assert.equal(detectPersonFactualIntent('ขอข้อมูลผู้เสพในตำบลโพนสูง'), null);
+    assert.equal(detectPersonFactualIntent('ขอข้อมูลคนอื่นที่ไม่เกี่ยวกับรายการ'), null);
+  });
+
+  test('rewritten ordinal detail answers deterministically without the model', async () => {
+    const ctx = make();
+    const person = insertPerson(ctx.db, { first_name: 'สมศักดิ์', last_name: 'ลำดับหนึ่ง' });
+    const out = await ctx.gateway.chatWithTools('ขอข้อมูลบุคคลคนนี้', STATION1_USER, null, {
+      context: { personId: person.id },
+      requestFn: async () => { throw new Error('the model must not be called for an ordinal detail'); },
+    });
+    assert.equal(out.fastPath, true);
+    assert.equal(out.executionTier, 2);
+    assert.ok(out.answer.includes('สมศักดิ์'));
+    assert.equal(out.presentation.type, 'person_summary');
+    assert.ok(out.toolsUsed.includes('get_person_summary'));
+  });
+});

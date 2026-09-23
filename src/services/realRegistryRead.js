@@ -2,6 +2,7 @@
 
 const { detectMonitoringIntent, isSelectedMonitoringReasonFollowup } = require('../ai/monitoring');
 const { parseStationId, applyPeopleStationScope } = require('./stationScope');
+const { realPersonTypeIds } = require('./realPersonTypes');
 
 const VISIT_SELECT = 'id,person_id,visit_date,visit_time,visit_status,drug_test_result,status_condition,notes,visitor_name,visitor_station,visit_category';
 const HIGH = 'เสี่ยงสูง';
@@ -169,7 +170,7 @@ function createRealRegistryRead(rows) {
     const scopedStationId=applyPeopleStationScope(req.user, peopleParams);
     const clean=value=>String(value||'').replace(/[%*(),]/g,'').slice(0,100);
     const narrowedStationIds=[...new Set((stationIds||[]).map(Number).filter(Number.isSafeInteger))];
-    if(narrowedStationIds.length){
+    if(stationIds!==undefined){
       const allowedIds=scopedStationId?narrowedStationIds.filter(id=>id===scopedStationId):narrowedStationIds;
       peopleParams.set('station_id',`in.(${allowedIds.length?allowedIds.join(','):'0'})`);
     }
@@ -180,9 +181,7 @@ function createRealRegistryRead(rows) {
       else peopleParams.append(`not.${ex.column}`,`ilike.*${clean(ex.value)}*`);
     }
     if (personType) {
-      const terms = { psychiatric: 'ผู้ป่วยจิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'พ้นโทษ' };
-      const types = await rows(req, 'people_type', new URLSearchParams({ select: 'type_id', type_name: `ilike.*${terms[personType]}*`, limit: '1000' }));
-      const ids = types.data.map((row) => row.type_id);
+      const ids = await realPersonTypeIds(req, personType, rows);
       if (!ids.length) return { total: 0, items: [], page, pageSize, asOf: thaiNow() };
       peopleParams.set('type_id', `in.(${ids.join(',')})`);
     }

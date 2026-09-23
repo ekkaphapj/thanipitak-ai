@@ -12,6 +12,7 @@ const {hasDBIntent}=require('../ai/intentDetector');
 rag=require('../ai/rag');
 const {detectDiscoveryIntent,discover}=require('../services/discoveryService');
 const {normalizeUtterance,matchPlaceNames,placeKey}=require('../ai/thaiText');
+const {realPersonTypeIds}=require('../services/realPersonTypes');
 const {correctTranscript}=require('../stt/correctTranscript');
 const {analyzePeriods,extractTimeWindow,hasHardTimeReference}=require('../ai/timeWindow');
 const {parseAreaExclusions,removeSpans}=require('../ai/areaExclusion');
@@ -375,11 +376,9 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    p.set('station_id', own ? `eq.${own}` : `in.(${ids.join(',')})`);
   }
   if(filters.person_type){
-   const terms={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'พ้นโทษ'};
-   if(!terms[filters.person_type])throw new Error('ประเภทบุคคลไม่ถูกต้อง');
-   const types=await rows(req,'people_type',new URLSearchParams({select:'type_id',type_name:`ilike.*${terms[filters.person_type]}*`,limit:'1000'}));
-   if(!types.data.length)return {data:[],total:0};
-   p.set('type_id',`in.(${types.data.map(t=>t.type_id).join(',')})`);
+   const typeIds=await realPersonTypeIds(req,filters.person_type,rows);
+   if(!typeIds.length)return {data:[],total:0};
+   p.set('type_id',`in.(${typeIds.join(',')})`);
   }
   if (!aggregate) {
    let found=await rows(req,'people',p);
@@ -741,18 +740,40 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  // Shared monitoring-list answer used by the direct question, conversation
  // continuations, and pending-period replies. Conditions travel as explicit
  // arguments; the registry read applies the station scope itself.
+ async function monitoringStationIds(req,area={}){
+  if(!area.province&&!area.station)return undefined;
+  if(!hasCrossStationRead(req.user)){
+   const own=parseStationId(req.user.stationId);
+   if(own&&area.station&&req.user.stationName&&!matchPlaceNames(area.station,[req.user.stationName]).length)return [];
+   if(own&&area.province&&req.user.province&&placeKey(area.province)!==placeKey(req.user.province))return [];
+   if(own&&(!area.province||req.user.province)&&(!area.station||req.user.stationName))return [own];
+  }
+  const clean=value=>String(value).replace(/[%*(),]/g,'').slice(0,100);
+  const params=new URLSearchParams({select:'station_id,station_name,province',limit:'1000'});
+  if(area.province)params.set('province',`eq.${clean(area.province)}`);
+  const catalogue=await rows(req,'stations',params);
+  if(!area.station)return catalogue.data.map(row=>Number(row.station_id)).filter(Number.isSafeInteger);
+  const matches=matchPlaceNames(area.station,catalogue.data.map(row=>String(row.station_name||'').trim()).filter(Boolean));
+  if(!matches.length){const error=new Error(`ไม่พบชื่อ สภ. “${area.station}” กรุณาตรวจสอบชื่อและลองใหม่`);error.code='REAL_LOCATION_NOT_FOUND';throw error;}
+  if(matches.length>1){const error=new Error(`พบชื่อ สภ. “${area.station}” มากกว่าหนึ่งแห่ง กรุณาระบุจังหวัดเพิ่ม`);error.code='REAL_LOCATION_AMBIGUOUS';throw error;}
+  return catalogue.data.filter(row=>String(row.station_name||'').trim()===matches[0]).map(row=>Number(row.station_id)).filter(Number.isSafeInteger);
+ }
  async function runMonitoringAnswer(req,{level,personType,area={},window=null,exclude=[],page=1}){
+  const stationIds=await monitoringStationIds(req,area);
   const result=await registry.listRecordedMonitoring(req,{level,personType,page,
+   ...(stationIds!==undefined?{stationIds}:{}),
    ...(area.district?{district:area.district}:{}),...(area.subdistrict?{subdistrict:area.subdistrict}:{}),
    ...(window?{from:window.from,to:window.to}:{}),
    ...(exclude.length?{exclude}:{})});
-  const items=result.items.map(item=>({person_id:item.person_id,full_name:item.full_name,subdistrict:item.subdistrict,district:item.district,province:item.province||null,station_name:item.station_name||null,person_type:personType||null}));
+  result.appliedArea=area;
+  const items=result.items.map(item=>({person_id:item.person_id,full_name:item.full_name,subdistrict:item.subdistrict,district:item.district,province:item.province||null,station_name:item.station_name||null,person_type:personType||null,level:item.level||null}));
   const excludeNote=exclude.length?` (ไม่รวม${exclude.map(filter=>filter.label).join(' ')})`:'';
-  const answer=registry.formatMonitoringList(result,level,{windowLabel:window?.label})+excludeNote;
+  const areaNote=[area.station?`สภ.${String(area.station).replace(/^สภ\.?\s*/u,'')}`:null,area.province?`จังหวัด${area.province}`:null].filter(Boolean).join(' • ');
+  const answer=registry.formatMonitoringList(result,level,{windowLabel:window?.label})+(areaNote?`\nเงื่อนไขพื้นที่: ${areaNote}`:'')+excludeNote;
   return {result,items,answer};
  }
- function monitoringPresentation(result,items,personType){
-  return {type:'person_list',total:result.total,returned:items.length,page:result.page,pageSize:result.pageSize,filters:{person_type:personType||null},items};
+ function monitoringPresentation(result,items,personType,area=result.appliedArea||{}){
+  return {type:'person_list',total:result.total,returned:items.length,page:result.page,pageSize:result.pageSize,filters:{person_type:personType||null,province:area.province||null,station:area.station||null,district:area.district||null,subdistrict:area.subdistrict||null},items};
  }
  function monitoringSpec({level,personType,area,window,exclude,page}){
   return normalizeQuerySpec({kind:'monitoring',person_type:personType||null,area,level,window,exclude,page});
@@ -944,7 +965,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
       }catch(e){return sendFailure(e);}
      }
      try{
-      const area={district:baseTopic.district,subdistrict:baseTopic.subdistrict};
+      const area={province:baseTopic.province,station:baseTopic.station,district:baseTopic.district,subdistrict:baseTopic.subdistrict};
       const {result,items,answer}=await runMonitoringAnswer(req,{level:'all',personType:type,area,window,exclude:baseTopic.exclude||[]});
       const topic=sanitizeTopic({...baseTopic,person_type:type||undefined,level:'all',kind:'monitoring_list',window:window||undefined,page:result.page});
       return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:'all',personType:type,area,window,exclude:baseTopic.exclude||[],page:result.page}))}});
@@ -970,14 +991,14 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if(continuation.type==='count_to_list'){
     try{
      if(kind==='monitoring_list'||t.level){
-      const area={district:t.district,subdistrict:t.subdistrict};
+      const area={province:t.province,station:t.station,district:t.district,subdistrict:t.subdistrict};
       const {result,items,answer}=await runMonitoringAnswer(req,{level:t.level||'all',personType:t.person_type||null,area,window:t.window||null,exclude:t.exclude||[],page:1});
       const topic=sanitizeTopic({...t,kind:'monitoring_list',page:result.page});
       return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:t.level||'all',personType:t.person_type,area,window:t.window,exclude:t.exclude,page:result.page}))}});
      }
      const filters={...(t.person_type?{person_type:t.person_type}:{}),...(t.province?{province:t.province}:{}),...(t.district?{district:t.district}:{}),...(t.subdistrict?{subdistrict:t.subdistrict}:{}),...(t.station?{station:t.station}:{}),...(t.exclude?.length?{exclude:t.exclude}:{})};
      const result=await search(req,filters,1);
-     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||''}));
+     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null}));
      const topic=sanitizeTopic({...t,kind:'people_list',page:1});
      const excludeNote=t.exclude?.length?` (ไม่รวม${t.exclude.map(filter=>filter.label).join(' ')})`:'';
      return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา${excludeNote}`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:1,pageSize:20,filters:{person_type:t.person_type||null},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page:1}))}});
@@ -985,7 +1006,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    }
    if(continuation.type==='level_switch'){
     try{
-     const area={district:t.district,subdistrict:t.subdistrict};
+     const area={province:t.province,station:t.station,district:t.district,subdistrict:t.subdistrict};
      const level=continuation.level;
      const {result,items,answer}=await runMonitoringAnswer(req,{level,personType:t.person_type||null,area,window:t.window||null,exclude:t.exclude||[],page:1});
      const topic=sanitizeTopic({...t,level,kind:'monitoring_list',page:result.page});
@@ -1005,7 +1026,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
      const areaLabel=areaParts.length?` ในพื้นที่ ${areaParts.join(' ')}`:'';
      const excludeNote=t.exclude?.length?` (ไม่รวม${t.exclude.map(filter=>filter.label).join(' ')})`:'';
      if(continuation.wantList){
-      const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:type,subdistrict:p.tambon||'',district:p.amphoe||''}));
+      const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:type,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null}));
       const topic=sanitizeTopic({...t,person_type:type,kind:'people_list',page:1});
       return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา${excludeNote}`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:1,pageSize:20,filters:{person_type:type},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page:1}))}});
      }
@@ -1023,9 +1044,9 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     }
     try{
      const window=continuation.window;
-     const {result,items,answer}=await runMonitoringAnswer(req,{level:t.level||'all',personType:t.person_type||null,area:{district:t.district,subdistrict:t.subdistrict},window,exclude:t.exclude||[],page:1});
+     const {result,items,answer}=await runMonitoringAnswer(req,{level:t.level||'all',personType:t.person_type||null,area:{province:t.province,station:t.station,district:t.district,subdistrict:t.subdistrict},window,exclude:t.exclude||[],page:1});
      const topic=sanitizeTopic({...t,window:window||undefined,page:result.page});
-     return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:t.level||'all',personType:t.person_type,area:{district:t.district,subdistrict:t.subdistrict},window,exclude:t.exclude,page:result.page}))}});
+     return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:t.level||'all',personType:t.person_type,area:{province:t.province,station:t.station,district:t.district,subdistrict:t.subdistrict},window,exclude:t.exclude,page:result.page}))}});
     }catch(e){return sendFailure(e);}
    }
    if(continuation.type==='area_refine'){
@@ -1049,14 +1070,14 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     }
     try{
      if(kind==='monitoring_list'){
-      const area={district:t.district,subdistrict:t.subdistrict,...areaPatch};
+      const area={province:t.province,station:t.station,district:t.district,subdistrict:t.subdistrict,...areaPatch};
       const {result,items,answer}=await runMonitoringAnswer(req,{level:t.level||'all',personType:t.person_type||null,area,window:t.window||null,exclude:t.exclude||[],page:1});
       const topic=sanitizeTopic({...t,...areaPatch,page:result.page});
       return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:t.level||'all',personType:t.person_type,area,window:t.window,exclude:t.exclude,page:result.page}))}});
      }
      const filters={...(t.person_type?{person_type:t.person_type}:{}),...(t.province?{province:t.province}:{}),...(t.district?{district:t.district}:{}),...(t.subdistrict?{subdistrict:t.subdistrict}:{}),...(t.station?{station:t.station}:{}),...(t.exclude?.length?{exclude:t.exclude}:{}),...areaPatch};
      const result=await search(req,filters,1);
-     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||''}));
+     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null}));
      const topic=sanitizeTopic({...t,...areaPatch,page:1});
      return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page:1,pageSize:20,filters:{person_type:t.person_type||null},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page:1}))}});
     }catch(e){return sendFailure(e);}
@@ -1065,13 +1086,13 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     const page=Math.min(continuation.page,50);
     try{
      if(kind==='monitoring_list'){
-      const {result,items,answer}=await runMonitoringAnswer(req,{level:t.level||'all',personType:t.person_type||null,area:{district:t.district,subdistrict:t.subdistrict},window:t.window||null,exclude:t.exclude||[],page});
+      const {result,items,answer}=await runMonitoringAnswer(req,{level:t.level||'all',personType:t.person_type||null,area:{province:t.province,station:t.station,district:t.district,subdistrict:t.subdistrict},window:t.window||null,exclude:t.exclude||[],page});
       const topic=sanitizeTopic({...t,page:result.page});
-      return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:t.level||'all',personType:t.person_type,area:{district:t.district,subdistrict:t.subdistrict},window:t.window,exclude:t.exclude,page:result.page}))}});
+      return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,t.person_type),conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:t.level||'all',personType:t.person_type,area:{province:t.province,station:t.station,district:t.district,subdistrict:t.subdistrict},window:t.window,exclude:t.exclude,page:result.page}))}});
      }
      const filters={...(t.person_type?{person_type:t.person_type}:{}),...(t.province?{province:t.province}:{}),...(t.district?{district:t.district}:{}),...(t.subdistrict?{subdistrict:t.subdistrict}:{}),...(t.station?{station:t.station}:{}),...(t.exclude?.length?{exclude:t.exclude}:{})};
      const result=await search(req,filters,page);
-     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||''}));
+     const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:t.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',province:p.province||null,station_name:Number(p.station_id)===parseStationId(req.user.stationId)?req.user.stationName||null:null}));
      const topic=sanitizeTopic({...t,page});
      return respond({answer:`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา (หน้า ${page})`,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],presentation:{type:'person_list',total:result.total,returned:items.length,page,pageSize:20,filters:{person_type:t.person_type||null},items},conversation:{topic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(peopleListSpec({filters,page}))}});
     }catch(e){return sendFailure(e);}
@@ -1108,13 +1129,15 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    for(const filter of freshExclude)if(!mergedExclude.some(item=>item.column===filter.column&&(item.value===filter.value||item.ids===filter.ids)))mergedExclude.push(filter);
    if(mergedExclude.length)reportRequest.filters.exclude=mergedExclude;
    const files=exportIntent.formats.map(item=>item==='xlsx'?'Excel':'PDF').join(' และ ');
-   const needsConfirm=exportIntent.confirm||Boolean(incomingTopic);
+   const hasRecentResult=Boolean(incomingTopic&&(incomingTopic.kind==='people_list'||incomingTopic.kind==='monitoring_list'||incomingTopic.report_kind==='target_person_aggregate'));
+   const explicitSingleFormat=exportIntent.formats.length===1&&exportIntent.explicitFormat;
+   const needsConfirm=!hasRecentResult||!explicitSingleFormat;
    const spec=normalizeQuerySpec({kind:'report',person_type:reportRequest.filters.person_type||null,area:{province:reportRequest.filters.province,district:reportRequest.filters.district,subdistrict:reportRequest.filters.subdistrict,station:reportRequest.filters.station},level:reportRequest.filters.level,window:reportRequest.filters.window||null,exclude:reportRequest.filters.exclude||[]});
    const summaryText=describeQuerySpec(spec);
    const answer=needsConfirm
     ?`ต้องการสร้างรายงาน${files}ของรายการหรือภาพรวมล่าสุดใช่หรือไม่? เลือก 1. ใช่ หรือ 2. ไม่${summaryText?`\nเงื่อนไขรายงาน: ${summaryText}`:''}`
     :`พร้อมสร้างรายงาน${files} จากทะเบียนจริงตามสิทธิ์บัญชีนี้ กดดาวน์โหลดด้านล่าง (ไม่รวมเลขบัตรและเบอร์โทร)${summaryText?`\nเงื่อนไขรายงาน: ${summaryText}`:''}`;
-   return respond({answer,grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:exportIntent.formats,auto:needsConfirm?null:exportIntent.auto,confirm:needsConfirm,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   return respond({answer,grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:exportIntent.formats,auto:needsConfirm?null:exportIntent.formats[0],confirm:needsConfirm,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
   const summary=parseSummaryIntent(routingMessage);const intent=detectFastPathIntent(routingMessage,selectedTopic);
   const overview=detectOverview(routingMessage);
@@ -1192,16 +1215,18 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    try {
     // A fresh monitoring question replaces the previous window/exclusion; the
     // area (subdistrict/district) may persist from the conversation topic.
-    const {result,items,answer}=await runMonitoringAnswer(req,{level:monitor.level,personType:monitor.person_types[0]||null,area:{district:monitor.district,subdistrict:monitor.subdistrict},window:prepared.timeWindow,exclude:excludeFilters,page:monitor.page||1});
+    const monitorArea={province:selectedProvince,station:monitor.station||(!explicitProvince?incomingTopic?.station:null),district:monitor.district,subdistrict:monitor.subdistrict};
+    const {result,items,answer}=await runMonitoringAnswer(req,{level:monitor.level,personType:monitor.person_types[0]||null,area:monitorArea,window:prepared.timeWindow,exclude:excludeFilters,page:monitor.page||1});
     const monitoringTopic=sanitizeTopic({
-     ...(incomingTopic?{province:incomingTopic.province,station:incomingTopic.station,exclude:incomingTopic.exclude}:{}),
+     province:monitorArea.province||undefined,station:monitorArea.station||undefined,
+     ...(incomingTopic?{exclude:incomingTopic.exclude}:{}),
      person_type:monitor.person_types[0]||undefined,
      level:monitor.level,kind:'monitoring_list',page:result.page,
      ...(prepared.timeWindow?{window:prepared.timeWindow}:{}),
      ...(excludeFilters.length?{exclude:excludeFilters}:{}),
      ...(monitor.district?{district:monitor.district}:{}),...(monitor.subdistrict?{subdistrict:monitor.subdistrict}:{}),
     });
-    return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,monitor.person_types[0]),conversation:{topic:monitoringTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:monitor.level,personType:monitor.person_types[0],area:{district:monitor.district,subdistrict:monitor.subdistrict},window:prepared.timeWindow,exclude:excludeFilters,page:result.page}))}});
+    return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_monitoring_read'}],presentation:monitoringPresentation(result,items,monitor.person_types[0]),conversation:{topic:monitoringTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,querySummary:describeQuerySpec(monitoringSpec({level:monitor.level,personType:monitor.person_types[0],area:monitorArea,window:prepared.timeWindow,exclude:excludeFilters,page:result.page}))}});
    } catch(e){return sendFailure(e);}
   }
   if(intent?.intent==='lookup_clarify')return respond({answer:intent.answer,grounded:false,dataSource:'real',presentation:intent.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
@@ -1339,7 +1364,9 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(filters.kind==='monitoring_list'||filters.level==='high'||filters.level==='watch'){
    // Same path as the chat answer: recorded monitoring, windowed when the
    // conversation carried an explicit period, with the same area filters.
+   const stationIds=await monitoringStationIds(req,filters);
    const listed=await registry.listRecordedMonitoring(req,{level:filters.level,personType:filters.person_type,page:1,pageSize:200,
+    ...(stationIds!==undefined?{stationIds}:{}),
     ...(filters.district?{district:filters.district}:{}),...(filters.subdistrict?{subdistrict:filters.subdistrict}:{}),
     ...(filters.window?{from:filters.window.from,to:filters.window.to}:{}),
     ...(filters.exclude?.length?{exclude:filters.exclude}:{})});

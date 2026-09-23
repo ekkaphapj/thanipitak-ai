@@ -1274,12 +1274,24 @@
     const list = document.createElement('div');
     list.className = 'pc-list';
     box.appendChild(list);
+    const table = document.createElement('table');
+    table.className = 'pl-table pl-desktop-table';
+    const tableHead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    for (const label of ['ลำดับ', 'ชื่อ', 'ประเภท', 'ระดับ', 'สภ.', 'อำเภอ', 'จังหวัด', 'เลือก']) {
+      const th = document.createElement('th'); th.textContent = label; headRow.appendChild(th);
+    }
+    tableHead.appendChild(headRow);
+    const tableBody = document.createElement('tbody');
+    table.append(tableHead, tableBody);
+    box.appendChild(table);
 
     function normalizeItem(u) {
       return {
         person_id: u.person_id != null ? u.person_id : u.id,
         full_name: u.full_name || ((u.first_name || '') + ' ' + (u.last_name || '')).trim(),
         person_type: u.person_type,
+        level: u.level,
         status: u.status,
         district: u.district,
         subdistrict: u.subdistrict,
@@ -1290,6 +1302,7 @@
 
     function renderRows(items) {
       list.innerHTML = '';
+      tableBody.innerHTML = '';
       const rows = items || [];
       if (!rows.length) {
         rememberOrdinalItems(null);
@@ -1297,6 +1310,9 @@
         empty.className = 'pc-empty';
         empty.textContent = 'ไม่มีข้อมูล';
         list.appendChild(empty);
+        const tr = document.createElement('tr');
+        const td = document.createElement('td'); td.colSpan = 8; td.textContent = 'ไม่มีข้อมูล';
+        tr.appendChild(td); tableBody.appendChild(tr);
         return;
       }
       const ordinalItems = [];
@@ -1323,10 +1339,19 @@
         if (item.station_name) placeBits.push('สภ.' + String(item.station_name).replace(/^สภ\.?\s*/u, ''));
         if (item.district) placeBits.push('อ.' + item.district);
         if (item.province) placeBits.push('จ.' + item.province);
-        tag.textContent = [TYPE_AI_LABEL[item.person_type] || item.person_type, placeBits.join(' ') || item.district].filter(Boolean).join(' • ');
+        tag.textContent = [TYPE_AI_LABEL[item.person_type] || item.person_type, item.level, placeBits.join(' ') || item.district].filter(Boolean).join(' • ');
         info.append(name, tag);
         row.append(info, makeSelectButton({ personId: item.person_id, displayName: item.full_name }));
         list.appendChild(row);
+        const tableRow = document.createElement('tr');
+        tableRow.className = 'pl-row';
+        tableRow.setAttribute('data-person-id', String(item.person_id));
+        if (isSelectedRow(item)) tableRow.classList.add('pl-selected');
+        for (const value of [ordinal, item.full_name || 'ไม่ระบุชื่อ', TYPE_AI_LABEL[item.person_type] || item.person_type || '', item.level || '', item.station_name || '', item.district || '', item.province || '']) {
+          const cell = document.createElement('td'); cell.textContent = String(value); tableRow.appendChild(cell);
+        }
+        const action = document.createElement('td'); action.appendChild(makeSelectButton({ personId: item.person_id, displayName: item.full_name }));
+        tableRow.appendChild(action); tableBody.appendChild(tableRow);
       });
       rememberOrdinalItems(ordinalItems, referenceLabelForPeople(ctx.filter, 'รายชื่อที่แสดง'));
     }
@@ -1334,7 +1359,7 @@
     function updateRange() {
       const from = (ctx.page - 1) * ctx.pageSize + 1;
       const to = Math.min(ctx.page * ctx.pageSize, ctx.total);
-      rangeText.textContent = 'แสดง ' + from + '-' + to + ' จาก ' + ctx.total + ' คน';
+      rangeText.textContent = ctx.total ? 'แสดง ' + from + '-' + to + ' จาก ' + ctx.total + ' คน' : 'ไม่มีข้อมูล';
       prev.disabled = ctx.page <= 1;
       next.disabled = ctx.page * ctx.pageSize >= ctx.total;
     }
@@ -1538,6 +1563,27 @@
     hostForPresentation(wrap).appendChild(box);
   }
 
+  function stationDesktopTable(rows, { ranked = false, personType = null } = {}) {
+    const frame = document.createElement('div'); frame.className = 'overview-desktop-table';
+    const table = document.createElement('table'); table.className = 'pl-table';
+    const fields = personType ? [[TYPE_AI_LABEL[personType] || personType, { psychiatric:'psychiatric',drug_user:'drugUser',dealer:'dealer',released:'released' }[personType]]] : [['จิตเวช','psychiatric'],['ผู้เสพ','drugUser'],['ผู้ค้า','dealer'],['ผู้พ้นโทษ','released'],['รวม','total']];
+    const head = document.createElement('thead'); const headRow = document.createElement('tr');
+    for (const label of [...(ranked ? ['อันดับ'] : []),'สภ.','จังหวัด',...fields.map(field=>field[0])]) {
+      const th = document.createElement('th'); th.textContent = label; headRow.appendChild(th);
+    }
+    head.appendChild(headRow); table.appendChild(head);
+    const body = document.createElement('tbody');
+    (rows || []).forEach((item,index) => {
+      const row = document.createElement('tr');
+      for (const value of [...(ranked ? [index+1] : []),item.stationName || 'ไม่ระบุ สภ.',item.province || '',...fields.map(field=>item[field[1]] || 0)]) {
+        const cell = document.createElement('td'); cell.textContent = String(value); row.appendChild(cell);
+      }
+      body.appendChild(row);
+    });
+    table.appendChild(body); frame.appendChild(table);
+    return frame;
+  }
+
   function renderTargetPersonSummary(wrap, presentation) {
     const box = document.createElement('section'); box.className = 'overview-card';
     const title = document.createElement('h2'); title.textContent = presentation.scopeLabel || 'ภาพรวมบุคคลเป้าหมาย'; box.appendChild(title);
@@ -1559,7 +1605,9 @@
       }
       card.appendChild(metrics); list.appendChild(card);
     }
-    box.appendChild(list); hostForPresentation(wrap).appendChild(box);
+    box.appendChild(list);
+    box.appendChild(stationDesktopTable(presentation.rows));
+    hostForPresentation(wrap).appendChild(box);
   }
 
   function renderStationRanking(wrap, presentation) {
@@ -1587,7 +1635,9 @@
       }
       card.appendChild(metrics); list.appendChild(card);
     }
-    box.appendChild(list); hostForPresentation(wrap).appendChild(box);
+    box.appendChild(list);
+    box.appendChild(stationDesktopTable(presentation.rows,{ranked:true,personType:presentation.personType}));
+    hostForPresentation(wrap).appendChild(box);
   }
 
   function renderOverview(wrap, presentation) {

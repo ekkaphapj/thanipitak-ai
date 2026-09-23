@@ -251,7 +251,8 @@ test('station-assigned admin still lists only their own station',async()=>{
 test('real people pagination requests the next offset in station scope',async()=>{
  const calls=[];const app=express();app.use(express.json());
  app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:2,stationName:'สภ.ท่าอุเทน'};req.realToken='t';next();},{url:'https://example.test',key:'anon',request:async url=>{
-  calls.push(new URL(url));
+  const u=new URL(url);calls.push(u);
+  if(u.pathname.endsWith('/people_type'))return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>u.searchParams.get('type_name')?.includes('ยาเสพติด')?[]:[{type_id:2}]};
   return {ok:true,headers:new Headers({'content-range':'20-39/45'}),json:async()=>[{id:21,first_name:'คน',last_name:'หน้าสอง',station_id:2,tambon:'ท่าอุเทน',amphoe:'ท่าอุเทน'}]};
  }}));
  const res=await request(app).get('/people?page=2&limit=20&person_type=drug_user');

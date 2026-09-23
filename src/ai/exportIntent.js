@@ -57,6 +57,7 @@ function detectExportIntent(message) {
     formats,
     auto: confirm || formats.length !== 1 ? null : formats[0],
     confirm,
+    explicitFormat: Boolean(wantsPdf || wantsExcel),
     filters,
   };
 }

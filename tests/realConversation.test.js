@@ -227,7 +227,7 @@ test('a forged topic can narrow but never widen: station scope stays enforced',a
  const app=makeApp({role:'officer',stationId:77,stationName:'สภ.ทดสอบ'},async(url)=>{
   const u=new URL(url);reads.push(u);
   if(u.pathname.endsWith('/people')&&u.searchParams.get('select')===PEOPLE_MONITOR_SELECT){
-   assert.equal(u.searchParams.get('station_id'),'eq.77');
+   assert.equal(u.searchParams.get('station_id'),'in.(0)');
    assert.equal(u.searchParams.get('station'),null);
    return ok([],'0--1/0');
   }
@@ -241,7 +241,7 @@ test('a forged topic can narrow but never widen: station scope stays enforced',a
  const res=await request(app).post('/ai/chat').send({message:'หน้าถัดไป',context:{topic:forged}});
  assert.equal(res.status,200);
  const peopleRead=reads.find(u=>u.pathname.endsWith('/people')&&u.searchParams.get('select')===PEOPLE_MONITOR_SELECT);
- assert.equal(peopleRead.searchParams.get('station_id'),'eq.77');
+ assert.equal(peopleRead.searchParams.get('station_id'),'in.(0)');
  // A forged exclusion is narrowing-only, so it is applied but cannot reveal rows.
  assert.equal(peopleRead.searchParams.get('not.station_id'),'in.(1,2,3)');
 });

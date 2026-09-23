@@ -116,6 +116,7 @@ test('ผู้เสพยกเว้นตำบลโพนสูงมี�
    throw new Error('unexpected people read '+select);
   }
   if(u.pathname.endsWith('/people_type')){
+   if(u.searchParams.get('type_name')?.includes('ยาเสพติด'))return ok([],'0--1/0');
    assert.match(u.searchParams.get('type_name'),/ผู้เสพ/);
    return ok([{type_id:2}],'0-0/1');
   }

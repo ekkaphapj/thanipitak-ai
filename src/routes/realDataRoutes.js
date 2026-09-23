@@ -955,8 +955,29 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(isProvinceChangeOnly(routingMessage)){
    return respond({answer:`ตั้งค่าจังหวัดที่ต้องการดูเป็นจังหวัด${selectedProvince} แล้ว คำสั่งถัดไปจะใช้จังหวัดนี้เป็นตัวกรองภายในสิทธิ์ของบัญชี`,grounded:true,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
-  const planResultResponse=result=>{
+  // A visit-plan request whose สภ. cannot be resolved must not dead-end.
+  // Offer the province's stations from the same scoped catalogue the registry
+  // reads use; choosing one re-sends a clean canonical command, and the choice
+  // only names a station — authorization still happens on the new request.
+  async function stationChoicesPresentation(req,province,originalMessage){
+   try{
+    const catalogue=await rows(req,'stations',new URLSearchParams({select:'station_id,station_name',province:`eq.${province}`,limit:'1000'}));
+    const own=hasCrossStationRead(req.user)?null:parseStationId(req.user.stationId);
+    const names=catalogue.data.map(row=>({id:Number(row.station_id),name:String(row.station_name||'').trim()}))
+     .filter(row=>Number.isSafeInteger(row.id)&&row.name&&(own?row.id===own:true));
+    if(!names.length)return null;
+    const command=name=>`ขอแผนการตรวจเยี่ยม สภ.${name} จังหวัด${province}`;
+    return {type:'place_choices',field:'station',choiceLabel:'ตัวเลือก สภ.',replaceText:originalMessage,originalMessage,
+     choices:names.map((row,index)=>({index:index+1,name:row.name,replaceText:originalMessage,replaceWith:command(row.name),display:`สภ.${row.name}`,filters:{station:row.name}}))};
+   }catch(_){return null;}
+  }
+  const planResultResponse=async result=>{
    if(result.status!=='ok'){
+    const askProvince=explicitProvince||null;
+    if(['station_not_found','station_ambiguous','station_required'].includes(result.status)&&askProvince){
+     const choices=await stationChoicesPresentation(req,askProvince,message);
+     if(choices)return respond({answer:`ไม่สามารถระบุ สภ. ในจังหวัด${askProvince} จากคำสั่งได้ กรุณาเลือก สภ. โดยการพูดลำดับของ สภ. หรือกดเลือกที่ สภ. นั้น`,grounded:true,dataSource:'real',presentation:choices,conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    }
     const answer={station_not_found:'ไม่พบ สภ. ที่ระบุ กรุณาตรวจสอบชื่อ สภ. และจังหวัด',station_ambiguous:'พบชื่อ สภ. ซ้ำ กรุณาระบุจังหวัดและชื่อ สภ. ให้ชัดเจน',station_required:'กรุณาระบุ สภ. ที่ต้องการจัดแผนในจังหวัดนี้'}[result.status]||'ไม่สามารถจัดแผนการตรวจเยี่ยมได้';
     return respond({answer,grounded:true,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    }
@@ -980,7 +1001,14 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   if(visitPlanIntent){
    if(prepared.periodBlocked||prepared.timeWindow||prepared.hardTimeReference)return respond({answer:'แผนการตรวจเยี่ยมแสดงสถานะปัจจุบันเท่านั้น กรุณาขอแผนโดยไม่ระบุช่วงเวลา',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
-   if(visitPlanIntent.missingStation)return respond({answer:'ได้ยินชื่อ สภ. ไม่ชัด กรุณาระบุอีกครั้ง เช่น “ขอแผนการตรวจเยี่ยม สภ.กลางใหญ่ จังหวัดอุดรธานี”',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(visitPlanIntent.missingStation){
+    const askProvince=explicitProvince||null;
+    if(askProvince){
+     const choices=await stationChoicesPresentation(req,askProvince,message);
+     if(choices)return respond({answer:`ไม่สามารถระบุ สภ. ในจังหวัด${askProvince} จากคำสั่งได้ กรุณาเลือก สภ. โดยการพูดลำดับของ สภ. หรือกดเลือกที่ สภ. นั้น`,grounded:true,dataSource:'real',presentation:choices,conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    }
+    return respond({answer:'ได้ยินชื่อ สภ. ไม่ชัด กรุณาระบุอีกครั้ง เช่น “ขอแผนการตรวจเยี่ยม สภ.กลางใหญ่ จังหวัดอุดรธานี”',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
    try{return planResultResponse(await readVisitPlan(req,{station:visitPlanIntent.station,province:explicitProvince||null}));}
    catch(e){return sendFailure(e);}
   }

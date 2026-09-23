@@ -1006,3 +1006,35 @@ stopped before the officer could speak. Fixes: `.voice-hold-btn` sets
 pointer and touch listeners (safe: state guards no-op duplicates); and
 `startRecording` gained a synchronous `micCtl.starting` flag because the two
 events fire before the async `getUserMedia` flips `state.mic`.
+
+### Continuation update — 2026-09-23 night (visit-plan station repairs + station choices)
+
+Field report: saying “ขอแผนการตรวจเยี่ยมของ สภ.ท่าอุเทน จังหวัดนครพนม”
+transcribed สภ. as spaced syllables (“ส พอร์ ทา อู เท น”) or “ศพ”, and the
+answer dead-ended on “กรุณาระบุ สภ.” with nothing to choose from.
+
+- `src/stt/correctTranscript.js` gained `repairVisitPlanStationCue`: in a
+  visit-plan shaped request (เยี่ยม/ลงพื้นที่ + แผน/ตาราง/คิว) whose station
+  slot ends at a named area boundary (จังหวัด/จ./อำเภอ/เขต/ตำบล), garbled
+  สภ. cues (ส พอร์/สพอร์/ส พอท/สพอ/สถานี พอ…/ศพ/สพ/สอพอ/สภอ) are repaired
+  to “สภ.”. The cue must carry a name before the boundary, so “ศพ จังหวัด…”
+  (no name) is left alone and corpse wording outside these requests is
+  untouched.
+- When the station still cannot be resolved and the command named a province,
+  the real chat answers with a `place_choices` presentation
+  (`choiceLabel: ตัวเลือก สภ.`) listing that province's stations from the
+  scoped stations catalogue (own-station accounts see only their own
+  station). The answer text is “ไม่สามารถระบุ สภ. ในจังหวัด… จากคำสั่งได้
+  กรุณาเลือก สภ. โดยการพูดลำดับของ สภ. หรือกดเลือกที่ สภ. นั้น” — the
+  กรุณาเลือก wording also triggers the voice follow-up clip. Each choice
+  (button or spoken ordinal) re-sends the canonical command
+  “ขอแผนการตรวจเยี่ยม สภ.<name> จังหวัด<province>”; the backend re-resolves
+  and re-authorizes the whole request. Covered for both the
+  missing-station-cue path and RPC statuses station_not_found /
+  station_ambiguous / station_required. Without a named province the old
+  ask-again answer stays.
+- Tests: `tests/sttCorrect.test.js` (visit-plan cue repairs + negatives),
+  `tests/realVisitPlan.test.js` (garbled name → station list → choice
+  re-send → plan; cue without a name → list before any plan read). Full
+  `npm test`: **442 tests, 25 suites, 0 failures** (mocked Supabase, no live
+  model, no real registry).

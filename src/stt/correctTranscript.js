@@ -64,6 +64,7 @@ function correctTranscript(text) {
   out = out.replace(/รายชื่(?=\s|$|[,.!?])/gu, 'รายชื่อ');
   out = out.replace(/รายชื่ออ(?=\s+(?:ผู้ป่วย|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ|บุคคล))/gu, 'รายชื่อ');
   out = repairStationCue(out);
+  out = repairVisitPlanStationCue(out);
   return out.replace(/\s+/g, ' ').trim();
 }
 
@@ -73,6 +74,18 @@ function repairStationCue(text) {
   // request with a named place and an explicit area boundary.
   if (!/(?:รายชื่อ|ภาพรวม|สรุป|ผู้ป่วย|จิตเวช|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ|บุคคล)/u.test(value)) return value;
   return value.replace(/(^|[\s,])(?:ศพ|สพ|สอพอ|สภอ)\s+(?!(?:จังหวัด|จ\.|อำเภอ|เขต|ตำบล))(?=[ก-๙A-Za-z0-9.-]{2,80}\s*(?:จังหวัด|จ\.|อำเภอ|เขต|ตำบล|$))/gu, '$1สภ.');
+}
+
+// A spoken visit-plan request ("ขอแผนการตรวจเยี่ยม ... จังหวัด...") often
+// transcribes สภ. as spaced syllables ("ส พอร์") or other near-homophones.
+// Whisper keeps the station name as separate short tokens ("ทา อู เท น"), so
+// the name slot here allows spaces and must end at the named area boundary.
+function repairVisitPlanStationCue(text) {
+  const value = String(text || '');
+  const visit = /เยี่ยม|ลง\s*พื้นที่/u.test(value);
+  const planning = /แผน|ตาราง|คิว/u.test(value);
+  if (!visit || !planning) return value;
+  return value.replace(/(^|[\s,])(?:ส\s*พอร์|สพอร์|ส\s*พอท|สพอท|ส\s*พอ|สพอ|สถานี\s*พอร์|สถานี\s*พอ|ศพ|สพ|สอพอ|สภอ)\s+(?=[ก-๙A-Za-z0-9.-][ก-๙A-Za-z0-9. -]{1,79}?\s*(?:จังหวัด|จ\.|อำเภอ|เขต|ตำบล))/gu, '$1สภ.');
 }
 
 module.exports = { correctTranscript, repairStationCue };

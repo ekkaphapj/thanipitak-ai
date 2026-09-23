@@ -33,3 +33,15 @@ test('repairs an isolated station mishearing without corrupting รายชื�
     'ขอรายชื่อผู้ป่วยจิตเวช สภ.กลางใหญ่ จังหวัดอุดรธานี');
   assert.equal(correctTranscript('พบศพ กลางใหญ่'), 'พบศพ กลางใหญ่');
 });
+
+test('visit-plan station cue repairs only with a station name before the province boundary', () => {
+  assert.equal(correctTranscript('ขอแผนการตรวจเยี่ยมของ ส พอร์ ทา อู เท น จังหวัดนครพนม'), 'ขอแผนการตรวจเยี่ยมของ สภ.ทา อู เท น จังหวัดนครพนม');
+  assert.equal(correctTranscript('ขอแผนตรวจเยี่ยม ศพ ท่าอุเทน จังหวัดนครพนม'), 'ขอแผนตรวจเยี่ยม สภ.ท่าอุเทน จังหวัดนครพนม');
+  assert.equal(correctTranscript('จัดคิวตรวจเยี่ยม สพอร์ ท่าอุเทน จังหวัดนครพนม'), 'จัดคิวตรวจเยี่ยม สภ.ท่าอุเทน จังหวัดนครพนม');
+  // A cue directly followed by the province has no name to carry: leave it so
+  // the route offers the province station list instead.
+  assert.equal(correctTranscript('ขอแผนการตรวจเยี่ยม ศพ จังหวัดนครพนม'), 'ขอแผนการตรวจเยี่ยม ศพ จังหวัดนครพนม');
+  // Corpse wording outside a visit-plan/registry request stays untouched.
+  assert.equal(correctTranscript('พบศพในพื้นที่ สวนสาธารณะ'), 'พบศพในพื้นที่ สวนสาธารณะ');
+  assert.equal(correctTranscript('แผนเยี่ยมชมสถานที่เกิดเหตุพบศพ ในจังหวัดอุดรธานี'), 'แผนเยี่ยมชมสถานที่เกิดเหตุพบศพ ในจังหวัดอุดรธานี');
+});

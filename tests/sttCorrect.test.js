@@ -23,3 +23,13 @@ test('corrects สภ. and บุคคล mishears so ranking questions route t
   assert.equal(correctTranscript('สอพอทไหนมีผู้เสพมากที่สุด'), 'สภ.ไหนมีผู้เสพมากที่สุด');
   assert.equal(correctTranscript('สถานีตำรวจที่มีบุคคลมากที่สุด'), 'สถานีตำรวจที่มีบุคคลมากที่สุด');
 });
+
+test('repairs an isolated station mishearing without corrupting รายชื่อ', () => {
+  assert.equal(correctTranscript('ขอรายชื่ออ ผู้ป่วย จิตเวช ศพ กลางใหญ่ จังหวัดอุดรธานี'),
+    'ขอรายชื่อ ผู้ป่วย จิตเวช สภ.กลางใหญ่ จังหวัดอุดรธานี');
+  assert.equal(correctTranscript('ขอรายชื่อผู้ป่วยจิตเวช สพ กลางใหญ่ จังหวัดอุดรธานี'),
+    'ขอรายชื่อผู้ป่วยจิตเวช สภ.กลางใหญ่ จังหวัดอุดรธานี');
+  assert.equal(correctTranscript('ขอรายชื่อผู้ป่วยจิตเวช สภ.กลางใหญ่ จังหวัดอุดรธานี'),
+    'ขอรายชื่อผู้ป่วยจิตเวช สภ.กลางใหญ่ จังหวัดอุดรธานี');
+  assert.equal(correctTranscript('พบศพ กลางใหญ่'), 'พบศพ กลางใหญ่');
+});

@@ -12,6 +12,7 @@ const {hasDBIntent}=require('../ai/intentDetector');
 rag=require('../ai/rag');
 const {detectDiscoveryIntent,discover}=require('../services/discoveryService');
 const {normalizeUtterance,matchPlaceNames,placeKey}=require('../ai/thaiText');
+const {correctTranscript}=require('../stt/correctTranscript');
 const {analyzePeriods,extractTimeWindow,hasHardTimeReference}=require('../ai/timeWindow');
 const {parseAreaExclusions,removeSpans}=require('../ai/areaExclusion');
 const {normalizeQuerySpec,describeQuerySpec,filtersFromSpec}=require('../ai/querySpec');
@@ -817,7 +818,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  router.post('/ai/chat/processing',(req,res)=>{
   const raw=req.body?.message;
   if(typeof raw!=='string'||!raw.trim()||raw.length>2000)return res.status(400).json({error:'คำถามไม่ถูกต้อง'});
-  const message=normalizeUtterance(raw)||raw;
+  const message=normalizeUtterance(correctTranscript(raw))||raw;
   const topic=sanitizeTopic(req.body?.context?.topic);
   return res.json({willUseLocalAi:likelyUsesLocalAi(prepareRoutingMessage(message).routingMessage,topic,Boolean(selectedPersonId(req.body)))});
  });
@@ -827,7 +828,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   // Typed and transcribed commands share one canonical form: politeness
   // particles, Thai digits, zero-width characters, and spacing are normalized
   // before every detector and before the model sees the request.
-  const message=normalizeUtterance(raw)||raw;
+  const message=normalizeUtterance(correctTranscript(raw))||raw;
   const personId=selectedPersonId(req.body);
   let incomingTopic=sanitizeTopic(req.body?.context?.topic);
   // Server-side session reset mirrors the client's own "เริ่มใหม่" so no
@@ -855,6 +856,19 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   const prepared=prepareRoutingMessage(message);
   const routingMessage=prepared.routingMessage;
+  // A named station is a narrowing condition. If a voice transcript still
+  // contains a station-like cue that our deterministic parsers cannot keep,
+  // stop before any registry read rather than silently showing a whole province.
+  let requestedStation=null;
+  const stationCue=/(?:^|[\s,])(?:สภ\.?|สถานี(?:ตำรวจ)?|ศพ|สพ|สอพอ|สภอ)(?=\s|[ก-๙]|$)/u.test(routingMessage);
+  const namedStationBeforeProvince=/(?:สภ\.?|สถานี(?:ตำรวจ)?)\s*[ก-๙A-Za-z0-9.-]{2,80}\s*(?:จังหวัด|จ\.)/u.test(routingMessage);
+  const genericStationOverview=/ภาพรวม/u.test(routingMessage)&&/(?:ราย\s*)?สภ\.?\s*(?:ใน?จังหวัด|$)/u.test(routingMessage);
+  if(stationCue&&!genericStationOverview&&/(?:รายชื่อ|ภาพรวม|สรุป|ผู้ป่วย|จิตเวช|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ)/u.test(routingMessage)&&(!detectStationRanking(routingMessage)||namedStationBeforeProvince)){
+   requestedStation=detectFastPathIntent(routingMessage)?.filters?.station
+    ||parseSummaryIntent(routingMessage)?.filters?.station
+    ||detectOverview(routingMessage)?.filters?.station||null;
+   if(!requestedStation)return res.json({answer:'ได้ยินชื่อ สภ. ไม่ชัด กรุณาพูดหรือพิมพ์ชื่อสถานีอีกครั้ง เช่น “ขอรายชื่อผู้ป่วยจิตเวช สภ.กลางใหญ่ จังหวัดอุดรธานี”',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
   const periodRequested=Boolean(prepared.timeWindow||prepared.periodBlocked||prepared.hardTimeReference);
   // Choice follow-ups re-send the original command with the chosen verified
   // name substituted, so every choices presentation carries that text.
@@ -1063,7 +1077,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     }catch(e){return sendFailure(e);}
    }
   }
-  const stationRank=detectStationRanking(routingMessage)||detectAggregateSortContinuation(routingMessage,incomingTopic);
+  const stationRank=requestedStation?null:(detectStationRanking(routingMessage)||detectAggregateSortContinuation(routingMessage,incomingTopic));
   if(stationRank){
    if(prepared.exclusions.length)return respond({answer:'การยกเว้นพื้นที่ยังไม่รองรับกับการจัดอันดับ สภ. กรุณาถามแยกตามพื้นที่ที่ต้องการดู',grounded:false,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    if(prepared.periodBlocked)return respond({answer:periodBlockedMessage(prepared.periodBlocked),grounded:false,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
@@ -1221,6 +1235,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    }
    const filters={...(summary?.filters||intent?.filters||{})};
    if(plan){for(const key of ['province','district','subdistrict','station','search'])if(plan[key])filters[key]=plan[key];if(plan.person_type!=='all')filters.person_type=plan.person_type;}
+   if(requestedStation)filters.station=requestedStation;
    for(const type of ['psychiatric','drug_user','dealer','released'])if(intent?.intent.endsWith('_'+type))filters.person_type=type;
    // Keep explicit subject even when the general count parser returns count_total.
    if(/จิตเวช|ผู้ป่วย/.test(routingMessage))filters.person_type='psychiatric';
@@ -1273,14 +1288,14 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    const uniformDistrict=single(result.data.map(p=>String(p.amphoe||'').trim()).filter(Boolean));
    const uniformProvince=single(result.data.map(p=>String(p.province||'').trim()).filter(Boolean));
    let uniform='';
-   if(!countOnly&&uniformStation)uniform+=` • สังกัด สภ.${String(uniformStation).replace(/^สภ\.?\s*/u,'')}`;
+   if(!countOnly&&(filters.station||uniformStation))uniform+=` • สังกัด สภ.${String(filters.station||uniformStation).replace(/^สภ\.?\s*/u,'')}`;
    if(!countOnly&&uniformDistrict)uniform+=` • อำเภอ${uniformDistrict}`;
    if(!countOnly&&uniformProvince)uniform+=` • จังหวัด${uniformProvince}`;
    const items=result.data.map(p=>({person_id:p.id,full_name:`${p.first_name||''} ${p.last_name||''}`.trim(),person_type:filters.person_type||null,subdistrict:p.tambon||'',district:p.amphoe||'',station_name:stationNameOf(p),province:String(p.province||'').trim()||null}));
    const answer=countOnly
     ?(result.total?`มี${category} ${result.total} คน${excludeNote||''}`:`ไม่มี${category}${excludeNote||''}`)
     :`ข้อมูลจริง: พบ ${result.total} คนตามสิทธิ์และเงื่อนไขที่ค้นหา${uniform||''}${excludeNote||''}`;
-   const presentation=countOnly?undefined:{type:'person_list',total:result.total,returned:items.length,page,pageSize:20,filters:{person_type:filters.person_type||null,province:filters.province||null,district:filters.district||null,subdistrict:filters.subdistrict||null},items};
+   const presentation=countOnly?undefined:{type:'person_list',total:result.total,returned:items.length,page,pageSize:20,filters:{person_type:filters.person_type||null,province:filters.province||null,station:filters.station||null,district:filters.district||null,subdistrict:filters.subdistrict||null},items};
    // The topic for a fresh people query carries only this message's own
    // conditions plus inherited area — never the previous query's window,
    // level, or exclusions.

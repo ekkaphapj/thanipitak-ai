@@ -176,6 +176,10 @@ test('overview gives a named station precedence over its province, including spo
  assert.equal(res.body.presentation.filters.station,'สภ.ธวัชบุรี');
  assert.equal(res.body.conversation.topic.station,'สภ.ธวัชบุรี');
  assert.ok(calls.some(u=>u.pathname.endsWith('/stations')&&u.searchParams.get('select')==='station_id,station_name'));
+ const voice=await request(app).post('/ai/chat').send({message:'ขอภาพรวมผู้ป่วยจิตเวช ศพ ธวัชบูรี จังหวัดร้อยเอ็ด'});
+ assert.equal(voice.status,200);
+ assert.equal(voice.body.presentation.scopeLabel,'สภ.ธวัชบุรี');
+ assert.equal(voice.body.presentation.filters.station,'สภ.ธวัชบุรี');
 });
 
 test('voice-style politeness particles and Thai digits work on the real chat path',async()=>{
@@ -202,4 +206,49 @@ test('processing preflight classifies the normalized utterance without data acce
  const res=await request(app).post('/ai/chat/processing').send({message:'เปลี่ยนจังหวัดนครพนมครับ'});
  assert.equal(res.status,200);
  assert.equal(res.body.willUseLocalAi,false);
+});
+
+test('a misheard station in a psychiatric name request narrows every people read to that station',async()=>{
+ const calls=[];
+ const app=makeApp({role:'officer',stationId:77,aiScope:{level:'all',read_only:true,provinces:['อุดรธานี']}},async url=>{
+  const u=new URL(url);calls.push(u);
+  const path=u.pathname;
+  if(path.endsWith('/stations')){
+   const data=u.searchParams.has('station_name')?[{station_id:201}]:[{station_id:201},{station_id:202}];
+   assert.equal(u.searchParams.get('province'),'eq.อุดรธานี');
+   assert.equal(u.searchParams.has('station_name')?u.searchParams.get('station_name'):null,
+    u.searchParams.has('station_name')?'ilike.*กลางใหญ่*':null);
+   return {ok:true,headers:new Headers({'content-range':`0-${data.length-1}/${data.length}`}),json:async()=>data};
+  }
+  if(path.endsWith('/people_type'))return {ok:true,headers:new Headers({'content-range':'0-0/1'}),json:async()=>[{type_id:1}]};
+  if(path.endsWith('/people')){
+   assert.equal(u.searchParams.get('station_id'),'in.(201)');
+   assert.equal(u.searchParams.get('type_id'),'in.(1)');
+   return {ok:true,headers:new Headers({'content-range':'0--1/0'}),json:async()=>[]};
+  }
+  throw new Error('unexpected read '+url);
+ },{interpret:async()=>{throw new Error('clear station request must not need the model');}});
+ const res=await request(app).post('/ai/chat').send({message:'ขอรายชื่ออ ผู้ป่วย จิตเวช ศพ กลางใหญ่ จังหวัดอุดรธานี'});
+ assert.equal(res.status,200);
+ assert.equal(res.body.presentation.type,'person_list');
+ assert.equal(res.body.presentation.filters.station,'กลางใหญ่');
+ assert.match(res.body.answer,/สภ.กลางใหญ่/);
+ assert.equal(res.body.conversation.topic.station,'กลางใหญ่');
+ const next=await request(app).post('/ai/chat').send({message:'หน้าถัดไป',context:res.body.conversation});
+ assert.equal(next.status,200);
+ assert.equal(next.body.presentation.page,2);
+ assert.equal(next.body.conversation.topic.station,'กลางใหญ่');
+ assert.equal(calls.filter(u=>u.pathname.endsWith('/people')).length,2);
+});
+
+test('an incomplete station cue asks for clarification before reading a province list',async()=>{
+ let reads=0;
+ const app=makeApp({role:'officer',stationId:77,aiScope:{level:'all',read_only:true,provinces:['อุดรธานี']}},async()=>{
+  reads++;throw new Error('a missing station must not read people');
+ });
+ const res=await request(app).post('/ai/chat').send({message:'ขอรายชื่อผู้ป่วยจิตเวช ศพ จังหวัดอุดรธานี'});
+ assert.equal(res.status,200);
+ assert.match(res.body.answer,/ชื่อ สภ. ไม่ชัด/);
+ assert.equal(res.body.grounded,false);
+ assert.equal(reads,0);
 });

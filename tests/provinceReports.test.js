@@ -112,8 +112,8 @@ test('a spoken sort follow-up reorders the preceding station aggregate instead o
   if(String(url).includes('/functions/v1/ai-summary')){
    bodies.push(JSON.parse(opts.body));
    return {ok:true,json:async()=>({report_type:'target_person_summary',scope:{level:'all',read_only:true},rows:[
-    {station_name:'สภ.กุดจับ',province:'อุดรธานี',psychiatric_total:2,drug_user_total:3,dealer_total:1,released_total:0,target_total:6},
     {station_name:'สภ.เมืองอุดรธานี',province:'อุดรธานี',psychiatric_total:8,drug_user_total:12,dealer_total:2,released_total:1,target_total:23},
+    {station_name:'สภ.กุดจับ',province:'อุดรธานี',psychiatric_total:2,drug_user_total:3,dealer_total:1,released_total:0,target_total:6},
    ]})};
   }
   throw new Error('unexpected read '+url);
@@ -121,13 +121,18 @@ test('a spoken sort follow-up reorders the preceding station aggregate instead o
  const overview=await request(app).post('/ai/chat').send({message:'ขอภาพรวมราย สภ. ในจังหวัดอุดรธานี'});
  assert.equal(overview.status,200);
  assert.equal(overview.body.presentation.type,'target_person_summary');
+ assert.deepEqual(overview.body.presentation.rows.map(row=>row.stationName),['สภ.เมืองอุดรธานี','สภ.กุดจับ'],'unsorted overview keeps database row order');
  assert.equal(overview.body.conversation.topic.report_kind,'target_person_aggregate');
  const sorted=await request(app).post('/ai/chat').send({message:'ให้เรียยง (ลำดับจากมากไปน้อย)',context:{topic:overview.body.conversation.topic}});
  assert.equal(sorted.status,200);
  assert.equal(sorted.body.presentation.type,'station_ranking');
  assert.deepEqual(sorted.body.presentation.rows.map(row=>row.stationName),['สภ.เมืองอุดรธานี','สภ.กุดจับ']);
  assert.match(sorted.body.answer,/เรียงบุคคลทั้งหมดมากไปน้อย/);
- assert.equal(bodies.length,2);
+ const alphabetic=await request(app).post('/ai/chat').send({message:'เรียงตามตัวอักษร',context:{topic:overview.body.conversation.topic}});
+ assert.equal(alphabetic.status,200);
+ assert.deepEqual(alphabetic.body.presentation.rows.map(row=>row.stationName),['สภ.กุดจับ','สภ.เมืองอุดรธานี']);
+ assert.match(alphabetic.body.answer,/เรียงตามตัวอักษร/);
+ assert.equal(bodies.length,3);
  assert.ok(bodies.every(body=>body.province==='อุดรธานี'));
 });
 

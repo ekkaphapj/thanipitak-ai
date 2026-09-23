@@ -1542,18 +1542,24 @@
     const box = document.createElement('section'); box.className = 'overview-card';
     const title = document.createElement('h2'); title.textContent = presentation.scopeLabel || 'ภาพรวมบุคคลเป้าหมาย'; box.appendChild(title);
     const totals = presentation.totals || {};
-    const summary = document.createElement('p'); summary.textContent = `รวม ${totals.total || 0} คน • จิตเวช ${totals.psychiatric || 0} • ผู้เสพ ${totals.drugUser || 0} • ผู้ค้า ${totals.dealer || 0} • ผู้พ้นโทษ ${totals.released || 0}`; box.appendChild(summary);
-    const table = document.createElement('table'); table.className = 'overview-table';
-    const head = document.createElement('thead'); head.innerHTML = '<tr><th>สภ.</th><th>จังหวัด</th><th>จิตเวช</th><th>ผู้เสพ</th><th>ผู้ค้า</th><th>พ้นโทษ</th><th>รวม</th></tr>'; table.appendChild(head);
-    const body = document.createElement('tbody');
+    const summary = document.createElement('p'); summary.className = 'overview-summary-total'; summary.textContent = `รวม ${totals.total || 0} คน`; box.appendChild(summary);
+    const list = document.createElement('div'); list.className = 'overview-station-list';
     for (const item of presentation.rows || []) {
-      const row = document.createElement('tr');
-      for (const value of [item.stationName, item.province, item.psychiatric, item.drugUser, item.dealer, item.released, item.total]) {
-        const cell = document.createElement('td'); cell.textContent = String(value || 0); row.appendChild(cell);
+      const card = document.createElement('article'); card.className = 'overview-station-card';
+      const heading = document.createElement('div'); heading.className = 'overview-station-heading';
+      const station = document.createElement('strong'); station.textContent = item.stationName || 'ไม่ระบุ สภ.';
+      const province = document.createElement('span'); province.textContent = item.province ? `จังหวัด${item.province}` : '';
+      heading.append(station, province); card.appendChild(heading);
+      const metrics = document.createElement('div'); metrics.className = 'overview-station-metrics';
+      for (const [label, value, key] of [['จิตเวช',item.psychiatric,'psychiatric'],['ผู้เสพ',item.drugUser,'drug-user'],['ผู้ค้า',item.dealer,'dealer'],['ผู้พ้นโทษ',item.released,'released'],['รวม',item.total,'total']]) {
+        const metric = document.createElement('div'); metric.className = `overview-station-metric ${key}`;
+        const name = document.createElement('span'); name.textContent = label;
+        const count = document.createElement('strong'); count.textContent = String(value || 0);
+        metric.append(name,count); metrics.appendChild(metric);
       }
-      body.appendChild(row);
+      card.appendChild(metrics); list.appendChild(card);
     }
-    table.appendChild(body); box.appendChild(table); hostForPresentation(wrap).appendChild(box);
+    box.appendChild(list); hostForPresentation(wrap).appendChild(box);
   }
 
   function renderStationRanking(wrap, presentation) {
@@ -1561,24 +1567,27 @@
     const labels = { psychiatric: 'ผู้ป่วยจิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'ผู้พ้นโทษ' };
     const typeLabel = presentation.personType ? labels[presentation.personType] : 'บุคคลทั้งหมด';
     const title = document.createElement('h2'); title.textContent = `จัดอันดับ สภ. ตามจำนวน${typeLabel}`; box.appendChild(title);
-    const note = document.createElement('p'); note.textContent = `${presentation.scopeLabel || 'พื้นที่ที่เลือก'} • เรียง${presentation.direction === 'asc' ? 'น้อยไปมาก' : 'มากไปน้อย'}${presentation.limit == null ? ' • แสดงทั้งหมด' : ` • ${presentation.limit} อันดับแรก`}`; box.appendChild(note);
-    const table = document.createElement('table'); table.className = 'overview-table';
-    const head = document.createElement('thead');
-    head.innerHTML = presentation.personType
-      ? '<tr><th>อันดับ</th><th>สภ.</th><th>จังหวัด</th><th>จำนวน</th></tr>'
-      : '<tr><th>อันดับ</th><th>สภ.</th><th>จังหวัด</th><th>จิตเวช</th><th>ผู้เสพ</th><th>ผู้ค้า</th><th>พ้นโทษ</th><th>รวม</th></tr>';
-    table.appendChild(head);
-    const body = document.createElement('tbody');
+    const note = document.createElement('p'); note.textContent = `${presentation.scopeLabel || 'พื้นที่ที่เลือก'} • เรียง${presentation.sortBy === 'name' ? 'ตามตัวอักษร' : presentation.direction === 'asc' ? 'น้อยไปมาก' : 'มากไปน้อย'}${presentation.limit == null ? ' • แสดงทั้งหมด' : ` • ${presentation.limit} อันดับแรก`}`; box.appendChild(note);
+    const list = document.createElement('div'); list.className = 'overview-station-list ranking-list';
     const field = { psychiatric: 'psychiatric', drug_user: 'drugUser', dealer: 'dealer', released: 'released' }[presentation.personType];
     for (const [index, item] of (presentation.rows || []).entries()) {
-      const row = document.createElement('tr');
-      const values = presentation.personType
-        ? [index + 1, item.stationName, item.province, item[field] || 0]
-        : [index + 1, item.stationName, item.province, item.psychiatric || 0, item.drugUser || 0, item.dealer || 0, item.released || 0, item.total || 0];
-      for (const value of values) { const cell = document.createElement('td'); cell.textContent = String(value); row.appendChild(cell); }
-      body.appendChild(row);
+      const card = document.createElement('article'); card.className = 'overview-station-card ranking-station-card';
+      const heading = document.createElement('div'); heading.className = 'overview-station-heading';
+      const rank = document.createElement('span'); rank.className = 'overview-station-rank'; rank.textContent = String(index + 1);
+      const station = document.createElement('strong'); station.textContent = item.stationName || 'ไม่ระบุ สภ.';
+      const province = document.createElement('span'); province.textContent = item.province ? `จังหวัด${item.province}` : '';
+      heading.append(rank,station,province); card.appendChild(heading);
+      const selectedMetrics = presentation.personType ? [[typeLabel,item[field],'total']] : [['จิตเวช',item.psychiatric,'psychiatric'],['ผู้เสพ',item.drugUser,'drug-user'],['ผู้ค้า',item.dealer,'dealer'],['ผู้พ้นโทษ',item.released,'released'],['รวม',item.total,'total']];
+      const metrics = document.createElement('div'); metrics.className = `overview-station-metrics${presentation.personType ? ' single-metric' : ''}`;
+      for (const [label,value,key] of selectedMetrics) {
+        const metric = document.createElement('div'); metric.className = `overview-station-metric ${key}`;
+        const name = document.createElement('span'); name.textContent = label;
+        const count = document.createElement('strong'); count.textContent = String(value || 0);
+        metric.append(name,count); metrics.appendChild(metric);
+      }
+      card.appendChild(metrics); list.appendChild(card);
     }
-    table.appendChild(body); box.appendChild(table); hostForPresentation(wrap).appendChild(box);
+    box.appendChild(list); hostForPresentation(wrap).appendChild(box);
   }
 
   function renderOverview(wrap, presentation) {

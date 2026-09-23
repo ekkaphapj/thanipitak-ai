@@ -151,6 +151,10 @@ test('unknown spoken question invokes local interpreter and executes scoped grou
  const res=await request(app).post('/ai/chat').send({message:'อยากเห็นยอดคนไข้แจกแจงรายตำบล เอาที่เยอะขึ้นก่อน'});
  assert.equal(res.status,200);assert.equal(interpretations,0);assert.equal(res.body.meta.ollamaCalls,0);assert.equal(res.body.meta.fastPath,true);
  assert.ok(res.body.answer.indexOf('ตำบลข')<res.body.answer.indexOf('ตำบลก'));
+ const alphabetical=await request(app).post('/ai/chat').send({message:'ขอจำนวนผู้ป่วยแยกตามตำบล'});
+ assert.equal(alphabetical.status,200);
+ assert.match(alphabetical.body.answer,/เรียงตามตัวอักษร/);
+ assert.ok(alphabetical.body.answer.indexOf('ตำบลก')<alphabetical.body.answer.indexOf('ตำบลข'));
  const direct=await request(app).post('/ai/chat').send({message:'ขอจำนวนผู้ป่วยเรียงตามตำบล จากมากไปน้อย'});
  assert.equal(direct.status,200);assert.equal(direct.body.meta.ollamaCalls,0);assert.match(direct.body.answer,/ตำบลก/);
  const fallback=await request(app).post('/ai/chat').send({message:'ช่วยดูยอดแยกตามหมู่บ้านแบบที่เยอะก่อน'});

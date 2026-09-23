@@ -262,10 +262,11 @@ function rankLimitFromMessage(message) {
 function detectStationRanking(message) {
  const text=String(message||'').replace(/\s+/g,' ').trim();
  if(!/(?:สภ\.?|สถานีตำรวจ|สถานี)/u.test(text))return null;
+ const sortBy=/(?:ตัวอักษร|ก\s*ถึง\s*ฮ|ก-ฮ)/u.test(text)?'name':null;
  const direction=/น้อย|ต่ำ|เบา/u.test(text)?'asc':/มาก|เยอะ|สูง|อันดับ/u.test(text)?'desc':null;
- if(!direction)return null;
+ if(!direction&&!sortBy)return null;
  const matched=STATION_RANK_TYPES.find(([,pattern])=>pattern.test(text));
- return {direction,personType:matched?.[0]||null,limit:rankLimitFromMessage(text)};
+ return {direction:direction||'asc',sortBy,personType:matched?.[0]||null,limit:rankLimitFromMessage(text)};
 }
 
 // A station aggregate already shown to the officer is a safe, display-only
@@ -276,10 +277,11 @@ function detectAggregateSortContinuation(message, topic) {
  if(saved?.report_kind!=='target_person_aggregate')return null;
  const text=String(message||'').replace(/\s+/g,' ').trim();
  if(!/(?:เรี(?:ย)+ง|จัด\s*ลำดับ|ลำดับ)/u.test(text))return null;
+ if(/(?:ตัวอักษร|ก\s*ถึง\s*ฮ|ก-ฮ)/u.test(text))return {direction:'asc',sortBy:'name',personType:null,limit:null};
  const direction=/น้อย\s*(?:ไป|สุด)|ต่ำ\s*(?:ไป|สุด)/u.test(text)?'asc':/มาก\s*(?:ไป|สุด)|สูง\s*(?:ไป|สุด)/u.test(text)?'desc':null;
  if(!direction)return null;
  const matched=STATION_RANK_TYPES.find(([,pattern])=>pattern.test(text));
- return {direction,personType:matched?.[0]||saved.person_type||null,limit:null};
+ return {direction,sortBy:null,personType:matched?.[0]||saved.person_type||null,limit:null};
 }
 
 function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
@@ -798,15 +800,19 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const summary=await targetPersonSummary(req,province);
   const field={psychiatric:'psychiatric',drug_user:'drugUser',dealer:'dealer',released:'released'}[request.personType]||'total';
   const label={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[request.personType]||'บุคคลทั้งหมด';
-  const sorted=[...summary.presentation.rows].sort((left,right)=>{
-   const difference=request.direction==='asc'?left[field]-right[field]:right[field]-left[field];
-   return difference||(left.stationName===right.stationName?0:(left.stationName<right.stationName?-1:1));
-  });
+  // Aggregate rows arrive in database order. Preserve it for ties and
+  // unsorted overviews; alphabetic order is an explicit user choice.
+  const sorted=request.sortBy==='name'
+   ? [...summary.presentation.rows].sort((left,right)=>String(left.stationName).localeCompare(String(right.stationName),'th'))
+   : request.direction
+    ? [...summary.presentation.rows].sort((left,right)=>request.direction==='asc'?left[field]-right[field]:right[field]-left[field])
+    : [...summary.presentation.rows];
   const rows=request.limit===null?sorted:sorted.slice(0,request.limit);
   const directionLabel=request.direction==='asc'?'น้อยไปมาก':'มากไปน้อย';
   const amountLabel=request.limit===null?`แสดงทั้งหมด ${rows.length} สภ.`:`${rows.length} อันดับแรก`;
-  const answer=`จัดอันดับ สภ. • ${summary.presentation.scopeLabel}\nเรียง${label}${directionLabel} • ${amountLabel}`;
-  return {answer,presentation:{type:'station_ranking',scopeLabel:summary.presentation.scopeLabel,rows,personType:request.personType,direction:request.direction,limit:request.limit}};
+  const sortLabel=request.sortBy==='name'?'ตามตัวอักษร':`${label}${directionLabel}`;
+  const answer=`จัดอันดับ สภ. • ${summary.presentation.scopeLabel}\nเรียง${sortLabel} • ${amountLabel}`;
+  return {answer,presentation:{type:'station_ranking',scopeLabel:summary.presentation.scopeLabel,rows,personType:request.personType,direction:request.direction,sortBy:request.sortBy||null,limit:request.limit}};
  }
  router.post('/ai/chat/processing',(req,res)=>{
   const raw=req.body?.message;
@@ -858,9 +864,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    return sendRealFailure(res,e,start);
   };
   let ranking=/(ตำบล|อำเภอ|จังหวัด)(?:ไหน|ใด|อะไร).*?(มากที่สุด|เยอะที่สุด|น้อยที่สุด|มากสุด|เยอะสุด|น้อยสุด)/.exec(routingMessage);
+  if(ranking)ranking=[routingMessage,ranking[1],/น้อย/.test(ranking[2])?'น้อยสุด':'มากสุด'];
   const ordered=/(?:ตาม|แยก(?:ตาม)?|แต่ละ)(ตำบล|อำเภอ|จังหวัด)/.exec(routingMessage);
   let showAll=!!ordered;
-  if(!ranking&&ordered)ranking=[routingMessage,ordered[1],/น้อยไปมาก/.test(routingMessage)?'น้อยสุด':'มากสุด'];
+  const alphaOrder=/(?:ตัวอักษร|ก\s*ถึง\s*ฮ|ก-ฮ)/u.test(routingMessage);
+  const explicitCountOrder=/น้อย|ต่ำ|เบา/u.test(routingMessage)?'น้อยสุด':/มาก|เยอะ|สูง/u.test(routingMessage)?'มากสุด':null;
+  if(!ranking&&ordered)ranking=[routingMessage,ordered[1],alphaOrder?'alpha':explicitCountOrder||'alpha'];
   let plan=null;let ollamaCalls=0;
   const provinceResolution=canonicalProvince(req,provinceFromMessage(routingMessage));
   if(provinceResolution.error)return res.status(422).json({error:provinceResolution.error,code:'REAL_LOCATION_NOT_FOUND',dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
@@ -1183,7 +1192,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   if(intent?.intent==='lookup_clarify')return respond({answer:intent.answer,grounded:false,dataSource:'real',presentation:intent.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   if(intent?.intent==='group_persons' && {subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด'}[intent.groupBy]){
-   ranking=[message,{subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด'}[intent.groupBy],intent.direction==='asc'?'น้อยสุด':'มากสุด'];
+   if(!ranking)ranking=[message,{subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด'}[intent.groupBy],alphaOrder?'alpha':explicitCountOrder||'alpha'];
    showAll=intent.showAll||showAll;
   }
   // Non-registry questions must never enter the registry interpreter.  In
@@ -1208,7 +1217,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if((!ranking&&!summary&&!intent)||summary?.intent==='summary_choices'||intent?.intent==='search_incomplete'){
     ollamaCalls=1;plan=await interpret(routingMessage);
     if(plan.action==='clarify')return respond({answer:'ต้องการจำนวน รายชื่อ หรือแยกยอดตามพื้นที่ใดครับ? กรุณาระบุประเภทบุคคลและพื้นที่ที่ต้องการ',grounded:false,dataSource:'real',meta:{fastPath:false,ollamaCalls,responseTimeMs:Date.now()-start}});
-    if(plan.action==='group'){ranking=[routingMessage,plan.group,plan.direction==='asc'?'น้อยสุด':'มากสุด'];showAll=true;}
+    if(plan.action==='group'){ranking=[routingMessage,plan.group,alphaOrder?'alpha':explicitCountOrder||'alpha'];showAll=true;}
    }
    const filters={...(summary?.filters||intent?.filters||{})};
    if(plan){for(const key of ['province','district','subdistrict','station','search'])if(plan[key])filters[key]=plan[key];if(plan.person_type!=='all')filters.person_type=plan.person_type;}
@@ -1231,7 +1240,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
      const group=groups.get(key)||{name,province,district,count:0};group.count++;groups.set(key,group);
     }
     const sorted=[...groups.values()].sort((a,b)=>{
-     const difference=/น้อย/.test(ranking[2])?a.count-b.count:b.count-a.count;
+     const difference=ranking[2]==='alpha'?0:/น้อย/.test(ranking[2])?a.count-b.count:b.count-a.count;
      // Do not rely on optional ICU locale data being installed on the server.
      // Code-point ordering is deterministic across the supported Node runtimes.
      return difference||(a.name===b.name?0:(a.name<b.name?-1:1));
@@ -1240,7 +1249,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     const category={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',dealer:'ผู้ค้า',released:'ผู้พ้นโทษ'}[filters.person_type]||'บุคคล';
     const scope=filters.station?`สภ.${String(filters.station).replace(/^สภ\.?\s*/u,'')}`:filters.province?`จังหวัด${filters.province}`:filters.district?`อำเภอ${filters.district}`:filters.subdistrict?`ตำบล${filters.subdistrict}`:(req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง');
     const heading=topN!==null?`${topN} อันดับ${ranking[1]}${/น้อย/.test(ranking[2])?'น้อยที่สุด':'มากที่สุด'}`:'';
-    const answer=`ข้อมูลจริง • ${scope}\nนับ${category}จากทะเบียนทั้งหมด ${result.total} คน\n`+(showAll||topN!==null?`${heading||`เรียง${/น้อย/.test(ranking[2])?'น้อยไปมาก':'มากไปน้อย'}`}\n`:'')+(winners.length?winners.map((g,index)=>`${showAll||topN!==null?`${index+1}. `:''}${ranking[1]}${g.name} ${column==='tambon'?g.district:''} ${column!=='province'?g.province:''} มี${category}${showAll||topN!==null?'':ranking[2]} ${g.count} คน`).join('\n'):'ไม่พบข้อมูลพื้นที่ที่จัดอันดับได้')+(!showAll&&topN===null&&winners.length>1?'\nมีหลายพื้นที่จำนวนเท่ากัน':'')+(missing?`\nอีก ${missing} คนไม่ระบุ${ranking[1]} จึงไม่รวมในอันดับ`:'')+(/น้อย/.test(ranking[2])?'\nอันดับนี้รวมเฉพาะพื้นที่ที่มีบุคคลในทะเบียน':'')+(excludeNote||'');
+    const orderLabel=ranking[2]==='alpha'?'เรียงตามตัวอักษร':`เรียง${/น้อย/.test(ranking[2])?'น้อยไปมาก':'มากไปน้อย'}`;
+    const answer=`ข้อมูลจริง • ${scope}\nนับ${category}จากทะเบียนทั้งหมด ${result.total} คน\n`+(showAll||topN!==null?`${heading||orderLabel}\n`:'')+(winners.length?winners.map((g,index)=>`${showAll||topN!==null?`${index+1}. `:''}${ranking[1]}${g.name} ${column==='tambon'?g.district:''} ${column!=='province'?g.province:''} มี${category}${showAll||topN!==null?'':ranking[2]} ${g.count} คน`).join('\n'):'ไม่พบข้อมูลพื้นที่ที่จัดอันดับได้')+(!showAll&&topN===null&&winners.length>1?'\nมีหลายพื้นที่จำนวนเท่ากัน':'')+(missing?`\nอีก ${missing} คนไม่ระบุ${ranking[1]} จึงไม่รวมในอันดับ`:'')+(/น้อย/.test(ranking[2])?'\nอันดับนี้รวมเฉพาะพื้นที่ที่มีบุคคลในทะเบียน':'')+(excludeNote||'');
     return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_area_count'}],presentation:{type:'location_summary',groupBy:{tambon:'subdistrict',amphoe:'district',province:'province'}[column],items:winners,filters:{person_type:filters.person_type||null}},conversation,meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
    }
    const page=intent?.page||1;const result=await search(req,filters,page);

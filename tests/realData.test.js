@@ -32,7 +32,7 @@ test('target-person overview uses the audited aggregate tool for every supported
  assert.equal(res.status,200);assert.match(res.body.answer,/ผู้เสพ 3/);assert.equal(res.body.presentation.type,'target_person_summary');assert.equal(res.body.presentation.totals.total,10);assert.equal(res.body.conversation.topic.report_kind,'target_person_aggregate');assert.equal(calls.length,1);
 });
 test('aggregate overview PDF reuses the audited summary rows instead of the legacy people query',async()=>{
- const previous=process.env.REPORT_FONT_PATH;process.env.REPORT_FONT_PATH='C:\\Windows\\Fonts\\tahoma.ttf';
+ const previous=process.env.REPORT_FONT_PATH;process.env.REPORT_FONT_PATH=process.platform==='win32'?'C:\\Windows\\Fonts\\tahoma.ttf':'/usr/share/fonts/truetype/tlwg/Garuda.ttf';
  try {
   const app=express();app.use(express.json());const bodies=[];
   app.use(createRealDataRoutes((req,res,next)=>{req.user={role:'officer',stationId:77,province:'นครพนม',aiScope:{level:'all',read_only:true}};req.realToken='verified-session';next();},{url:'https://example.test',key:'anon',request:async(url,opts)=>{

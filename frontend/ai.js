@@ -2099,6 +2099,9 @@
 
         const isOverview = json.presentation && json.presentation.type === 'overview';
         const wrap = appendMessage('assistant', isOverview ? '' : (json.answer || ''));
+        if (json.presentation && ['person_list', 'target_person_summary', 'station_ranking'].includes(json.presentation.type)) {
+          wrap.classList.add('msg-data-table');
+        }
         if (isOverview) {
           wrap.classList.add('msg-overview');
           wrap.querySelector('.bubble')?.remove();

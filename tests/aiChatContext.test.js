@@ -182,6 +182,16 @@ describe('STEP 2.5 frontend wiring (static)', () => {
     assert.ok(AI_JS.includes('clear-selection-btn'));
   });
 
+  test('desktop result tables have a wide message while mobile keeps cards', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'ai-refresh.css'), 'utf8');
+    assert.ok(AI_JS.includes("wrap.classList.add('msg-data-table')"));
+    assert.ok(AI_JS.includes("table.className = 'pl-table pl-desktop-table'"));
+    assert.ok(AI_JS.includes('stationDesktopTable(presentation.rows'));
+    assert.match(css, /@media\(min-width:721px\).*\.msg-data-table/);
+    assert.match(css, /@media\(min-width:721px\).*\.person-list \.pc-list\{display:none\}/);
+    assert.match(css, /@media\(max-width:720px\).*\.pl-desktop-table.*display:none/);
+  });
+
   test('typing เริ่มใหม่ resets the conversation and selected person locally', () => {
     assert.ok(AI_JS.includes('function isStartOverCommand(message)'), 'start-over command detector exists');
     assert.ok(AI_JS.includes("return text === 'เริ่มใหม่';"), 'start-over command is exact after polite suffix cleanup');

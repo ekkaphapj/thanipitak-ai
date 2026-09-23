@@ -1186,21 +1186,27 @@
     }
     const chosen = items.find((item) => item.ordinal === ordinal);
     if (!chosen) {
-      // After flipping pages the visible ordinals shift (e.g. 21-40). Tell the
-      // officer exactly which range is on screen and how to get back.
+      // The requested ordinal is not on the reference list (wrong page or an
+      // old list). Name the missing ordinal and the visible range so the
+      // officer can re-open the list or pick an existing row.
       const ordinals = items.map((item) => item.ordinal).filter(Number.isFinite).sort((a, b) => a - b);
       const min = ordinals[0];
       const max = ordinals[ordinals.length - 1];
       appendMessage('assistant', min === max
-        ? `หน้าที่แสดงอยู่มีเฉพาะลำดับที่ ${min} ลองพิมพ์ เลือกคนที่ ${min}`
-        : `หน้าที่แสดงอยู่มีลำดับที่ ${min}-${max} ลองพิมพ์ เลือกคนที่ ${min} หรือพิมพ์ หน้าก่อนหน้า เพื่อกลับไปหน้าแรก`);
+        ? `ไม่พบบุคคลลำดับที่ ${ordinal} กรุณาเรียกดูรายชื่อและเลือกใหม่อีกครั้ง (รายการที่กำลังอ้างอิงมีเฉพาะลำดับที่ ${min})`
+        : `ไม่พบบุคคลลำดับที่ ${ordinal} กรุณาเรียกดูรายชื่อและเลือกใหม่อีกครั้ง (รายการที่กำลังอ้างอิงมีลำดับที่ ${min}-${max})`);
       return { handled: true };
     }
     if (chosen.personId) {
       recordReferenceChild(chosen);
       applyPersonSelection({ personId: chosen.personId, displayName: chosen.displayName }, command.action === 'select');
       if (command.action === 'select') return { handled: true };
-      return { message: String(message).replace(command.matchedText, 'คนนี้') };
+      // The backend header must name the list this ordinal came from; the
+      // reference is display wording only and is never authorization data.
+      const reference = state.referenceList && state.referenceList.label
+        ? { ordinal, label: state.referenceList.label }
+        : null;
+      return { message: String(message).replace(command.matchedText, 'คนนี้'), reference };
     }
     const followup = ordinalPromptForLocation(chosen);
     if (followup) {
@@ -1683,29 +1689,40 @@
     rank.appendChild(rankGrid); body.appendChild(rank);
     const list = document.createElement('section'); list.className = 'visit-plan-section';
     const listTitle = document.createElement('h3'); listTitle.textContent = `รายชื่อที่ต้องตรวจเยี่ยม • หน้า ${plan.page}`; list.appendChild(listTitle);
+    const listHint = document.createElement('p'); listHint.className = 'pc-title'; listHint.textContent = 'กดเลือก หรือพูด/พิมพ์ “ขอข้อมูลคนที่ …” เพื่อดูข้อมูลและเหตุผลที่ต้องเยี่ยมของบุคคลนั้น'; list.appendChild(listHint);
     const desktop = document.createElement('div'); desktop.className = 'visit-plan-desktop';
     const table = document.createElement('table'); table.className = 'visit-plan-table';
     const thead = document.createElement('thead'); const headers = document.createElement('tr');
-    ['ลำดับ','รายชื่อ','ประเภท','เหตุผลเร่งด่วน','เยี่ยมล่าสุด','พื้นที่'].forEach(label => { const th=document.createElement('th');th.textContent=label;headers.appendChild(th); });
+    ['ลำดับ','รายชื่อ','ประเภท','เหตุผลเร่งด่วน','เยี่ยมล่าสุด','พื้นที่','เลือก'].forEach(label => { const th=document.createElement('th');th.textContent=label;headers.appendChild(th); });
     thead.appendChild(headers); table.appendChild(thead);
     const tbody = document.createElement('tbody');
     const mobile = document.createElement('div'); mobile.className = 'visit-plan-mobile';
+    const ordinalItems = [];
     (plan.items || []).forEach((item,index) => {
       const ordinal = (plan.page-1)*plan.pageSize+index+1;
       const area = [item.subdistrict && `ต.${item.subdistrict}`, item.district && `อ.${item.district}`].filter(Boolean).join(' • ') || 'ไม่ระบุพื้นที่';
+      const selectButton = makeSelectButton({ person_id: item.person_id, full_name: item.full_name });
       const values = [ordinal, item.full_name || 'ไม่ระบุชื่อ', typeName[item.person_type] || '-', priorities[Number(item.priority)-1] || '-', item.last_visit_date || 'ยังไม่เคย', area];
       const tr = document.createElement('tr'); tr.className = `priority-${item.priority}`;
-      values.forEach(value => { const td=document.createElement('td');td.textContent=String(value);tr.appendChild(td); }); tbody.appendChild(tr);
+      tr.setAttribute('data-person-id', String(item.person_id));
+      values.forEach(value => { const td=document.createElement('td');td.textContent=String(value);tr.appendChild(td); });
+      const actionCell = document.createElement('td'); actionCell.appendChild(selectButton); tr.appendChild(actionCell); tbody.appendChild(tr);
       const card = document.createElement('article'); card.className = `visit-plan-person priority-${item.priority}`;
+      card.setAttribute('data-person-id', String(item.person_id));
       const top = document.createElement('div'); top.className = 'visit-plan-person-top';
       const badge = document.createElement('span'); badge.textContent = String(ordinal);
       const person = document.createElement('strong'); person.textContent = item.full_name || 'ไม่ระบุชื่อ';
       top.append(badge,person); card.appendChild(top);
       const reason = document.createElement('p'); reason.textContent = `${typeName[item.person_type] || '-'} • ${priorities[Number(item.priority)-1] || '-'}`;
       const detail = document.createElement('small'); detail.textContent = `เยี่ยมล่าสุด ${item.last_visit_date || 'ยังไม่เคย'} • ${area}`;
-      card.append(reason,detail); mobile.appendChild(card);
+      const cardAction = document.createElement('div'); cardAction.className = 'visit-plan-person-action'; cardAction.appendChild(makeSelectButton({ person_id: item.person_id, full_name: item.full_name }));
+      card.append(reason,detail,cardAction); mobile.appendChild(card);
+      ordinalItems.push({ ordinal, personId: item.person_id, displayName: item.full_name || 'ไม่ระบุชื่อ' });
     });
     table.appendChild(tbody); desktop.appendChild(table); list.append(desktop,mobile);
+    // Register the plan list for ordinal selection ("ขอข้อมูลคนที่ N") and the
+    // reference bar; the label becomes the "จากรายชื่อ…" header on detail answers.
+    rememberOrdinalItems(ordinalItems.length ? ordinalItems : null, `แผนการตรวจเยี่ยม ${plan.station.station_name} • ภ.จว.${plan.station.province} หน้า ${plan.page}`);
     if (!plan.items?.length) { const empty=document.createElement('p');empty.className='visit-plan-empty';empty.textContent='ไม่มีรายชื่อที่เข้าเกณฑ์ในหน้านี้';list.appendChild(empty); }
     if (plan.totalDue > plan.pageSize) {
       const paging=document.createElement('div');paging.className='visit-plan-paging';
@@ -2098,7 +2115,6 @@
     const ordinalResolution = resolveOrdinalReference(message);
     if (ordinalResolution.handled) { finishVoiceTurn(); return; }
     message = ordinalResolution.message.trim();
-
     if (isStartOverCommand(message)) {
       resetConversation();
       finishVoiceTurn();
@@ -2147,7 +2163,7 @@
       }
     }, CLIENT_TIMEOUT_MS);
 
-    const chatBody = window.ChatContext.buildChatBody(message, state.selectedPerson, state.conversationTopic);
+    const chatBody = window.ChatContext.buildChatBody(message, state.selectedPerson, state.conversationTopic, ordinalResolution.reference);
     // This authenticated preflight is classification only: it neither reads
     // registry data nor calls a model.  Starting the cue before /ai/chat
     // ensures it is heard only when the ensuing request will use Local AI.

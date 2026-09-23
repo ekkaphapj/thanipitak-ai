@@ -13,7 +13,8 @@
   'use strict';
 
   // Fields that must NEVER be sent from the frontend, neither top-level
-  // nor inside context. buildChatBody() can only ever produce context.personId.
+  // nor inside context. buildChatBody() can only ever produce context.personId,
+  // context.topic, and the display-only context.reference {ordinal,label}.
   const FORBIDDEN_FIELDS = [
     'station_id',
     'allowedStationIds',
@@ -125,16 +126,29 @@
     return Object.keys(topic).length ? topic : null;
   }
 
-  // Build the AI chat request body. context may contain personId and/or topic.
-  // It never includes station_id, role, or other authorization fields.
-  function buildChatBody(message, selected, topic) {
+  // Build the AI chat request body. context may contain personId and/or topic,
+  // plus an optional display-only reference { ordinal, label } naming the list
+  // an ordinal was resolved against. It is wording context only — the backend
+  // re-authorizes the person and never derives data scope from it.
+  function sanitizeReference(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const ordinal = Number(raw.ordinal);
+    if (!Number.isSafeInteger(ordinal) || ordinal < 1 || ordinal > 1000) return null;
+    const label = typeof raw.label === 'string' ? raw.label.trim().slice(0, 120) : '';
+    if (!label) return null;
+    return { ordinal, label };
+  }
+
+  function buildChatBody(message, selected, topic, reference) {
     const body = { message: String(message == null ? '' : message) };
     const sel = normalizeSelectedPerson(selected);
     const safeTopic = sanitizeTopic(topic);
-    if (sel || safeTopic) {
+    const safeReference = sanitizeReference(reference);
+    if (sel || safeTopic || safeReference) {
       body.context = {};
       if (sel) body.context.personId = sel.personId;
       if (safeTopic) body.context.topic = safeTopic;
+      if (safeReference) body.context.reference = safeReference;
     }
     return body;
   }
@@ -173,8 +187,11 @@
   }
 
   function ordinalMatch(message) {
-    const text = String(message == null ? '' : message).replace(/\s+/g, ' ').trim();
-    const match = text.match(/(?:ของ\s*)?(?:ลำดับ|อันดับ|รายการ|คน)\s*(?:ที่)?\s*([0-9๐-๙]+|[ก-๙]+)/u);
+    const text = String(message == null ? '' : message).replace(/\s+/g, ' ').trim()
+      // “คนลำดับที่ 5” / “บุคคลลำดับที่ 15” — drop the person headword when a
+      // ranking headword follows, otherwise it swallows “ลำดับที่” as the value.
+      .replace(/(?:คน|บุคคล)(?=\s*(?:ลำดับ|อันดับ|รายการ))/gu, '');
+    const match = text.match(/(?:ของ\s*)?(?:ลำดับ|อันดับ|รายการ|คน|บุคคล)\s*(?:ที่)?\s*([0-9๐-๙]+|[ก-๙]+)/u);
     if (!match) return null;
     const ordinal = parseOrdinalValue(match[1]);
     return Number.isSafeInteger(ordinal) && ordinal > 0 ? { ordinal, matchedText: match[0], index: match.index, text } : null;
@@ -212,6 +229,7 @@
     validPersonId,
     normalizeSelectedPerson,
     sanitizeTopic,
+    sanitizeReference,
     buildChatBody,
     indicatorText,
     clearSelection,

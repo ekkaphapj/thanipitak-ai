@@ -162,7 +162,7 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
 
 describe('STEP 2.5 frontend wiring (static)', () => {
   test('chat body always built through ChatContext.buildChatBody', () => {
-    assert.ok(AI_JS.includes('ChatContext.buildChatBody(message, state.selectedPerson, state.conversationTopic)'));
+    assert.ok(AI_JS.includes('ChatContext.buildChatBody(message, state.selectedPerson, state.conversationTopic, ordinalResolution.reference)'));
   });
 
   test('person_summary presentation renders compact fields', () => {
@@ -388,4 +388,26 @@ test('sanitizeTopic preserves narrowing conditions and drops everything else', (
   // Every field invalid -> nothing survives, so the whole topic is null.
   const broken = ChatContext.sanitizeTopic({ level: 'admin', window: { from: 'x' }, exclude: [{ column: 'role' }], pending: { type: 'sql' } });
   assert.equal(broken, null);
+});
+
+describe('ordinal reference hint (visit-plan detail header)', () => {
+  test('person ordinal phrasings including บุคคล resolve against the reference list', () => {
+    for (const message of ['ขอข้อมูลบุคคลลำดับที่ 15', 'ขอข้อมูลคนที่ 15', 'ขอข้อมูลเพิ่มเติม บุคคลที่ 15', 'ข้อมูลบุคคล ที่ 16']) {
+      const command = ChatContext.ordinalCommandFromMessage(message);
+      assert.ok(command, message);
+      assert.equal(command.action, 'info', message);
+      assert.ok([15, 16].includes(command.ordinal), message);
+    }
+  });
+
+  test('buildChatBody carries a sanitized display-only reference and never authorization fields', () => {
+    const body = ChatContext.buildChatBody('ขอข้อมูลคนนี้', { personId: 9 }, null, { ordinal: 16, label: 'แผนการตรวจเยี่ยม สภ.ท่าอุเทน • ภ.จว.นครพนม หน้า 1' });
+    assert.equal(body.context.personId, 9);
+    assert.deepEqual(body.context.reference, { ordinal: 16, label: 'แผนการตรวจเยี่ยม สภ.ท่าอุเทน • ภ.จว.นครพนม หน้า 1' });
+    const junk = ChatContext.buildChatBody('คนนี้อายุเท่าไหร่', { personId: 9 }, null, { ordinal: 0, label: '' });
+    assert.equal(junk.context.reference, undefined);
+    const hostile = ChatContext.buildChatBody('คนนี้อายุเท่าไหร่', { personId: 9 }, null, { ordinal: 5, label: 'x', station_id: 1, role: 'admin' });
+    assert.deepEqual(hostile.context.reference, { ordinal: 5, label: 'x' });
+    assert.ok(!FORBIDDEN_KEY(Object.keys(hostile.context.reference).join(',')));
+  });
 });

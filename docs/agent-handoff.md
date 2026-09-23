@@ -1058,3 +1058,31 @@ canonical re-send commands never double it. `station_ambiguous` also narrows
 its list through the same matcher; `station_required` (no name spoken) keeps
 the full province list. Full `npm test`: **444 tests, 25 suites, 0 failures**
 (mocked Supabase; no live model, no real registry).
+
+### Continuation update — 2026-09-23 late night (visit-plan person detail via ordinal)
+
+Visit-plan lists now participate in the ordinal selection system, and an
+ordinal detail answer names its source list:
+
+- `renderVisitPlan` (frontend/ai.js) registers every plan row for ordinal
+  selection (เลือก buttons on desktop rows and mobile cards) with
+  `rememberOrdinalItems`; the reference label is “แผนการตรวจเยี่ยม <station> •
+  ภ.จว.<province> หน้า N”. Ordinals are page-aware ((page-1)*pageSize+i+1),
+  and the list stays the ordinal reference across unrelated questions until
+  another list replaces it or the conversation resets.
+- Ordinal phrasings gained “บุคคล” (“ขอข้อมูลบุคคลลำดับที่ 15”, “ขอข้อมูลเพิ่มเติม
+  บุคคลที่ 15”, “ขอข้อมูลคนที่ 15”). A person headword directly before a
+  ranking headword (คน/บุคคล + ลำดับ/อันดับ/รายการ) is dropped before matching
+  so it cannot swallow “ลำดับที่” as the value. An out-of-range ordinal answers
+  “ไม่พบบุคคลลำดับที่ N กรุณาเรียกดูรายชื่อและเลือกใหม่อีกครั้ง” plus the
+  referenced range.
+- `buildChatBody` may carry a display-only `context.reference {ordinal,label}`
+  (sanitized; never authorization data — same trust level as personId, which
+  the backend re-authorizes). When present, the real-mode selected-person
+  answer is prefixed “ข้อมูลบุคคลลำดับที่ N จากรายชื่อ<list label>” and ends
+  with “ต้องตรวจเยี่ยมเพราะ: …” derived only from the recorded dossier the
+  backend read (level + source visit/guardian report, registration color
+  แดง/ส้ม, never-visited or last visit date, missed guardian-report days).
+- Full `npm test`: **447 tests, 26 suites, 0 failures** (mocked Supabase; no
+  live model, no real registry). Test-mode (fixture) person lists keep their
+  existing behavior; the header/reasons block is real-mode only for now.

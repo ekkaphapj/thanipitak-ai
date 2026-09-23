@@ -428,6 +428,43 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const value=Number(body?.context?.personId);
   return Number.isSafeInteger(value) && value>0 ? value : null;
  }
+ // Display-only hint naming the list an ordinal was resolved against. It is
+ // used solely for answer wording (header/reasons) and can never influence
+ // which data is read or authorized.
+ function referenceHint(body) {
+  const raw=body?.context?.reference;
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))return null;
+  const ordinal=Number(raw.ordinal);
+  if(!Number.isSafeInteger(ordinal)||ordinal<1||ordinal>1000)return null;
+  const label=typeof raw.label==='string'?raw.label.trim().slice(0,120):'';
+  return label?{ordinal,label}:null;
+ }
+ // Why this person is on a visit list — derived only from recorded data the
+ // backend already read for the dossier (latest visit, guardian report,
+ // registration color, visit history). Never from frontend-provided fields.
+ function visitReasonLines(dossier) {
+  const reasons=[];
+  const visitLevel=String(dossier.latestVisit?.visit_status||'');
+  const reportLevel=String(dossier.report?.alert_level||'');
+  const level=String(dossier.level||'');
+  if(level==='เสี่ยงสูง'||level==='เฝ้าระวัง'){
+   const sources=[];
+   if(/เสี่ยงสูง|เฝ้าระวัง/.test(visitLevel))sources.push('ผลเยี่ยมล่าสุด');
+   if(/เสี่ยงสูง|เฝ้าระวัง/.test(reportLevel))sources.push('รายงานผู้ดูแล');
+   reasons.push(`ระดับ${level}${sources.length?` จาก${sources.join('และ')}`:''}`);
+  }
+  const status=String(dossier.person?.status||'').trim();
+  if(/แดง|ส้ม/u.test(status))reasons.push(`สถานะสี${status}ตามทะเบียน`);
+  if(!dossier.visitTotal)reasons.push('ยังไม่เคยมีบันทึกตรวจเยี่ยม');
+  else if(dossier.latestVisit?.visit_date)reasons.push(`เยี่ยมล่าสุดเมื่อ ${String(dossier.latestVisit.visit_date).slice(0,10)}`);
+  const missed=Number(dossier.report?.missed_days);
+  if(Number.isSafeInteger(missed)&&missed>0)reasons.push(`ขาดรายงานผู้ดูแล ${missed} วัน`);
+  if(!reasons.length)reasons.push('ยังไม่พบเหตุผลเร่งด่วนจากบันทึกปัจจุบัน');
+  return reasons;
+ }
+ function withReferenceDetail(base,dossier,reference) {
+  return `ข้อมูลบุคคลลำดับที่ ${reference.ordinal} จากรายชื่อ${reference.label}\n${base}\nต้องตรวจเยี่ยมเพราะ: ${visitReasonLines(dossier).join(' • ')}`;
+ }
  function isCollectionQuestion(message,intent,ranking,summary,personId) {
   if(personId && !/ใคร|มีใคร|รายชื่อ/.test(message) && /เยี่ยม|ประวัติ|ปัสสาวะ|ฉี่|เพราะ|ทำไม|อายุ|ตำบล|อำเภอ|จังหวัด|ข้อมูลเพิ่ม|เกิด|เพศ|ชื่อเล่น/.test(message)) return false;
   if(ranking)return true;
@@ -864,6 +901,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   // before every detector and before the model sees the request.
   const message=normalizeUtterance(correctTranscript(raw))||raw;
   const personId=selectedPersonId(req.body);
+  const reference=referenceHint(req.body);
   let incomingTopic=sanitizeTopic(req.body?.context?.topic);
   // Server-side session reset mirrors the client's own "เริ่มใหม่" so no
   // condition survives an explicit restart, whatever client sent the text.
@@ -1297,7 +1335,9 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     if(!found)return respond({answer:'ไม่พบบุคคลนี้ในพื้นที่ที่ท่านมีสิทธิ์เข้าถึง',grounded:true,dataSource:'real',meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
     const dossier=await registry.readDossier(req,personId,found,prepared.timeWindow||{});
     const recorded=registry.formatDossier(dossier,routingMessage);
-    return respond({answer:recorded||formatSelectedPerson(found.person,found.typeName,found.stationName,routingMessage),grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_person_read'}],meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    const base=recorded||formatSelectedPerson(found.person,found.typeName,found.stationName,routingMessage);
+    const answer=reference?withReferenceDetail(base,dossier,reference):base;
+    return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_person_read'}],meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    } catch(e) { return sendFailure(e); }
   }
   const monitor=monitoringQuestion(prepared.messageNoExclusion);

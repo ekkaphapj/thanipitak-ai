@@ -30,6 +30,11 @@ both short and structured prompts produced the right count. A three-person
 structured prompt also produced the right count in both sampler profiles.
 These checks do not prove an accuracy gain for all prompts or seeds.
 
+The optional adult fine-art figure helper builds an editable, nonsexual prompt
+with one fictional adult, a chosen medium, a pose, and lighting. It changes only
+the text entered in the existing prompt field. The sampler profile and model
+remain unchanged; output fidelity for this genre has not been benchmarked.
+
 Run `python -m unittest discover -s tests -p test_draw_server.py` locally
 before deploying the Python file. Run `npm test` for routing changes.
 

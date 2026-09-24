@@ -112,6 +112,18 @@ summary{width:fit-content;cursor:pointer;color:#e0dcdd;font-size:14px;font-weigh
       <button class="helper-button" id="build-people" type="button">ใส่คำบรรยายภาพบุคคล</button>
       <p class="hint" id="helper-status" role="status" aria-live="polite"></p>
     </details>
+    <details class="people-helper">
+      <summary>ภาพเปลือยเชิงศิลปะ (ผู้ใหญ่)</summary>
+      <p class="hint">เลือกสื่อศิลปะและบอกท่าทางกับแสง ระบบจะเติมคำบรรยายที่แก้ไขได้ก่อนสร้างภาพ</p>
+      <label for="art-medium">สื่อศิลปะ</label>
+      <select id="art-medium"><option value="ภาพวาดสีน้ำมัน">ภาพวาดสีน้ำมัน</option><option value="ภาพร่างถ่าน">ภาพร่างถ่าน</option><option value="ภาพถ่ายวิจิตรศิลป์">ภาพถ่ายวิจิตรศิลป์</option></select>
+      <label for="art-pose">ท่าทางและองค์ประกอบ</label>
+      <input type="text" id="art-pose" value="นั่งหันข้างบนเก้าอี้ไม้ เห็นรูปร่างเต็มตัวในเฟรม" maxlength="220">
+      <label for="art-light">ฉากและแสง</label>
+      <input type="text" id="art-light" value="สตูดิโอเรียบ แสงหน้าต่างนุ่มจากด้านซ้าย เงาอ่อน โทนอบอุ่น" maxlength="220">
+      <button class="helper-button" id="build-art" type="button">ใส่คำบรรยายภาพศิลปะ</button>
+      <p class="hint" id="art-status" role="status" aria-live="polite"></p>
+    </details>
     <fieldset><legend>ขนาดภาพ</legend><div class="sizes">
       <label class="size"><input type="radio" name="resolution" value="512"><span><strong>512 × 512</strong><small>รวดเร็ว</small></span></label>
       <label class="size"><input type="radio" name="resolution" value="768"><span><strong>768 × 768</strong><small>สมดุล</small></span></label>
@@ -211,6 +223,20 @@ $("build-people").addEventListener("click",()=>{
   }
   $("prompt").value=makePeoplePrompt(count,$("person-frame").value,$("person-background").value.trim()||"สตูดิโอพื้นหลังเรียบ",people);
   $("helper-status").textContent="ใส่คำบรรยายแล้ว กรุณาตรวจและแก้ไขก่อนกดสร้างรูปภาพ";
+  $("prompt").focus();
+});
+function makeArtPrompt(medium,pose,lighting){
+  return medium+"เชิงวิจิตรศิลป์ของบุคคลสมมติวัยผู้ใหญ่เพียงหนึ่งคน เปลือยเชิงศิลปะ "+pose+" "+lighting+" เน้นรูปทรง ท่าทาง และแสงเงา องค์ประกอบภาพเรียบสงบ ไม่สื่อกิจกรรมทางเพศ";
+}
+$("build-art").addEventListener("click",()=>{
+  const pose=$("art-pose").value.trim(),lighting=$("art-light").value.trim();
+  if(!pose||!lighting){
+    $("art-status").textContent="กรุณาระบุท่าทางและแสง";
+    $(!pose?"art-pose":"art-light").focus();
+    return;
+  }
+  $("prompt").value=makeArtPrompt($("art-medium").value,pose,lighting);
+  $("art-status").textContent="ใส่คำบรรยายแล้ว กรุณาตรวจและแก้ไขก่อนกดสร้างรูปภาพ";
   $("prompt").focus();
 });
 </script>

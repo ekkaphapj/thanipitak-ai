@@ -11,6 +11,7 @@ const {
 const { createAIAuditor } = require('../repositories/aiAuditRepo');
 const { sanitizePersonContext } = require('../ai/personFastPath');
 const { detectVisitPlanIntent } = require('../ai/visitPlanIntent');
+const { detectVisitStatsIntent } = require('../ai/visitStatsIntent');
 
 const MAX_MESSAGE_LENGTH = 2000;
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
@@ -90,6 +91,12 @@ function createAIRoutes(db, authRequired, options = {}) {
     aiAudit.logChat(user);
     if (detectVisitPlanIntent(message)) {
       return res.json({ answer: 'แผนการตรวจเยี่ยมใช้ข้อมูลทะเบียนและผลตรวจจริง กรุณาเลือกโหมดข้อมูลจริงและเข้าสู่ระบบด้วยบัญชีตำรวจ', grounded: false, dataSource: 'test', code: 'REAL_FEATURE_REQUIRED' });
+    }
+    // สรุป/ภาพรวมการตรวจเยี่ยมต้องใช้บันทึกการเยี่ยมจริง; a selected person's
+    // plain visit-history question still goes through the ordinary test path.
+    const visitStatsIntent = detectVisitStatsIntent(message);
+    if (visitStatsIntent && (visitStatsIntent.strong || visitStatsIntent.station || !context.personId)) {
+      return res.json({ answer: 'สรุปการตรวจเยี่ยมใช้บันทึกการเยี่ยมจากข้อมูลจริง กรุณาเลือกโหมดข้อมูลจริงและเข้าสู่ระบบด้วยบัญชีตำรวจ', grounded: false, dataSource: 'test', code: 'REAL_FEATURE_REQUIRED' });
     }
 
     const onToolCall = ({ toolName, toolArgs, userId }) => {

@@ -54,6 +54,28 @@ const UNIT_LABEL = { วัน: 'วัน', สัปดาห์: 'สัป�
 // comparison tool, so the request must be refused, never half-answered.
 const COMPARISON_RE = /(?:เทียบ(?:กับ|กัน|กับกัน)?|เปรียบเทียบ|กับ(?:เดือน|ปี|สัปดาห์|อาทิตย์|วัน|ช่วง))/u;
 
+const MONTH_ALT = `${MONTHS_TH.join('|')}|${MONTHS_TH_SHORT.map((name) => name.replace('.', '\\.')).join('|')}`;
+// "เดือนมิถุนายน ถึง เดือนกันยายน 2569", "เมษายน 2569 ถึง ปัจจุบัน". One
+// explicit month-to-month span is a single window, never two periods.
+const MONTH_RANGE_RE = new RegExp(
+  `(?:เดือน\\s*)?(${MONTH_ALT})(?:\\s*(?:พ\\.ศ\\.?|ค\\.ศ\\.?|ปี\\s*)?(\\d{4}))?`
+  + `\\s*(?:ถึง|จนถึง|ไปจนถึง)\\s*(?:เดือน\\s*)?`
+  + `(?:(${MONTH_ALT})(?:\\s*(?:พ\\.ศ\\.?|ค\\.ศ\\.?|ปี\\s*)?(\\d{4}))?|(ปัจจุบัน(?:นี้)?|เดือนนี้|วันนี้))`,
+  'gu',
+);
+// "ตั้งแต่เดือนเมษายน 2569" is an open start; the window runs to today.
+const MONTH_SINCE_RE = new RegExp(`ตั้งแต่\\s*(?:เดือน\\s*)?(${MONTH_ALT})(?:\\s*(?:พ\\.ศ\\.?|ค\\.ศ\\.?|ปี\\s*)?(\\d{4}))?`, 'gu');
+const MONTH_RANGE_MAX = 24;
+
+function monthIndexFromToken(token) {
+  if (!token) return null;
+  const full = MONTHS_TH.findIndex((name) => name === token);
+  if (full >= 0) return full;
+  const bare = String(token).replace(/\./g, '');
+  const short = MONTHS_TH_SHORT.findIndex((name) => name.replace('.', '') === bare);
+  return short >= 0 ? short : null;
+}
+
 const PATTERNS = [
   { re: /เมื่อวาน(?:นี้|กี้)?/u, kind: 'yesterday' },
   { re: /วันนี้/u, kind: 'today' },
@@ -202,6 +224,50 @@ function resolveNamedMonths(text, now) {
   return [...normalized.matchAll(re)].map((match) => ({ match, resolved: resolveNamedMonthMatch(match, now) }));
 }
 
+function monthRangeLabel(start, end, endCurrent) {
+  const dateText = (p) => `${p.d} ${MONTHS_TH_SHORT[p.m - 1]} ${p.y + 543}`;
+  if (endCurrent) return `เดือน${MONTHS_TH[start.m - 1]} ${start.y + 543}–ปัจจุบัน (${dateText(start)}–${dateText(end)})`;
+  if (start.y === end.y) return `เดือน${MONTHS_TH[start.m - 1]}–${MONTHS_TH[end.m - 1]} ${end.y + 543} (${start.d} ${MONTHS_TH_SHORT[start.m - 1]}–${end.d} ${MONTHS_TH_SHORT[end.m - 1]} ${end.y + 543})`;
+  return `เดือน${MONTHS_TH[start.m - 1]} ${start.y + 543}–เดือน${MONTHS_TH[end.m - 1]} ${end.y + 543} (${dateText(start)}–${dateText(end)})`;
+}
+
+function monthsBetween(start, end) {
+  const months = [];
+  let { y, m } = start;
+  while ((y * 12 + m) <= (end.y * 12 + end.m) && months.length <= MONTH_RANGE_MAX) {
+    months.push({ y, m });
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return months;
+}
+
+// Resolves an explicit month-to-month span (or "ตั้งแต่เดือนX"/"...ถึงปัจจุบัน")
+// into one window. Defaults follow the single named-month rule: a missing year
+// is the most recent occurrence, so the span always ends in the past.
+function resolveMonthRange({ month1, year1Raw, month2, year2Raw, endCurrent }, now) {
+  const today = bangkokToday(now);
+  let y1 = year1Raw;
+  let y2 = year2Raw;
+  if (endCurrent) y2 = today.y;
+  if (y1 === null) y1 = y2 !== null ? y2 : today.y;
+  if (y2 === null) y2 = y1;
+  // "พฤศจิกายนถึงมกราคม" with no explicit end year crosses into the next year.
+  if (!endCurrent && month2 < month1 && year2Raw === null) y2 = y1 + 1;
+  if ([y1, y2].some((y) => y === null || y < 1900 || y > 2200)) return { unsupported: true };
+  const start = { y: y1, m: month1 + 1, d: 1 };
+  let end = endCurrent ? { ...today } : { y: y2, m: month2 + 1, d: daysInMonth(y2, month2 + 1) };
+  // Without any explicit year, a span that lies entirely in the future is the
+  // previous year's span (the most recent one that has already happened).
+  if (!year1Raw && !year2Raw && iso(start.y, start.m, start.d) > iso(today.y, today.m, today.d)) {
+    start.y -= 1;
+    if (!endCurrent) { end.y -= 1; end.d = daysInMonth(end.y, end.m); }
+  }
+  const months = monthsBetween(start, end);
+  if (months.length > MONTH_RANGE_MAX) return { unsupported: true };
+  return { window: { from: iso(start.y, start.m, start.d), to: iso(end.y, end.m, end.d) }, label: monthRangeLabel(start, end, endCurrent), months };
+}
+
 // Scans a message for every period mention. Returns resolvable windows, the
 // matched text of every mention that could NOT be resolved, and whether the
 // wording compares two periods. Comparison and unresolved mentions must stop
@@ -218,6 +284,29 @@ function analyzePeriods(message, { now = new Date() } = {}) {
     claimed.push({ start, end });
     return true;
   };
+  // Explicit month ranges claim their whole span first, so "เดือนมิถุนายนถึง
+  // เดือนกันยายน 2569" is one window instead of two single months.
+  for (const match of text.matchAll(MONTH_RANGE_RE)) {
+    if (!claim(match.index, match.index + match[0].length)) continue;
+    const month1 = monthIndexFromToken(match[1]);
+    const year1Raw = match[2] ? parseYear(match[2]) : null;
+    const endCurrent = Boolean(match[5]);
+    const month2 = endCurrent ? null : monthIndexFromToken(match[3]);
+    const year2Raw = match[4] ? parseYear(match[4]) : null;
+    const resolved = month1 !== null && (endCurrent || month2 !== null)
+      ? resolveMonthRange({ month1, year1Raw, month2, year2Raw, endCurrent }, now)
+      : { unsupported: true };
+    if (!resolved || resolved.unsupported) unresolved.push(match[0]);
+    else windows.push({ ...resolved.window, label: resolved.label, months: resolved.months, matchedText: match[0] });
+  }
+  for (const match of text.matchAll(MONTH_SINCE_RE)) {
+    if (!claim(match.index, match.index + match[0].length)) continue;
+    const month1 = monthIndexFromToken(match[1]);
+    const year1Raw = match[2] ? parseYear(match[2]) : null;
+    const resolved = month1 !== null ? resolveMonthRange({ month1, year1Raw, month2: bangkokToday(now).m - 1, year2Raw: bangkokToday(now).y, endCurrent: true }, now) : { unsupported: true };
+    if (!resolved || resolved.unsupported) unresolved.push(match[0]);
+    else windows.push({ ...resolved.window, label: resolved.label, months: resolved.months, matchedText: match[0] });
+  }
   for (const pattern of PATTERNS) {
     const re = new RegExp(pattern.re.source, pattern.re.flags.includes('g') ? pattern.re.flags : pattern.re.flags + 'g');
     let match;
@@ -257,8 +346,15 @@ function extractTimeWindow(message, options) {
   return analysis.windows[0] || null;
 }
 
+// Default period for recorded-visit summaries when the officer named none:
+// the current calendar year to date, labeled so the answer states it.
+function currentYearWindow(now = new Date()) {
+  const today = bangkokToday(now);
+  return { from: iso(today.y, 1, 1), to: iso(today.y, today.m, today.d), label: `ปีนี้ (${today.y + 543})` };
+}
+
 function hasHardTimeReference(message) {
   return HARD_TIME_RE.test(thaiDigitsToArabic(String(message == null ? '' : message)));
 }
 
-module.exports = { analyzePeriods, extractTimeWindow, hasHardTimeReference, parseThaiNumberWord };
+module.exports = { analyzePeriods, extractTimeWindow, hasHardTimeReference, parseThaiNumberWord, currentYearWindow };

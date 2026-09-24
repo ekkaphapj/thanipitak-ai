@@ -5,8 +5,10 @@ const {sanitizeTopic,topicFromIntent,matchPersonType,inheritUnstatedSlots}=requi
 const {createRealRegistryRead,monitoringQuestion,selectedReasonFollowup}=require('../services/realRegistryRead');
 const {detectExportIntent,reportRequestFromExport}=require('../ai/exportIntent');
 const {detectVisitPlanIntent}=require('../ai/visitPlanIntent');
+const {detectVisitStatsIntent}=require('../ai/visitStatsIntent');
 const {writeSummaryPdf,writeSummaryExcel,safeReportRequest}=require('../services/reportService');
 const {createRealVisitPlanTool}=require('../services/realVisitPlanTool');
+const {createRealVisitStatsTool,formatVisitStats}=require('../services/realVisitStatsTool');
 const {createRealProvincePeopleTool}=require('../services/realProvincePeopleTool');
 const {writeVisitPlanPdf}=require('../services/visitPlanPdf');
 const fs=require('fs');
@@ -18,7 +20,7 @@ const {detectDiscoveryIntent,discover}=require('../services/discoveryService');
 const {normalizeUtterance,matchPlaceNames,placeKey}=require('../ai/thaiText');
 const {realPersonTypeIds}=require('../services/realPersonTypes');
 const {correctTranscript}=require('../stt/correctTranscript');
-const {analyzePeriods,extractTimeWindow,hasHardTimeReference}=require('../ai/timeWindow');
+const {analyzePeriods,extractTimeWindow,hasHardTimeReference,currentYearWindow}=require('../ai/timeWindow');
 const {parseAreaExclusions,removeSpans}=require('../ai/areaExclusion');
 const {normalizeQuerySpec,describeQuerySpec,filtersFromSpec}=require('../ai/querySpec');
 
@@ -291,7 +293,7 @@ function detectAggregateSortContinuation(message, topic) {
 }
 
 function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
- if(isProvinceChangeOnly(message)||detectVisitPlanIntent(message)||detectExportIntent(message)||detectStationRanking(message)||detectAggregateSortContinuation(message,topic)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson||isUnderspecifiedQuestion(message))return false;
+ if(isProvinceChangeOnly(message)||detectVisitPlanIntent(message)||detectVisitStatsIntent(message)||detectExportIntent(message)||detectStationRanking(message)||detectAggregateSortContinuation(message,topic)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson||isUnderspecifiedQuestion(message))return false;
  if(detectContinuation(message, topic))return false;
  const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,topic);
  if(summary||intent||/(ตำบล|อำเภอ|จังหวัด)(?:ไหน|ใด|อะไร).*?(มากที่สุด|เยอะที่สุด|น้อยที่สุด|มากสุด|เยอะสุด|น้อยสุด)/u.test(message))return false;
@@ -304,6 +306,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  const { createRealAiTools } = require('../services/realAiTools');
  const aiTools = createRealAiTools({ url, key, request });
  const readVisitPlan=createRealVisitPlanTool({url,key,request});
+ const readVisitStats=createRealVisitStatsTool(rows);
  const readProvincePeople=createRealProvincePeopleTool({url,key,request});
  async function rows(req,table,params) {
   let response;
@@ -939,7 +942,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(stationCue&&!visitPlanIntent&&!genericStationOverview&&/(?:รายชื่อ|ภาพรวม|สรุป|ผู้ป่วย|จิตเวช|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ)/u.test(routingMessage)&&(!detectStationRanking(routingMessage)||namedStationBeforeProvince)){
    requestedStation=detectFastPathIntent(routingMessage)?.filters?.station
     ||parseSummaryIntent(routingMessage)?.filters?.station
-    ||detectOverview(routingMessage)?.filters?.station||null;
+    ||detectOverview(routingMessage)?.filters?.station
+    ||detectVisitStatsIntent(routingMessage)?.station||null;
    if(!requestedStation)return res.json({answer:'ได้ยินชื่อ สภ. ไม่ชัด กรุณาพูดหรือพิมพ์ชื่อสถานีอีกครั้ง เช่น “ขอรายชื่อผู้ป่วยจิตเวช สภ.กลางใหญ่ จังหวัดอุดรธานี”',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
   const periodRequested=Boolean(prepared.timeWindow||prepared.periodBlocked||prepared.hardTimeReference);
@@ -1287,6 +1291,36 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if(prepared.timeWindow)return respond({answer:periodIntentQuestion(routingMessage,prepared.timeWindow).answer,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    try { const result=await realDiscovery(req,discoveryIntent);return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_aggregate_discovery'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
    catch(e){return sendFailure(e);}
+  }
+  // "ขอภาพรวม/สรุป/สถิติ การตรวจเยี่ยม" is a deterministic aggregate over
+  // recorded visits. Word order is free (period, types, สภ., province in any
+  // order). With a person selected, a bare non-aggregate visit question still
+  // goes to that person's recorded history.
+  const visitStats=detectVisitStatsIntent(routingMessage);
+  if(visitStats&&(visitStats.strong||visitStats.station||prepared.timeWindow||explicitProvince||!personId)){
+   if(prepared.exclusions.length)return respond({answer:'การยกเว้นพื้นที่ยังไม่รองรับกับสรุปการตรวจเยี่ยม กรุณาถามแยกตามพื้นที่ที่ต้องการดู',grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(prepared.periodBlocked)return respond({answer:periodBlockedMessage(prepared.periodBlocked),grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(visitStats.missingStation)return respond({answer:'ได้ยินชื่อ สภ. ไม่ชัด กรุณาระบุอีกครั้ง เช่น “ขอสรุปการตรวจเยี่ยม สภ.บ้านดุง จังหวัดอุดรธานี เดือนมิถุนายนถึงกันยายน 2569”',grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   // No period named: default to the current year and say so in the answer.
+   const window=prepared.timeWindow||currentYearWindow();
+   try{
+    let stationIds=null;let stationLabel=null;
+    if(visitStats.station){
+     stationIds=await monitoringStationIds(req,{province:selectedProvince,station:visitStats.station});
+     stationLabel=`สภ.${String(visitStats.station).replace(/^สภ\.?\s*/u,'')}`;
+     if(Array.isArray(stationIds)&&!stationIds.length){
+      return respond({answer:`ไม่พบ ${stationLabel}${selectedProvince?` จังหวัด${selectedProvince}`:''} ในขอบเขตที่ท่านมีสิทธิ์เข้าถึง${req.user.stationName?` (บัญชีนี้สังกัด สภ.${String(req.user.stationName).replace(/^สภ\.?\s*/u,'')})`:''}`,grounded:true,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+     }
+    }
+    const areaLabel=stationLabel||(selectedProvince?`จังหวัด${selectedProvince}`:(req.user.stationName?`สภ.${String(req.user.stationName).replace(/^สภ\.?\s*/u,'')}`:null));
+    const data=await readVisitStats(req,{stationIds,province:stationIds!==null?null:selectedProvince,areaLabel,from:window.from,to:window.to,months:window.months||null,types:visitStats.types});
+    const answer=formatVisitStats(data,{windowLabel:window.label});
+    const visitStatsTopic=sanitizeTopic({report_kind:'visit_summary',province:stationLabel?undefined:(selectedProvince||undefined),station:visitStats.station||undefined,window:{from:window.from,to:window.to,label:window.label}});
+    return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_visit_stats_read'}],presentation:{type:'visit_summary',...data,windowLabel:window.label},conversation:{topic:visitStatsTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }catch(e){
+    if(e&&e.answer)return respond({answer:e.answer,grounded:true,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    return sendFailure(e);
+   }
   }
   // Exclusions are resolved against the server-verified scope catalogue only
   // for questions that will actually read the registry.

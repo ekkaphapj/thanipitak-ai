@@ -1735,6 +1735,80 @@
     body.appendChild(list); box.appendChild(body); hostForPresentation(wrap).appendChild(box);
   }
 
+  function renderVisitSummary(wrap, presentation) {
+    const box = document.createElement('section'); box.className = 'visit-summary';
+    const hero = document.createElement('header'); hero.className = 'visit-summary-hero';
+    const heading = document.createElement('div');
+    const eyebrow = document.createElement('span'); eyebrow.textContent = 'สรุปการตรวจเยี่ยม';
+    const title = document.createElement('h2'); title.textContent = presentation.areaLabel || 'พื้นที่ที่มีสิทธิ์เข้าถึง';
+    const note = document.createElement('p'); note.textContent = `ช่วง${presentation.windowLabel || `${presentation.from || ''} ถึง ${presentation.to || ''}`} • ข้อมูล ณ ${presentation.asOf || 'ปัจจุบัน'}`;
+    heading.append(eyebrow, title, note);
+    const total = document.createElement('strong'); total.textContent = `${presentation.total || 0} ครั้ง`;
+    hero.append(heading, total); box.appendChild(hero);
+    const body = document.createElement('div'); body.className = 'visit-summary-body';
+
+    const metrics = document.createElement('section'); metrics.className = 'visit-summary-section';
+    const metricsTitle = document.createElement('h3'); metricsTitle.textContent = 'จำนวนการตรวจเยี่ยมแยกตามประเภทบุคคล'; metrics.appendChild(metricsTitle);
+    const grid = document.createElement('div'); grid.className = 'visit-summary-stats';
+    const statRows = [
+      ['ตรวจเยี่ยมทั้งหมด', presentation.total, 'ครั้ง', 'total span-2'],
+      ...((presentation.byType || []).map((row) => [row.label, row.count, 'ครั้ง', row.type])),
+      ['ผู้ถูกตรวจเยี่ยม', presentation.visitedPeople, 'คน', 'people'],
+    ];
+    for (const [label, value, unit, tone] of statRows) {
+      const stat = document.createElement('div'); stat.className = `visit-summary-stat ${tone || ''}`.trim();
+      const labelEl = document.createElement('span'); labelEl.textContent = label;
+      const valueEl = document.createElement('strong'); valueEl.textContent = String(value || 0);
+      const unitEl = document.createElement('small'); unitEl.textContent = unit;
+      stat.append(labelEl, valueEl, unitEl); grid.appendChild(stat);
+    }
+    metrics.appendChild(grid); body.appendChild(metrics);
+
+    const months = presentation.months || [];
+    const monthsSection = document.createElement('section'); monthsSection.className = 'visit-summary-section';
+    const monthsTitle = document.createElement('h3'); monthsTitle.textContent = 'การตรวจเยี่ยมรายเดือน'; monthsSection.appendChild(monthsTitle);
+    const desktop = document.createElement('div'); desktop.className = 'visit-summary-desktop';
+    const table = document.createElement('table'); table.className = 'visit-summary-table';
+    const thead = document.createElement('thead'); const headRow = document.createElement('tr');
+    for (const label of ['เดือน', 'รวม (ครั้ง)', ...(presentation.byType || []).map((row) => row.label)]) {
+      const th = document.createElement('th'); th.textContent = label; headRow.appendChild(th);
+    }
+    thead.appendChild(headRow); table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    const mobile = document.createElement('div'); mobile.className = 'visit-summary-mobile';
+    for (const month of months) {
+      const tr = document.createElement('tr');
+      const monthCell = document.createElement('td'); monthCell.textContent = month.label;
+      const totalCell = document.createElement('td'); totalCell.textContent = String(month.total || 0);
+      tr.append(monthCell, totalCell);
+      for (const row of (month.byType || [])) { const td = document.createElement('td'); td.textContent = String(row.count || 0); tr.appendChild(td); }
+      if (!(month.total > 0)) tr.className = 'empty-month';
+      tbody.appendChild(tr);
+      const card = document.createElement('article'); card.className = `visit-summary-month${month.total > 0 ? '' : ' empty-month'}`;
+      const cardHead = document.createElement('div'); cardHead.className = 'visit-summary-month-head';
+      const monthName = document.createElement('strong'); monthName.textContent = month.label;
+      const monthTotal = document.createElement('span'); monthTotal.textContent = `รวม ${month.total || 0} ครั้ง`;
+      cardHead.append(monthName, monthTotal); card.appendChild(cardHead);
+      const cardGrid = document.createElement('div'); cardGrid.className = 'visit-summary-month-stats';
+      for (const row of (month.byType || [])) {
+        const cell = document.createElement('div'); cell.className = `visit-summary-month-stat ${row.type}`;
+        const labelEl = document.createElement('span'); labelEl.textContent = row.label;
+        const countEl = document.createElement('strong'); countEl.textContent = String(row.count || 0);
+        cell.append(labelEl, countEl); cardGrid.appendChild(cell);
+      }
+      card.appendChild(cardGrid); mobile.appendChild(card);
+    }
+    table.appendChild(tbody); desktop.appendChild(table); monthsSection.append(desktop, mobile); body.appendChild(monthsSection);
+    if (!months.length) { const empty = document.createElement('p'); empty.className = 'visit-summary-note'; empty.textContent = 'ไม่มีเดือนในช่วงที่ระบุ'; monthsSection.appendChild(empty); }
+
+    const disclaimer = document.createElement('p'); disclaimer.className = 'visit-summary-note';
+    disclaimer.textContent = 'อ้างอิงเฉพาะบันทึกการตรวจเยี่ยมที่ระบุวันที่ไว้ในช่วงเวลานี้'
+      + (presentation.periodPartial ? ' • เดือนแรกและเดือนสุดท้ายนับเฉพาะวันที่อยู่ในช่วงที่ระบุ' : '');
+    body.appendChild(disclaimer);
+    box.appendChild(body);
+    hostForPresentation(wrap).appendChild(box);
+  }
+
   function renderOverview(wrap, presentation) {
     const box = document.createElement('section');
     box.className = 'overview-card';
@@ -2194,7 +2268,7 @@
           });
         }
 
-        const isOverview = json.presentation && ['overview','visit_plan'].includes(json.presentation.type);
+        const isOverview = json.presentation && ['overview','visit_plan','visit_summary'].includes(json.presentation.type);
         const wrap = appendMessage('assistant', isOverview ? '' : (json.answer || ''));
         if (json.presentation && ['person_list', 'target_person_summary', 'station_ranking'].includes(json.presentation.type)) {
           wrap.classList.add('msg-data-table');
@@ -2228,6 +2302,7 @@
         if (json.presentation && json.presentation.type === 'location_summary') renderLocationSummary(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'overview') renderOverview(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'visit_plan') renderVisitPlan(wrap,json.presentation);
+        if (json.presentation && json.presentation.type === 'visit_summary') renderVisitSummary(wrap,json.presentation);
         if (json.presentation && json.presentation.type === 'target_person_summary') renderTargetPersonSummary(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'station_ranking') renderStationRanking(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);

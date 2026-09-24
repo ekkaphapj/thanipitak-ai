@@ -118,3 +118,64 @@ test('durations without a period suffix are not time windows',()=>{
  assert.equal(extractTimeWindow('ผู้เสพมีกี่คน',{now:NOW}),null);
  assert.equal(hasHardTimeReference('ผู้เสพมีกี่คน'),false);
 });
+
+test('a Thai month-to-month range is one window over whole calendar months',()=>{
+ const analysis=analyzePeriods('ขอสรุปการตรวจเยี่ยม เดือนมิถุนายนถึงเดือนกันยายน 2569',{now:NOW});
+ assert.equal(analysis.windows.length,1);
+ assert.equal(analysis.unresolved.length,0);
+ const w=analysis.windows[0];
+ assert.equal(w.from,'2026-06-01');
+ assert.equal(w.to,'2026-09-30');
+ assert.match(w.label,/เดือนมิถุนายน–กันยายน 2569/);
+ assert.deepEqual(w.months.map((m)=>`${m.y}-${String(m.m).padStart(2,'0')}`),['2026-06','2026-07','2026-08','2026-09']);
+});
+
+test('a named month range ending at ปัจจุบัน runs from the month to today',()=>{
+ const analysis=analyzePeriods('ขอข้อมูลการตรวจเยี่ยม เดือนเมษายน 2569 ถึง ปัจจุบัน',{now:NOW});
+ assert.equal(analysis.windows.length,1);
+ assert.equal(analysis.windows[0].from,'2026-04-01');
+ assert.equal(analysis.windows[0].to,'2026-09-22');
+ assert.equal(analysis.windows[0].months.length,6);
+ assert.match(analysis.windows[0].label,/เมษายน 2569–ปัจจุบัน/);
+});
+
+test('ตั้งแต่เดือน… opens a window that runs to today',()=>{
+ const analysis=analyzePeriods('ตั้งแต่เดือนพฤษภาคม 2569 มีการเยี่ยมกี่ครั้ง',{now:NOW});
+ assert.equal(analysis.windows.length,1);
+ assert.equal(analysis.windows[0].from,'2026-05-01');
+ assert.equal(analysis.windows[0].to,'2026-09-22');
+});
+
+test('a month range crossing a year boundary keeps both endpoints',()=>{
+ const analysis=analyzePeriods('สรุปการตรวจเยี่ยม พฤศจิกายน 2568 ถึง กุมภาพันธ์ 2569',{now:NOW});
+ assert.equal(analysis.windows.length,1);
+ assert.equal(analysis.windows[0].from,'2025-11-01');
+ assert.equal(analysis.windows[0].to,'2026-02-28');
+ assert.equal(analysis.windows[0].months.length,4);
+});
+
+test('a month range without years defaults to the most recent span',()=>{
+ const noYears=analyzePeriods('เดือนมิถุนายน ถึง กันยายน',{now:NOW});
+ assert.equal(noYears.windows.length,1);
+ assert.equal(noYears.windows[0].from,'2026-06-01');
+ assert.equal(noYears.windows[0].to,'2026-09-30');
+ // An end month before the start month without explicit years wraps forward.
+ const wrapped=analyzePeriods('เดือนพฤศจิกายน ถึง มกราคม',{now:NOW});
+ assert.equal(wrapped.windows.length,1);
+ assert.equal(wrapped.windows[0].from,'2025-11-01');
+ assert.equal(wrapped.windows[0].to,'2026-01-31');
+});
+
+test('an oversized month range stays unresolved instead of half-resolving',()=>{
+ const analysis=analyzePeriods('สรุปการตรวจเยี่ยม มกราคม 2020 ถึง ธันวาคม 2022',{now:NOW});
+ assert.equal(analysis.windows.length,0);
+ assert.equal(analysis.unresolved.length,1);
+ assert.equal(hasHardTimeReference('สรุปการตรวจเยี่ยม มกราคม 2020 ถึง ธันวาคม 2022'),true);
+});
+
+test('currentYearWindow spans January 1 to today in Bangkok time',()=>{
+ const w=require('../src/ai/timeWindow').currentYearWindow(NOW);
+ assert.equal(w.from,'2026-01-01');
+ assert.equal(w.to,'2026-09-22');
+ assert.match(w.label,/ปีนี้ \(2569\)/);
+});

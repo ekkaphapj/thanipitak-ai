@@ -1104,3 +1104,38 @@ covered by the selected-person branch and is unchanged. Regression tests in
 `tests/aiPersonSummary.test.js` (detector forms + gateway-level determinism
 with a throwing requestFn). Full `npm test`: **454 tests, 26 suites, 0
 failures** (fixture SQLite; no live model, no real registry).
+
+### Continuation update — 2026-09-24 (visit-summary aggregate command)
+
+New real-mode capability on `phase-3.3-low-latency`: "ขอภาพรวม/ข้อมูล/สรุป/สถิติ
+การตรวจเยี่ยม". The command accepts person types (ผู้ป่วยจิตเวช/ผู้เสพ/ผู้ค้า/บุคคลพ้นโทษ,
+any subset), a สภ. + จังหวัด, and a Thai month range in any word order, e.g.
+"ขอข้อมูลการตรวจเยี่ยม เดือนเมษายน 2569 ถึง ปัจจุบัน ของผู้ป่วยจิตเวช สภ.บ้านดุง
+จังหวัดอุดรธานี". The answer and the `visit_summary` presentation report the
+total recorded visits in the period, per-type totals, per-month totals, and
+per-type-per-month counts, rendered as summary cards + monthly table (desktop)
+and stacked month cards (mobile). `src/ai/visitStatsIntent.js` detects the
+intent (never for แผน/ตาราง/คิว plan wording, and a selected person's plain
+visit-history question still goes to the person path).
+
+- `src/ai/timeWindow.js` now resolves an explicit month-to-month range
+  ("เดือนมิถุนายน ถึง เดือนกันยายน 2569", "…ถึง ปัจจุบัน", "ตั้งแต่เดือน…") as ONE
+  window (whole calendar months, ≤24 months, no year → most recent span) and
+  exports `currentYearWindow` for the no-period default (the answer states
+  "ปีนี้ (2569)").
+- `src/services/realVisitStatsTool.js` aggregates allowlisted reads
+  (`people`, `people_type`, `stations`, `visits`) with the authenticated token:
+  station scope via `applyPeopleStationScope`/`monitoringStationIds`, a province
+  filter resolved through `stations.province` → `station_id in.(...)`, visit
+  date filters `gte/lte`, per-chunk count verification, caps (20k people, 20k
+  visits, 24 months) that answer honest guidance instead of truncating. No new
+  registry write path exists; model output never picks station/type/period.
+- Refusals preserved: area exclusions, period comparisons, unresolved periods;
+  test mode answers `REAL_FEATURE_REQUIRED` (fixtures never fake visit stats).
+- Regression coverage: `tests/realVisitStats.test.js` (canonical + swapped word
+  order + until-ปัจจุบัน + default year + out-of-scope station + unclear สภ. +
+  zero visits + refusals + plan-path isolation, all with mocked Supabase and a
+  throwing interpreter) and month-range cases in `tests/timeWindow.test.js`.
+  Full `npm test`: **469 tests, 27 suites, 0 failures**. Browser check of the
+  card layout (desktop table + mobile month cards) done through a temporary
+  local preview with a canned presentation; no live registry was read.

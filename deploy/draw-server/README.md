@@ -5,10 +5,23 @@
 owner-provided `THANI PITAK.png` and embedded in the HTML, so the existing
 standard-library Python server needs no static-file route.
 
-The live file is `/home/ekkaphap/draw-server/index.html` on `ake-server`.
-The server reads it for every page request, so an atomic replacement deploys a
-UI-only change without restarting the service. Keep the existing `/api/generate`,
-`/api/status/<id>`, and `/api/image/<id>` contracts intact.
+`draw_server.py` implements the local API. The live files are in
+`/home/ekkaphap/draw-server/` on `ake-server`. The server reads HTML for every
+page request, so an atomic HTML replacement requires no restart. A Python
+change requires a `qwen-draw.service` restart. Preserve the asynchronous
+`/api/generate`, `/api/status/<id>`, and `/api/image/<id>` contract.
+
+The default auto profile uses 25 Euler/simple steps and CFG 1 for general
+prompts, matching the [official ComfyUI Qwen-Image-2.1 template](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_t2i.json).
+Prompts requesting visible text, explicit negative prompts, and manually
+selected quality mode use 20 steps and CFG 2.5. At 768 px with the same Thai
+scene prompt and seed on this RTX 3060, the old path took 98 seconds and the
+fast path took 54 seconds. In one Thai signage comparison, the quality path
+rendered the requested headline more faithfully. These are single-image
+observations, not a general quality guarantee.
+
+Run `python -m unittest discover -s tests -p test_draw_server.py` locally
+before deploying the Python file. Run `npm test` for routing changes.
 
 The ComfyUI server, model files, generated images, tunnel token, and service
-configuration are separate from this tracked UI file. Do not add them to Git.
+configuration are separate from these tracked files. Do not add them to Git.

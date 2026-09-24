@@ -9,7 +9,7 @@
 :root{color-scheme:dark;font-family:"Segoe UI",Tahoma,system-ui,sans-serif;background:#111114;color:#f5f3f2}
 *{box-sizing:border-box}body{margin:0;min-width:320px;min-height:100vh;background:radial-gradient(circle at 72% -18%,rgba(189,36,35,.2),transparent 38rem),linear-gradient(160deg,#171719,#101012 60%)}
 button,input,textarea{font:inherit}button,a{-webkit-tap-highlight-color:transparent}
-button:focus-visible,a:focus-visible,textarea:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid #ff766f;outline-offset:3px}
+button:focus-visible,a:focus-visible,textarea:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #ff766f;outline-offset:3px}
 .shell{width:min(1180px,calc(100% - 48px));margin:auto;padding:24px 0 48px}
 .header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding-bottom:22px}
 .brand{display:flex;align-items:center;gap:16px;min-width:0}
@@ -30,7 +30,7 @@ h1{margin:0;font-size:clamp(20px,2.5vw,30px);line-height:1.2;letter-spacing:-.02
 h3{margin:0;font-size:18px}
 label,legend{display:block;margin:0 0 8px;font-size:14px;font-weight:650;color:#f0eded}
 .required{color:#ff8179}
-textarea,input[type=text]{display:block;width:100%;padding:14px 15px;border:1px solid #5b5557;border-radius:12px;color:#fff;background:#151517;font-size:16px;line-height:1.55}
+textarea,input[type=text],select{display:block;width:100%;padding:14px 15px;border:1px solid #5b5557;border-radius:12px;color:#fff;background:#151517;font-size:16px;line-height:1.55}
 textarea{min-height:145px;resize:vertical}textarea::placeholder{color:#888486}
 .hint{margin:8px 0 0;color:#a9a4a6;font-size:12px;line-height:1.5}
 .examples{margin:15px 0 22px}.examples-title{display:block;margin-bottom:9px;color:#aaa5a7;font-size:12px}
@@ -85,7 +85,7 @@ summary{width:fit-content;cursor:pointer;color:#e0dcdd;font-size:14px;font-weigh
   <form id="draw-form">
     <label for="prompt">คำบรรยายภาพ <span class="required" aria-hidden="true">*</span></label>
     <textarea id="prompt" name="prompt" required maxlength="4000" placeholder="เช่น แมวส้มใส่ชุดนักสืบนั่งอยู่บนหลังคายามค่ำ แสงโคมไฟสีอุ่น มองเห็นเมืองด้านหลัง"></textarea>
-    <p class="hint">ยิ่งบอกรายละเอียดเรื่องฉาก สี แสง และมุมภาพ ผลลัพธ์ยิ่งตรงใจ</p>
+    <p class="hint">บอกตัวแบบ ตำแหน่งในภาพ ฉาก และแสงให้ชัด หากต้องการตัวหนังสือ ให้ใส่ข้อความในเครื่องหมายคำพูด</p>
     <div class="examples"><span class="examples-title">ลองเริ่มจากตัวอย่าง</span><div class="chips">
       <button class="chip" type="button" data-prompt="ทุ่งดอกไม้สีแดงยามเช้า แสงอาทิตย์อ่อน ๆ ภูเขาไกล ๆ ภาพถ่ายสมจริง">ทิวทัศน์ธรรมชาติ</button>
       <button class="chip" type="button" data-prompt="แมวส้มสวมชุดนักบินอวกาศยืนบนดวงจันทร์ มองเห็นโลกอยู่ด้านหลัง ภาพประกอบรายละเอียดสูง">ตัวละครแฟนตาซี</button>
@@ -96,16 +96,23 @@ summary{width:fit-content;cursor:pointer;color:#e0dcdd;font-size:14px;font-weigh
       <label class="size"><input type="radio" name="resolution" value="768"><span><strong>768 × 768</strong><small>สมดุล</small></span></label>
       <label class="size"><input type="radio" name="resolution" value="1024" checked><span><strong>1024 × 1024</strong><small>รายละเอียดสูง</small></span></label>
     </div></fieldset>
-    <details><summary>ตัวเลือกเพิ่มเติม · สิ่งที่ไม่ต้องการในภาพ</summary><label for="negative">สิ่งที่ไม่ต้องการให้มีในภาพ</label><input type="text" id="negative" name="negative" value="blurry, low quality, watermark, text, distorted"></details>
+    <details><summary>ตัวเลือกเพิ่มเติม</summary>
+      <label for="profile">โหมดสร้างภาพ</label>
+      <select id="profile" name="profile"><option value="auto">อัตโนมัติ (แนะนำ)</option><option value="quality">เน้นความตรงและรายละเอียด</option></select>
+      <p class="hint">โหมดอัตโนมัติจะเน้นตัวหนังสือเมื่อ prompt ขอให้เขียนข้อความในภาพ</p>
+      <label for="negative">สิ่งที่ไม่ต้องการให้มีในภาพ (ไม่บังคับ)</label>
+      <input type="text" id="negative" name="negative" placeholder="เช่น watermark, blurry">
+      <p class="hint">หากกรอกช่องนี้ ระบบจะใช้โหมดเน้นความตรงและอาจใช้เวลานานขึ้น</p>
+    </details>
     <button class="primary" id="btn" type="submit"><span aria-hidden="true">✦</span> สร้างรูปภาพ</button>
-    <p class="privacy">ภาพหนึ่งภาพใช้เวลาประมาณ 2 นาที ขึ้นอยู่กับขนาดภาพและคิว · ระบบสุ่ม seed ใหม่ทุกครั้ง</p>
+    <p class="privacy">ภาพทั่วไปใช้เวลาประมาณ 2 นาที งานที่เน้นตัวหนังสือหรือรายละเอียดอาจนานกว่า · ระบบสุ่ม seed ใหม่ทุกครั้ง</p>
   </form>
 </section>
 <section class="panel result-panel" aria-labelledby="result-heading">
   <div class="panel-heading"><span class="step">02</span><h3 id="result-heading">ภาพที่สร้าง</h3></div>
   <div class="canvas">
     <div class="empty" id="empty"><div class="empty-icon" aria-hidden="true">✦</div><strong>ภาพของคุณจะปรากฏที่นี่</strong><p>กรอกคำบรรยายแล้วกดสร้างรูปภาพ<br>เปิดหน้านี้ไว้ระหว่างรอผลลัพธ์</p></div>
-    <div class="progress" id="progress"><div class="spinner" aria-hidden="true"></div><strong>กำลังสร้างภาพของคุณ</strong><p>ใช้เวลาประมาณ 2 นาที กรุณาเปิดหน้านี้ไว้</p><time id="elapsed" aria-hidden="true">00:00</time></div>
+    <div class="progress" id="progress"><div class="spinner" aria-hidden="true"></div><strong>กำลังสร้างภาพของคุณ</strong><p id="wait-note">ใช้เวลาประมาณ 2 นาที กรุณาเปิดหน้านี้ไว้</p><time id="elapsed" aria-hidden="true">00:00</time></div>
     <img id="result" alt="ภาพที่สร้างจากคำบรรยาย">
   </div>
   <div class="result-footer"><p id="status" role="status" aria-live="polite">พร้อมสร้างภาพ</p><a id="download" href="#" download="thani-pitak-ai.png">↓ ดาวน์โหลด PNG</a></div>
@@ -128,12 +135,14 @@ async function generate(event){
   if($("btn").disabled)return;
   const prompt=$("prompt").value.trim();
   if(!prompt){setStatus("กรุณาพิมพ์คำบรรยายภาพ",true);$("prompt").focus();return}
-  $("btn").disabled=true;$("download").style.display="none";$("result").removeAttribute("src");show("progress");setStatus("กำลังส่งงานเข้าคิว… ใช้เวลาประมาณ 2 นาที");
+  $("btn").disabled=true;$("download").style.display="none";$("result").removeAttribute("src");$("wait-note").textContent="ใช้เวลาประมาณ 2 นาที กรุณาเปิดหน้านี้ไว้";show("progress");setStatus("กำลังส่งงานเข้าคิว… ใช้เวลาประมาณ 2 นาที");
   startedAt=Date.now();updateClock();clock=setInterval(updateClock,1000);
   try{
-    const job=await jsonResponse(await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,negative:$("negative").value,resolution:Number(form.elements.resolution.value)})}));
+    const job=await jsonResponse(await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,negative:$("negative").value,profile:$("profile").value,resolution:Number(form.elements.resolution.value)})}));
     if(!job.id)throw new Error("ระบบไม่ส่งหมายเลขงานกลับมา");
-    setStatus("รับงานแล้ว · กำลังสร้างภาพ ใช้เวลาประมาณ 2 นาที");
+    const isQuality=job.profile==="quality";
+    $("wait-note").textContent=isQuality?"โหมดเน้นความตรง อาจใช้เวลาประมาณ 3 นาที กรุณาเปิดหน้านี้ไว้":"ใช้เวลาประมาณ 2 นาที กรุณาเปิดหน้านี้ไว้";
+    setStatus(isQuality?"รับงานแล้ว · โหมดเน้นความตรง อาจใช้เวลาประมาณ 3 นาที":"รับงานแล้ว · กำลังสร้างภาพ ใช้เวลาประมาณ 2 นาที");
     while(true){
       await new Promise(resolve=>setTimeout(resolve,3000));
       const state=await jsonResponse(await fetch("/api/status/"+encodeURIComponent(job.id)));

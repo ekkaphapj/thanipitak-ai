@@ -20,6 +20,16 @@ fast path took 54 seconds. In one Thai signage comparison, the quality path
 rendered the requested headline more faithfully. These are single-image
 observations, not a general quality guarantee.
 
+The optional person helper in `index.html` builds an editable prompt with an
+exact count (one to three people), a separate position and pose for each
+person, and an explicit no-extra-people clause. This follows [Qwen's prompt
+guidance](https://github.com/QwenLM/Qwen-Image-2.1/blob/main/prompt_rewrite/prompts/system_prompt_t2i.txt)
+to preserve counts and positions. On one fixed-seed 768 px comparison, the
+structured two-person prompt kept the standing/waving and seated poses clearly;
+both short and structured prompts produced the right count. A three-person
+structured prompt also produced the right count in both sampler profiles.
+These checks do not prove an accuracy gain for all prompts or seeds.
+
 Run `python -m unittest discover -s tests -p test_draw_server.py` locally
 before deploying the Python file. Run `npm test` for routing changes.
 

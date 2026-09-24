@@ -37,13 +37,6 @@ textarea{min-height:145px;resize:vertical}textarea::placeholder{color:#888486}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{padding:8px 11px;border:1px solid #514749;border-radius:999px;background:#2b2729;color:#e8dfe0;font-size:12px;cursor:pointer}
 .chip:hover{border-color:#bb5a55;background:#382729}
-.people-helper{margin:0 0 22px;padding:15px;border:1px solid #514749;border-radius:12px;background:#282426}
-.people-helper summary{color:#f0d4d1}.people-helper .hint{margin-top:8px}
-.helper-grid,.person-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.helper-grid{margin-top:16px}.person-row{margin-top:16px;padding-top:14px;border-top:1px solid #494143}
-.person-row h4{margin:0 0 12px;color:#f2c4c0;font-size:14px}
-.helper-button{width:100%;margin-top:16px;padding:11px;border:1px solid #b45b55;border-radius:10px;background:#432927;color:#ffe5e2;font-weight:700;cursor:pointer}
-.helper-button:hover{background:#59302d}#helper-status{min-height:18px}
 fieldset{padding:0;margin:0;border:0}.sizes{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
 .size{position:relative;margin:0;cursor:pointer}.size input{position:absolute;opacity:0;width:1px;height:1px}
 .size span{display:block;min-height:77px;padding:12px;border:1px solid #575153;border-radius:11px;background:#19191b}
@@ -71,7 +64,7 @@ summary{width:fit-content;cursor:pointer;color:#e0dcdd;font-size:14px;font-weigh
 .footer{display:flex;justify-content:space-between;gap:16px;padding-top:22px;color:#8e898b;font-size:12px;line-height:1.5}
 .footer a{color:#e7aaa5;text-underline-offset:3px}
 @media(max-width:820px){.workspace{grid-template-columns:1fr}.canvas{min-height:300px}}
-@media(max-width:580px){.shell{width:min(100% - 28px,480px);padding-top:15px}.header{align-items:flex-start;padding-bottom:18px}.brand{gap:11px}.brand img{width:54px;height:54px;border-radius:12px}.eyebrow{font-size:10px}h1{font-size:19px}.header-note{font-size:11px}.model{display:none}.intro{padding:23px 0}.intro h2{font-size:25px}.intro p{font-size:13px}.panel{border-radius:16px}.form-panel,.result-panel{padding:18px}.sizes{gap:6px}.size span{padding:10px 7px;min-height:71px}.size strong{font-size:13px}.size small{font-size:10px}.helper-grid,.person-fields{grid-template-columns:1fr}.canvas{min-height:270px}.footer{flex-direction:column;gap:5px}}
+@media(max-width:580px){.shell{width:min(100% - 28px,480px);padding-top:15px}.header{align-items:flex-start;padding-bottom:18px}.brand{gap:11px}.brand img{width:54px;height:54px;border-radius:12px}.eyebrow{font-size:10px}h1{font-size:19px}.header-note{font-size:11px}.model{display:none}.intro{padding:23px 0}.intro h2{font-size:25px}.intro p{font-size:13px}.panel{border-radius:16px}.form-panel,.result-panel{padding:18px}.sizes{gap:6px}.size span{padding:10px 7px;min-height:71px}.size strong{font-size:13px}.size small{font-size:10px}.canvas{min-height:270px}.footer{flex-direction:column;gap:5px}}
 @media(prefers-reduced-motion:reduce){.spinner{animation:none}}
 </style>
 </head>
@@ -98,32 +91,6 @@ summary{width:fit-content;cursor:pointer;color:#e0dcdd;font-size:14px;font-weigh
       <button class="chip" type="button" data-prompt="แมวส้มสวมชุดนักบินอวกาศยืนบนดวงจันทร์ มองเห็นโลกอยู่ด้านหลัง ภาพประกอบรายละเอียดสูง">ตัวละครแฟนตาซี</button>
       <button class="chip" type="button" data-prompt="แก้วกาแฟร้อนบนโต๊ะไม้ในร้านกาแฟสมัยใหม่ แสงหน้าต่างนุ่มนวล ภาพถ่ายสินค้า">ภาพสินค้า</button>
     </div></div>
-    <details class="people-helper">
-      <summary>ช่วยกำหนดจำนวนคนและท่าทาง</summary>
-      <p class="hint">ระบุแต่ละคนแยกกัน ระบบจะจัดตำแหน่งและจำนวนในคำบรรยายให้ ตรวจแก้ได้ก่อนสร้างภาพ</p>
-      <div class="helper-grid">
-        <div><label for="person-count">จำนวนคน</label><select id="person-count"><option value="1">1 คน</option><option value="2" selected>2 คน</option><option value="3">3 คน</option></select></div>
-        <div><label for="person-frame">ระยะภาพ</label><select id="person-frame"><option value="เต็มตัว" selected>เต็มตัว · เห็นท่าทาง</option><option value="ครึ่งตัว">ครึ่งตัว · เน้นใบหน้า</option></select></div>
-      </div>
-      <label for="person-background">ฉากหลัง</label><input type="text" id="person-background" value="สตูดิโอพื้นหลังสีเทา" maxlength="150">
-      <div class="person-row" id="person-row-1"><h4 id="person-heading-1">คนที่ 1 · ด้านซ้าย</h4><div class="person-fields"><div><label for="person-desc-1">ลักษณะและเสื้อผ้า</label><input type="text" id="person-desc-1" placeholder="เช่น ผู้หญิงไทยวัย 30 ปี เสื้อสีแดง" maxlength="220"></div><div><label for="person-pose-1">ท่าทาง</label><input type="text" id="person-pose-1" placeholder="เช่น ยืนยกมือขวาโบก" maxlength="220"></div></div></div>
-      <div class="person-row" id="person-row-2"><h4 id="person-heading-2">คนที่ 2 · ด้านขวา</h4><div class="person-fields"><div><label for="person-desc-2">ลักษณะและเสื้อผ้า</label><input type="text" id="person-desc-2" placeholder="เช่น ผู้ชายไทยวัย 40 ปี เสื้อสีน้ำเงิน" maxlength="220"></div><div><label for="person-pose-2">ท่าทาง</label><input type="text" id="person-pose-2" placeholder="เช่น นั่งบนเก้าอี้ มือวางบนตัก" maxlength="220"></div></div></div>
-      <div class="person-row" id="person-row-3" hidden><h4 id="person-heading-3">คนที่ 3 · ด้านขวา</h4><div class="person-fields"><div><label for="person-desc-3">ลักษณะและเสื้อผ้า</label><input type="text" id="person-desc-3" placeholder="เช่น ผู้หญิงไทยเสื้อสีเหลือง" maxlength="220"></div><div><label for="person-pose-3">ท่าทาง</label><input type="text" id="person-pose-3" placeholder="เช่น ยืนถือร่มที่หุบอยู่" maxlength="220"></div></div></div>
-      <button class="helper-button" id="build-people" type="button">ใส่คำบรรยายภาพบุคคล</button>
-      <p class="hint" id="helper-status" role="status" aria-live="polite"></p>
-    </details>
-    <details class="people-helper">
-      <summary>ภาพเปลือยเชิงศิลปะ (ผู้ใหญ่)</summary>
-      <p class="hint">เลือกสื่อศิลปะและบอกท่าทางกับแสง ระบบจะเติมคำบรรยายที่แก้ไขได้ก่อนสร้างภาพ</p>
-      <label for="art-medium">สื่อศิลปะ</label>
-      <select id="art-medium"><option value="ภาพวาดสีน้ำมัน">ภาพวาดสีน้ำมัน</option><option value="ภาพร่างถ่าน">ภาพร่างถ่าน</option><option value="ภาพถ่ายวิจิตรศิลป์">ภาพถ่ายวิจิตรศิลป์</option></select>
-      <label for="art-pose">ท่าทางและองค์ประกอบ</label>
-      <input type="text" id="art-pose" value="นั่งหันข้างบนเก้าอี้ไม้ เห็นรูปร่างเต็มตัวในเฟรม" maxlength="220">
-      <label for="art-light">ฉากและแสง</label>
-      <input type="text" id="art-light" value="สตูดิโอเรียบ แสงหน้าต่างนุ่มจากด้านซ้าย เงาอ่อน โทนอบอุ่น" maxlength="220">
-      <button class="helper-button" id="build-art" type="button">ใส่คำบรรยายภาพศิลปะ</button>
-      <p class="hint" id="art-status" role="status" aria-live="polite"></p>
-    </details>
     <fieldset><legend>ขนาดภาพ</legend><div class="sizes">
       <label class="size"><input type="radio" name="resolution" value="512"><span><strong>512 × 512</strong><small>รวดเร็ว</small></span></label>
       <label class="size"><input type="radio" name="resolution" value="768"><span><strong>768 × 768</strong><small>สมดุล</small></span></label>
@@ -192,53 +159,6 @@ async function generate(event){
 }
 form.addEventListener("submit",generate);
 document.querySelectorAll("[data-prompt]").forEach(button=>button.addEventListener("click",()=>{$("prompt").value=button.dataset.prompt;$("prompt").focus()}));
-const personPositions={1:["ตรงกลาง"],2:["ด้านซ้าย","ด้านขวา"],3:["ด้านซ้าย","ตรงกลาง","ด้านขวา"]};
-const thaiCounts=["","หนึ่ง","สอง","สาม"];
-function makePeoplePrompt(count,frame,background,people){
-  const parts=["ภาพถ่าย"+frame+"ของบุคคลสมมติเพียง"+thaiCounts[count]+"คนเท่านั้น ใน"+background,"แยกคนแต่ละคนให้เห็นชัดเจน"];
-  people.forEach((person,index)=>parts.push("คนที่"+thaiCounts[index+1]+"อยู่"+personPositions[count][index]+": "+person.description+", "+person.pose));
-  parts.push("ไม่มีบุคคลอื่นหรือภาพบุคคลเพิ่มเติมในฉาก");
-  return parts.join(" ");
-}
-function renderPersonRows(){
-  const count=Number($("person-count").value);
-  for(let i=1;i<=3;i++){
-    $("person-row-"+i).hidden=i>count;
-    if(i<=count)$("person-heading-"+i).textContent="คนที่ "+i+" · "+personPositions[count][i-1];
-  }
-}
-$("person-count").addEventListener("change",renderPersonRows);
-renderPersonRows();
-$("build-people").addEventListener("click",()=>{
-  const count=Number($("person-count").value);
-  const people=[];
-  for(let i=1;i<=count;i++){
-    const description=$("person-desc-"+i).value.trim(),pose=$("person-pose-"+i).value.trim();
-    if(!description||!pose){
-      $("helper-status").textContent="กรุณาระบุลักษณะและท่าทางของคนที่ "+i;
-      $(!description?"person-desc-"+i:"person-pose-"+i).focus();
-      return;
-    }
-    people.push({description,pose});
-  }
-  $("prompt").value=makePeoplePrompt(count,$("person-frame").value,$("person-background").value.trim()||"สตูดิโอพื้นหลังเรียบ",people);
-  $("helper-status").textContent="ใส่คำบรรยายแล้ว กรุณาตรวจและแก้ไขก่อนกดสร้างรูปภาพ";
-  $("prompt").focus();
-});
-function makeArtPrompt(medium,pose,lighting){
-  return medium+"เชิงวิจิตรศิลป์ของบุคคลสมมติวัยผู้ใหญ่เพียงหนึ่งคน เปลือยเชิงศิลปะ "+pose+" "+lighting+" เน้นรูปทรง ท่าทาง และแสงเงา องค์ประกอบภาพเรียบสงบ ไม่สื่อกิจกรรมทางเพศ";
-}
-$("build-art").addEventListener("click",()=>{
-  const pose=$("art-pose").value.trim(),lighting=$("art-light").value.trim();
-  if(!pose||!lighting){
-    $("art-status").textContent="กรุณาระบุท่าทางและแสง";
-    $(!pose?"art-pose":"art-light").focus();
-    return;
-  }
-  $("prompt").value=makeArtPrompt($("art-medium").value,pose,lighting);
-  $("art-status").textContent="ใส่คำบรรยายแล้ว กรุณาตรวจและแก้ไขก่อนกดสร้างรูปภาพ";
-  $("prompt").focus();
-});
 </script>
 </body>
 </html>

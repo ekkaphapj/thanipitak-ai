@@ -20,20 +20,11 @@ fast path took 54 seconds. In one Thai signage comparison, the quality path
 rendered the requested headline more faithfully. These are single-image
 observations, not a general quality guarantee.
 
-The optional person helper in `index.html` builds an editable prompt with an
-exact count (one to three people), a separate position and pose for each
-person, and an explicit no-extra-people clause. This follows [Qwen's prompt
-guidance](https://github.com/QwenLM/Qwen-Image-2.1/blob/main/prompt_rewrite/prompts/system_prompt_t2i.txt)
-to preserve counts and positions. On one fixed-seed 768 px comparison, the
-structured two-person prompt kept the standing/waving and seated poses clearly;
-both short and structured prompts produced the right count. A three-person
-structured prompt also produced the right count in both sampler profiles.
-These checks do not prove an accuracy gain for all prompts or seeds.
-
-The optional adult fine-art figure helper builds an editable, nonsexual prompt
-with one fictional adult, a chosen medium, a pose, and lighting. It changes only
-the text entered in the existing prompt field. The sampler profile and model
-remain unchanged; output fidelity for this genre has not been benchmarked.
+Two fixed-seed 768 px trials on a fictional portrait did not fix a left-hand
+book/right-hand-on-table request: both a generic composition reminder and a
+specific hand-placement reminder still placed both hands on the book. The
+generic reminder also shifted the apparent age. No automatic prompt rewrite
+or sampler change was deployed from these trials.
 
 Run `python -m unittest discover -s tests -p test_draw_server.py` locally
 before deploying the Python file. Run `npm test` for routing changes.

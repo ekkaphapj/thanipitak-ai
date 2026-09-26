@@ -23,6 +23,7 @@ const {correctTranscript}=require('../stt/correctTranscript');
 const {analyzePeriods,extractTimeWindow,hasHardTimeReference,currentYearWindow}=require('../ai/timeWindow');
 const {parseAreaExclusions,removeSpans}=require('../ai/areaExclusion');
 const {normalizeQuerySpec,describeQuerySpec,filtersFromSpec}=require('../ai/querySpec');
+const {isIntroductionRequest,INTRODUCTION_TEXT}=require('../ai/introduction');
 
 async function ollamaJson(path,body) {
  const response=await fetch(new URL(path,process.env.OLLAMA_HOST||'http://127.0.0.1:11434'),{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(120000),body:JSON.stringify(body)});
@@ -277,6 +278,32 @@ function detectStationRanking(message) {
  return {direction:direction||'asc',sortBy,personType:matched?.[0]||null,limit:rankLimitFromMessage(text)};
 }
 
+// “ขอภาพรวม สภ.” / “สภ.ของฉัน” — a bare สภ. cue with no name asks for the
+// overview of the officer's OWN assigned station, never another station.
+function detectOwnStationOverview(message) {
+ const text=String(message||'').replace(/\s+/g,' ').trim();
+ // “สภ.ของฉัน” / “ภาพรวมสภ.ของฉัน” — the possessive form is unambiguous.
+ if(/^(?:ขอ\s*)?(?:ดู\s*)?(?:ภาพรวม|สรุป|ข้อมูล)?\s*(?:สภ\.?|สถานี(?:ตำรวจ)?)\s*(?:ของ\s*)?(?:ฉัน|ผม|เรา|ดิฉัน|กระผม|ผู้ใช้)\s*(?:ครับ|ค่ะ|คะ)?$/u.test(text))return true;
+ if(!/(?:ภาพรวม|สรุป)/u.test(text))return false;
+ // “ราย สภ.” means every station in the working province (own path), and a
+ // named area means a filtered overview, so neither is the own-station view.
+ if(/ราย\s*(?:สภ\.?|สถานี)/u.test(text))return false;
+ if(/(?:จังหวัด|อำเภอ|เขต|ตำบล|ภ\.จว\.)/u.test(text))return false;
+ return /(?:สภ\.?|สถานี(?:ตำรวจ)?)\s*(?:(?:ของ\s*)?(?:ฉัน|ผม|เรา|ดิฉัน|กระผม|ผู้ใช้)\s*)?(?:ครับ|ค่ะ|คะ)?$/u.test(text);
+}
+
+// “(ขอ)ภาพรวมราย สภ.” — “ราย” immediately followed by a bare สภ. cue is the
+// per-station overview of every สภ. in the working province.
+function detectProvinceStationOverview(message) {
+ const text=String(message||'').replace(/\s+/g,' ').trim();
+ const match=/ราย\s*(?:สภ\.?|สถานี(?:ตำรวจ)?)(.*)$/u.exec(text);
+ if(!match)return false;
+ const rest=String(match[1]||'').trim();
+ // A station name after the cue makes it a specific station overview again.
+ // NOTE: (?:ใน)? not ใน? — the latter makes “ใ” mandatory, not the word “ใน”.
+ return !rest||/^(?:(?:ใน)?\s*จังหวัด|(?:ครับ|ค่ะ|คะ))/.test(rest);
+}
+
 // A station aggregate already shown to the officer is a safe, display-only
 // conversation marker.  Allow a short spoken follow-up to sort that same
 // authorised aggregate instead of treating it as an unrelated model prompt.
@@ -293,7 +320,7 @@ function detectAggregateSortContinuation(message, topic) {
 }
 
 function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
- if(isProvinceChangeOnly(message)||detectVisitPlanIntent(message)||detectVisitStatsIntent(message)||detectExportIntent(message)||detectStationRanking(message)||detectAggregateSortContinuation(message,topic)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson||isUnderspecifiedQuestion(message))return false;
+ if(isProvinceChangeOnly(message)||isIntroductionRequest(message)||detectOwnStationOverview(message)||detectProvinceStationOverview(message)||detectVisitPlanIntent(message)||detectVisitStatsIntent(message)||detectExportIntent(message)||detectStationRanking(message)||detectAggregateSortContinuation(message,topic)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson||isUnderspecifiedQuestion(message))return false;
  if(detectContinuation(message, topic))return false;
  const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,topic);
  if(summary||intent||/(ตำบล|อำเภอ|จังหวัด)(?:ไหน|ใด|อะไร).*?(มากที่สุด|เยอะที่สุด|น้อยที่สุด|มากสุด|เยอะสุด|น้อยสุด)/u.test(message))return false;
@@ -529,7 +556,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }
   return {person,typeName,stationName};
  }
- async function realOverview(req,requestedScope,filters={}) {
+ async function realOverview(req,requestedScope,filters={},options={}) {
   const found=await search(req,filters,1,true);
   const typeIds=[...new Set(found.data.map(row=>row.type_id).filter(Boolean))];
   const types=typeIds.length ? await rows(req,'people_type',new URLSearchParams({select:'type_id,type_name',type_id:`in.(${typeIds.join(',')})`,limit:'1000'})) : {data:[]};
@@ -553,7 +580,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    registry.listRecordedMonitoring(req,{level:'watch',personType:filters.person_type,district:filters.district,subdistrict:filters.subdistrict,stationIds,pageSize:1}),
   ]);
   const requestedArea=filters.station?`สภ.${String(filters.station).replace(/^สภ\.?\s*/u,'')}`:filters.province?`จังหวัด${filters.province}`:filters.district?`อำเภอ${filters.district}`:filters.subdistrict?`ตำบล${filters.subdistrict}`:null;
-  const data={scopeLabel:requestedArea||req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง',requestedScope,groupBy,total:found.total,
+  const data={scopeLabel:options.scopeLabel||requestedArea||req.user.stationName||'พื้นที่ที่บัญชีนี้มีสิทธิ์เข้าถึง',requestedScope,groupBy,total:found.total,
    filters,byType:Object.entries(TYPE_LABELS).map(([type,label])=>({type,label,count:counts[type]})),highRisk:high.total,watch:watch.total,top:sort('desc'),bottom:sort('asc')};
   return {answer:formatOverview(data),presentation:{type:'overview',...data}};
  }
@@ -847,7 +874,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(result?.scope?.province)return `จังหวัด${result.scope.province}`;
   return 'พื้นที่ตามสิทธิ์ที่ยืนยันแล้ว';
  }
- async function psychiatricSummary(req, province=null) {
+ async function psychiatricSummary(req, province=null, options={}) {
   const result=await aiTools.psychiatricSummary(req.realToken,{province});
   const rows=result.rows.map(row=>({
    name:String(row.station_name||'ไม่ระบุ สภ.'),
@@ -859,17 +886,19 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   }));
   const total=rows.reduce((sum,row)=>sum+row.count,0);
   const scope=scopeHeading(province?`จังหวัด${province}`:null,result);
+  const heading=options.perStation?`ภาพรวมผู้ป่วยจิตเวชราย สภ. • ${scope}`:`ภาพรวมผู้ป่วยจิตเวช • ${scope}`;
   return {
-   answer:`ภาพรวมผู้ป่วยจิตเวช • ${scope}\nรวม ${total} คน จาก ${rows.length} สภ.`,
+   answer:`${heading}\nรวม ${total} คน จาก ${rows.length} สภ.`,
    presentation:{type:'location_summary',groupBy:'station',readOnlyAggregate:true,items:rows,filters:{person_type:'psychiatric'}},
   };
  }
- async function targetPersonSummary(req, province=null) {
+ async function targetPersonSummary(req, province=null, options={}) {
   const result=await aiTools.targetPersonSummary(req.realToken,{province});
   const rows=result.rows.map(row=>({stationName:String(row.station_name||'ไม่ระบุ สภ.'),province:String(row.province||''),psychiatric:Number(row.psychiatric_total)||0,drugUser:Number(row.drug_user_total)||0,dealer:Number(row.dealer_total)||0,released:Number(row.released_total)||0,total:Number(row.target_total)||0}));
   const totals=rows.reduce((sum,row)=>({psychiatric:sum.psychiatric+row.psychiatric,drugUser:sum.drugUser+row.drugUser,dealer:sum.dealer+row.dealer,released:sum.released+row.released,total:sum.total+row.total}),{psychiatric:0,drugUser:0,dealer:0,released:0,total:0});
   const scope=scopeHeading(province?`จังหวัด${province}`:null,result);
-  return {answer:`ภาพรวมบุคคลเป้าหมาย • ${scope}\nรวม ${totals.total} คน • ผู้ป่วยจิตเวช ${totals.psychiatric} • ผู้เสพ ${totals.drugUser} • ผู้ค้า ${totals.dealer} • ผู้พ้นโทษ ${totals.released}`,presentation:{type:'target_person_summary',readOnlyAggregate:true,scopeLabel:scope,rows,totals}};
+  const heading=options.perStation?`ภาพรวมบุคคลเป้าหมายราย สภ. • ${scope}`:`ภาพรวมบุคคลเป้าหมาย • ${scope}`;
+  return {answer:`${heading}\nรวม ${totals.total} คน • ผู้ป่วยจิตเวช ${totals.psychiatric} • ผู้เสพ ${totals.drugUser} • ผู้ค้า ${totals.dealer} • ผู้พ้นโทษ ${totals.released}`,presentation:{type:'target_person_summary',readOnlyAggregate:true,scopeLabel:options.perStation?heading:scope,rows,totals}};
  }
  async function stationRanking(req, province, request) {
   const summary=await targetPersonSummary(req,province);
@@ -911,6 +940,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(RESET_RE.test(message)){
    return res.json({answer:'เริ่มบทสนทนาใหม่แล้ว เงื่อนไขที่เลือกไว้ทั้งหมดถูกล้างแล้ว',grounded:true,dataSource:'real',conversation:{topic:null},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
+  // The self-introduction is owner-specified text, answered deterministically
+  // for typed and transcribed commands alike; no model call is involved. In
+  // voice mode the client plays the recorded introduction clip for it.
+  if(isIntroductionRequest(message)){
+   return res.json({answer:INTRODUCTION_TEXT,grounded:true,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
   if(isUnderspecifiedQuestion(message)){
    return res.json({
     answer:'ผู้ช่วยธานีพิทักษ์ เอไอ พร้อมให้บริการสืบค้นข้อมูลทะเบียนและติดตามบุคคลเป้าหมายตามสิทธิ์ของท่าน สามารถเลือกดูข้อมูลที่สนใจได้ดังนี้:',
@@ -939,7 +974,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const stationCue=/(?:^|[\s,])(?:สภ\.?|สถานี(?:ตำรวจ)?|ศพ|สพ|สอพอ|สภอ)(?=\s|[ก-๙]|$)/u.test(routingMessage);
   const namedStationBeforeProvince=/(?:สภ\.?|สถานี(?:ตำรวจ)?)\s*[ก-๙A-Za-z0-9.-]{2,80}\s*(?:จังหวัด|จ\.)/u.test(routingMessage);
   const genericStationOverview=/ภาพรวม/u.test(routingMessage)&&/(?:ราย\s*)?สภ\.?\s*(?:ใน?จังหวัด|$)/u.test(routingMessage);
-  if(stationCue&&!visitPlanIntent&&!genericStationOverview&&/(?:รายชื่อ|ภาพรวม|สรุป|ผู้ป่วย|จิตเวช|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ)/u.test(routingMessage)&&(!detectStationRanking(routingMessage)||namedStationBeforeProvince)){
+  // A bare สภ. cue inside an overview request names the officer's own station
+  // (“ขอภาพรวม สภ.”) or the whole province (“ภาพรวมราย สภ.”); neither is an
+  // unclear station name, so they must bypass the unclear-station guard.
+  const ownStationOverview=detectOwnStationOverview(routingMessage);
+  const provinceStationOverview=!ownStationOverview&&detectProvinceStationOverview(routingMessage);
+  if(stationCue&&!visitPlanIntent&&!genericStationOverview&&!ownStationOverview&&!provinceStationOverview&&/(?:รายชื่อ|ภาพรวม|สรุป|ผู้ป่วย|จิตเวช|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ)/u.test(routingMessage)&&(!detectStationRanking(routingMessage)||namedStationBeforeProvince)){
    requestedStation=detectFastPathIntent(routingMessage)?.filters?.station
     ||parseSummaryIntent(routingMessage)?.filters?.station
     ||detectOverview(routingMessage)?.filters?.station
@@ -996,6 +1036,33 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const selectedTopic=selectedProvince?sanitizeTopic({...(incomingTopic||{}),province:selectedProvince}):incomingTopic;
   if(isProvinceChangeOnly(routingMessage)){
    return respond({answer:`ตั้งค่าจังหวัดที่ต้องการดูเป็นจังหวัด${selectedProvince} แล้ว คำสั่งถัดไปจะใช้จังหวัดนี้เป็นตัวกรองภายในสิทธิ์ของบัญชี`,grounded:true,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
+  // “ขอภาพรวม สภ.” / “สภ.ของฉัน” — the overview of the officer's OWN assigned
+  // station. The station and province come from the server-verified profile,
+  // never from the message or browser context, so this can only ever narrow to
+  // what the account already reads.
+  if(ownStationOverview){
+   if(!req.user.stationId){
+    return respond({answer:'บัญชีของท่านไม่ได้สังกัด สภ. ใดโดยตรง ลองถาม “ภาพรวมราย สภ.” เพื่อดูภาพรวมทุก สภ. ในจังหวัดที่เลือกแทนได้',grounded:true,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
+   if(prepared.periodBlocked)return respond({answer:periodBlockedMessage(prepared.periodBlocked),grounded:false,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   if(prepared.timeWindow)return respond({answer:periodIntentQuestion(routingMessage,prepared.timeWindow).answer,grounded:false,dataSource:'real',conversation:{topic:selectedTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   try{
+    let excludeFilters=[];
+    if(prepared.exclusions.length)excludeFilters=await resolveExclusions(req,prepared.exclusions);
+    const overviewType=detectOverview(routingMessage)?.filters.person_type||null;
+    const filters={
+     ...(req.user.stationName?{station:req.user.stationName}:{}),
+     ...(req.user.province?{province:req.user.province}:{}),
+     ...(overviewType?{person_type:overviewType}:{}),
+     ...(excludeFilters.length?{exclude:excludeFilters}:{}),
+    };
+    const ownStationLabel=req.user.stationName&&!/^(?:สภ\.|ภ\.จว\.)/u.test(req.user.stationName)?`สภ.${req.user.stationName}`:(req.user.stationName||'สถานีของฉัน');
+    const scopeLabel=`${ownStationLabel}${req.user.province?` • จังหวัด${req.user.province}`:''}`;
+    const result=await realOverview(req,'station',filters,{scopeLabel});
+    return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_overview_read'}],presentation:result.presentation,conversation:{topic:sanitizeTopic(filters)},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
+   catch(e){return sendFailure(e);}
   }
   // A visit-plan request whose สภ. cannot be resolved must not dead-end.
   // Offer the province's stations from the same scoped catalogue the registry
@@ -1341,12 +1408,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     :null;
    if(overview.filters.person_type==='psychiatric'&&!overview.filters.station&&!overview.filters.district&&!overview.filters.subdistrict){
     if(overviewGuard)return respond({answer:overviewGuard,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
-    try { const result=await psychiatricSummary(req,selectedProvince); return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/psychiatric_summary'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+    try { const result=await psychiatricSummary(req,selectedProvince,{perStation:provinceStationOverview}); return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/psychiatric_summary'}],presentation:result.presentation,conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
     catch(e){return sendFailure(e);}
    }
    if((!overview.filters.person_type || ['drug_user','dealer','released'].includes(overview.filters.person_type))&&!overview.filters.station&&!overview.filters.district&&!overview.filters.subdistrict){
     if(overviewGuard)return respond({answer:overviewGuard,grounded:false,dataSource:'real',conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
-    try { const result=await targetPersonSummary(req,selectedProvince);const reportTopic=sanitizeTopic({...(conversation.topic||{}),report_kind:'target_person_aggregate'}); return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation:{topic:reportTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
+    try { const result=await targetPersonSummary(req,selectedProvince,{perStation:provinceStationOverview});const reportTopic=sanitizeTopic({...(conversation.topic||{}),report_kind:'target_person_aggregate'}); return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation:{topic:reportTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}}); }
     catch(e){return sendFailure(e);}
    }
    try {
@@ -1668,4 +1735,4 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  router.use((req,res)=>res.status(409).json({error:'ฟังก์ชันนี้ยังไม่เปิดใช้กับข้อมูลจริง',code:'REAL_FEATURE_UNAVAILABLE'}));
  return router;
 }
-module.exports={createRealDataRoutes};
+module.exports={createRealDataRoutes,detectOwnStationOverview,detectProvinceStationOverview};

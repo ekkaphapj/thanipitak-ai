@@ -1139,3 +1139,53 @@ visit-history question still goes to the person path).
   Full `npm test`: **469 tests, 27 suites, 0 failures**. Browser check of the
   card layout (desktop table + mobile month cards) done through a temporary
   local preview with a canned presentation; no live registry was read.
+
+### Continuation update — 2026-09-26 (fixed introduction + own-station overview)
+
+Two owner-requested deterministic commands, on `phase-3.3-low-latency`. Full
+`npm test` after the work: **481 tests, 27 suites, 0 failures** (new files:
+`tests/introduction.test.js`, `tests/ownStationOverview.test.js`; one
+`tests/realData.test.js` case rewritten because it pinned the OLD “ภาพรวม
+สภ.” routing that this change intentionally replaced).
+
+**Self-introduction (typed + spoken).** `src/ai/introduction.js` holds the
+owner-specified introduction text and `isIntroductionRequest()` (คุณคือใคร,
+เธอคือใคร, ช่วยแนะนำตัวหน่อย, แนะนำตัวด้วย, แนะนำตัวให้ฟัง, …). The real chat
+route (`/ai/chat` in `realDataRoutes.js`, checked right after the reset
+command) and the test-mode gateway fast path both answer with exactly that
+text — `grounded:true`, `fastPath:true`, zero Ollama calls, zero registry
+reads. The แนะนำตัว branch is end-anchored so “หาคนแนะนำตัวยา” never matches,
+and Thai regex gotcha: write `(?:ใน)?` for an optional word — `ใน?` makes “ใ”
+mandatory instead. `frontend/ai.js isVoiceIntroduction` stays in sync with the
+same regex; in voice mode `finishVoiceTurn` therefore plays
+`voice-introduce.mp3` after the fixed text renders, which is the previously
+attached introduction clip. `willUseLocalAi`/`likelyUsesLocalAi` return false
+for these commands so the processing hint stays honest.
+
+**“ขอภาพรวม สภ.” / “สภ.ของฉัน” — own-station overview.**
+`detectOwnStationOverview()` (realDataRoutes, also exported for tests) treats
+an overview request ending in a bare สภ. cue, and the possessive forms
+“สภ.ของฉัน/ผม/เรา”, as the overview of the officer's OWN assigned station. The
+station and province come only from the server-verified profile
+(`req.user.stationName`/`req.user.province`) — never from message or browser
+context — and `realOverview` groups by ตำบล inside that station. The header
+now names data + station + province, e.g. `ภาพรวมข้อมูล • สภ.บ้านดุง •
+จังหวัดอุดรธานี` (new `options.scopeLabel` on `realOverview`; other overview
+headings are unchanged). An account with no `station_id` (province-wide admin)
+gets explicit guidance pointing to “ภาพรวมราย สภ.” instead of a guess. These
+commands bypass the unclear-สภ. guard, and `detectOverview` now also accepts
+the bare “สภ.ของฉัน” form in TEST mode while never capturing
+ของฉัน/ของผม/ของเรา as a station name (test mode answers via its existing
+`get_overview` fast path).
+
+**“ภาพรวมราย สภ.” — per-station overview of the working province.**
+`detectProvinceStationOverview()` matches “ราย” immediately followed by a bare
+สภ. cue (optionally “(ใน)จังหวัด…” after it; a station name after the cue
+falls back to the specific-station overview). It routes to the existing
+audited `ai-summary` aggregate, whose heading now reads `ภาพรวมบุคคลเป้าหมายราย
+สภ. • จังหวัด…` (and `ภาพรวมผู้ป่วยจิตเวชราย สภ. • …` for the psychiatric
+variant) via a `perStation` flag; the plain “ขอภาพรวมบุคคลเป้าหมาย” heading is
+byte-identical to before, so `provinceReports.test.js` assertions stand. The
+default province is the authenticated profile province on first open, or the
+topic's province after a “เลือกจังหวัด…” command — the pre-existing
+`selectedProvince` precedence is unchanged.

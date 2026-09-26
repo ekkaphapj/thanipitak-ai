@@ -14,14 +14,16 @@ function detectOverview(message) {
   // person lookup. A known explicit category is required for this shortcut.
   const overviewWords = /(?:ข้อมูล)?ภาพรวม|ภาพรวมข้อมูล|สรุปภาพรวม/.test(text);
   const typeDataRequest = Boolean(person_type && /(?:ขอ|แสดง|ดู)\s*(?:ข้อมูล|รายละเอียด)(?:ของ)?/.test(text));
-  if (!overviewWords && !typeDataRequest) return null;
+  // “สภ.ของฉัน” — an explicit own-station overview command (no area named).
+  const ownStationRequest=/^(?:ขอ\s*)?(?:ดู\s*)?(?:ภาพรวม|สรุป|ข้อมูล)?\s*(?:สภ\.?|สถานี(?:ตำรวจ)?)\s*(?:ของ\s*)?(?:ฉัน|ผม|เรา|ดิฉัน|กระผม|ผู้ใช้)\s*(?:ครับ|ค่ะ|คะ)?$/u.test(text);
+  if (!overviewWords && !typeDataRequest && !ownStationRequest) return null;
   const subdistrict=text.match(/ตำบล\s*([^\s,]+)/u)?.[1];
   const district=text.match(/(?:อำเภอ|เขต)\s*([^\s,]+)/u)?.[1];
   // Speech-to-text commonly renders สภ. as "สพ", "สอพอ" or "สภอ".  A
   // named station is more specific than a province mentioned in the same
   // sentence, so keep it as a filter and never let the province win.
   const stationCandidate=text.match(/(?:สภ\.?|สพ\.?|สอพอ\.?|สภอ\.?|สถานี(?:ตำรวจ)?)\s*([ก-๙A-Za-z0-9.-]{2,80}?)(?=\s*(?:จังหวัด|จ\.|อำเภอ|เขต|ตำบล|มี|กี่|ทั้งหมด|$))/u)?.[1];
-  const station=stationCandidate&&!/^(?:ใน|ของ|แต่ละ|ราย|ทั้งหมด)$/u.test(stationCandidate)?stationCandidate:null;
+  const station=stationCandidate&&!/^(?:ใน|ของ|ของฉัน|ของผม|ของเรา|แต่ละ|ราย|ทั้งหมด)$/u.test(stationCandidate)?stationCandidate:null;
   const filters={};if(person_type)filters.person_type=person_type;if(subdistrict&&!/^(?:ไหน|ใด|ต่างๆ)$/u.test(subdistrict))filters.subdistrict=subdistrict;if(district)filters.district=district;if(station)filters.station=station;
   if (station) return { requestedScope: 'station',filters };
   if (/จังหวัด|ภ\.จว\.?/.test(text)) return { requestedScope: 'province',filters };

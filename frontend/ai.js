@@ -754,9 +754,12 @@
     return /(?:ไม่เข้าใจ|ยังสรุปไม่ได้|ไม่พบคำสั่ง)/u.test(String((json && json.answer) || ''));
   }
 
+  // Must stay in sync with src/ai/introduction.js INTRODUCTION_RE: the
+  // backend answers with the fixed introduction text, and in voice mode this
+  // picks the recorded introduction clip instead of the completion clip.
   function isVoiceIntroduction(message) {
     const text = String(message || '').replace(/\s+/g, '');
-    return /(?:คุณ|เธอ)คือใคร|(?:ช่วย)?แนะนำตัว(?:หน่อย)?/u.test(text);
+    return /(?:คุณ|เธอ|นาย|หนู)คือใคร|(?:ช่วย)?แนะนำตัว(?:เอง)?(?:หน่อย|ด้วย|ให้(?:ฟัง|หน่อย)?)*$/u.test(text);
   }
 
   function finishVoiceTurn(json, message) {

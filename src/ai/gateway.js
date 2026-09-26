@@ -24,6 +24,7 @@ const {
 const { runIntentRouter, INTENT_MODEL } = require('./intentRouter');
 const rag = require('./rag');
 const { detectDiscoveryIntent } = require('../services/discoveryService');
+const { isIntroductionRequest, INTRODUCTION_TEXT } = require('./introduction');
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'scb10x/llama3.1-typhoon2-8b-instruct:latest';
@@ -263,6 +264,7 @@ function createAIGateway(toolRouter) {
 // processing cue is never delayed until after inference has started.
 function willUseLocalAi(userMessage, context = {}) {
   const selectedPersonId = validPersonId(context.personId);
+  if (isIntroductionRequest(userMessage)) return false;
   if (detectDiscoveryIntent(userMessage)) return false;
   if (parseSummaryIntent(userMessage) && selectedPersonId === null) return false;
   if (detectExportIntent(userMessage)) return false;
@@ -279,6 +281,22 @@ function willUseLocalAi(userMessage, context = {}) {
 // station/role/user_id are never accepted here. When confidence is not high,
 // it falls through to the untouched Phase 3.1 gateway (chatWithTools).
 async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, onToolCall, options = {}) {
+  // The self-introduction is owner-specified text, so both data modes answer
+  // it deterministically without a model call; in voice mode the client plays
+  // the recorded introduction clip on top of this answer.
+  if (isIntroductionRequest(userMessage)) {
+    return {
+      answer: INTRODUCTION_TEXT,
+      toolsUsed: [],
+      grounded: true,
+      databaseIntent: false,
+      retryCount: 0,
+      fastPath: true,
+      intent: 'introduction',
+      executionTier: 1,
+      ollamaCalls: 0,
+    };
+  }
   const discoveryIntent = detectDiscoveryIntent(userMessage);
   if (discoveryIntent && !options.forceQwen) {
     const out = toolRouter.discover(currentUser, discoveryIntent);

@@ -1,33 +1,48 @@
 # ThaniPitak image UI
 
-`index.html` is the Thai image-generation page served by `qwen-draw.service` at
-`https://image.policeshield4.com/`. Its logo is a 240 px JPEG derived from the
-owner-provided `THANI PITAK.png` and embedded in the HTML, so the existing
-standard-library Python server needs no static-file route.
+`index.html` and `draw_server.py` serve `https://image.policeshield4.com/` through
+`qwen-draw.service` on the Ubuntu pilot. The live checkout is
+`/home/ekkaphap/draw-server/`. ComfyUI runs separately on loopback port 8188.
+The page keeps its owner-provided logo embedded in HTML.
 
-`draw_server.py` implements the local API. The live files are in
-`/home/ekkaphap/draw-server/` on `ake-server`. The server reads HTML for every
-page request, so an atomic HTML replacement requires no restart. A Python
-change requires a `qwen-draw.service` restart. Preserve the asynchronous
-`/api/generate`, `/api/status/<id>`, and `/api/image/<id>` contract.
+The UI loads `GET /api/models` and submits an allowlisted `model` id with
+`POST /api/generate`. The legacy default remains `qwen-image-2.1` when an old
+client omits `model`. The endpoint returns the selected model with the job id;
+`GET /api/status/<id>` also includes it. Model availability is checked from
+installed files. An unknown model, unsupported option, or unavailable model
+fails explicitly before queueing. Raw model filenames from requests are never
+used to build a graph.
 
-The default auto profile uses 25 Euler/simple steps and CFG 1 for general
-prompts, matching the [official ComfyUI Qwen-Image-2.1 template](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_t2i.json).
-Prompts requesting visible text, explicit negative prompts, and manually
-selected quality mode use 20 steps and CFG 2.5. At 768 px with the same Thai
-scene prompt and seed on this RTX 3060, the old path took 98 seconds and the
-fast path took 54 seconds. In one Thai signage comparison, the quality path
-rendered the requested headline more faithfully. These are single-image
-observations, not a general quality guarantee.
+| Model id | ComfyUI path | Profiles | Reference | Negative |
+|---|---|---|---|---|
+| `qwen-image-2.1` | Qwen-Image-2.1 Q4 GGUF | fast 16/CFG 1, medium 25/CFG 1, quality 30/CFG 2.5 | Yes | Quality profile only |
+| `flux.2-klein-4b` | FLUX.2 [klein] 4B FP8 distilled | standard 4-step/CFG 1 | Not in this UI | No |
 
-Two fixed-seed 768 px trials on a fictional portrait did not fix a left-hand
-book/right-hand-on-table request: both a generic composition reminder and a
-specific hand-placement reminder still placed both hands on the book. The
-generic reminder also shifted the apparent age. No automatic prompt rewrite
-or sampler change was deployed from these trials.
+The FLUX graph follows [ComfyUI's distilled 4B workflow](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_flux2_klein_text_to_image.json).
+The FP8 diffusion file is published by Black Forest Labs for this model and
+fits the 12 GB RTX 3060 more comfortably than BF16. The three model files are
+installed under `~/ComfyUI/models/` and are **not** committed:
 
-Run `python -m unittest discover -s tests -p test_draw_server.py` locally
-before deploying the Python file. Run `npm test` for routing changes.
+- `diffusion_models/flux-2-klein-4b-fp8.safetensors` from
+  `black-forest-labs/FLUX.2-klein-4b-fp8`
+- `text_encoders/qwen_3_4b.safetensors` from `Comfy-Org/flux2-klein`
+- `vae/flux2-vae.safetensors` from `Comfy-Org/flux2-dev`
 
-The ComfyUI server, model files, generated images, tunnel token, and service
-configuration are separate from these tracked files. Do not add them to Git.
+To add another model, define one allowlisted entry in `MODELS`, provide its
+graph builder in `build_graph`, declare supported profiles and features, and
+add routing tests. The UI reads the catalog and hides unsupported controls.
+This is intentional: installing a weight file alone must not grant clients a
+way to request arbitrary ComfyUI nodes or filenames.
+
+`index.html` is re-read per request. A Python change needs a `qwen-draw.service`
+restart; newly installed ComfyUI model files also need a `comfyui.service`
+restart to refresh loader lists. Preserve the asynchronous generate/status/image
+contract so requests remain shorter than the Cloudflare edge timeout. Do not
+commit generated images, model weights, uploaded references, or service tokens.
+
+Validation:
+
+```powershell
+python -m unittest discover -s tests -p test_draw_server.py
+npm test
+```

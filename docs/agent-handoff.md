@@ -1189,3 +1189,20 @@ byte-identical to before, so `provinceReports.test.js` assertions stand. The
 default province is the authenticated profile province on first open, or the
 topic's province after a “เลือกจังหวัด…” command — the pre-existing
 `selectedProvince` precedence is unchanged.
+
+**Deployed 2026-09-26 evening.** Commits `4584066` + `b14598c` were deployed
+to the Ubuntu pilot over the Cloudflare Access SSH route
+(`ssh.policeshield4.com`; the server was not reachable on the LAN that day —
+full 192.168.1.x sweep found no Ubuntu SSH host). `git pull --ff-only`
+fast-forwarded `6b41582 → b14598c` on `phase-3.3-low-latency`. The unit is
+`Restart=on-failure` with `User=ekkaphap`, so the passwordless restart path is
+`kill -9 <MainPID from systemctl show>` on the verified npm start PID; systemd
+restarted it (NRestarts=1, new MainPID). Verified: local `ai.html` 200, STT
+`/health` 200, `src/ai/introduction.js` present, and the new
+`หนู)คือใคร` fingerprint served both locally and through
+`https://ai.policeshield4.com/ai.js` (public `ai.html` 200). Browser users
+need Ctrl+F5. Note: the Cloudflare Access browser login on the deploy
+workstation stores an app token in `~/.cloudflared`; one completed login made
+later `ssh -o ProxyCommand="cloudflared access ssh --hostname
+ssh.policeshield4.com"` (or a local `access tcp` proxy on 127.0.0.1:2222)
+work without re-login until the token expires.

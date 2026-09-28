@@ -30,7 +30,7 @@ test('chart transcript repairs are contextual and leave religious speech, names 
     assert.equal(commands.detect(`สร้าง${alias}`).kind, 'help');
     assert.match(correctTranscript(`สร้าง${alias}บุคคลเป้าหมาย สภ.ของฉัน แยกตามประเภท`), /^สร้างกราฟ/);
   }
-  for (const phrase of ['ขอกราบ', 'กราบพระ', 'กราบขอบคุณครับ', 'ขอรายชื่อนายกราฟ', 'สร้างกราฟิก', 'สร้างกราฟฟิก']) {
+  for (const phrase of ['ขอกราบ', 'กราบพระ', 'กราบขอบคุณครับ', 'ขอรายชื่อนายกราฟ', 'ขอรายชื่อผู้เสพชื่อนายกราฟ', 'หาคนชื่อกราฟ', 'ขอประวัตินายกราฟ', 'สร้างกราฟิก', 'สร้างกราฟฟิก']) {
     assert.equal(commands.repair(phrase), phrase);
     assert.equal(commands.detect(phrase), null);
   }

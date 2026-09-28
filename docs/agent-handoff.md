@@ -53,6 +53,15 @@ and this section describe the current additions.
   STT tests cover transcript text; no microphone/model audio test was performed.
   Actual Ollama was not used for this deterministic feature. Donut/stacked
   charts, graph export and the proposed analytics panel remain unimplemented.
+- Deployment verified on the Ubuntu pilot over IPv6 SSH. Both Windows and
+  Ubuntu passed the 500-test suite; Ubuntu tests require the same
+  `REPORT_FONT_PATH=/usr/share/fonts/truetype/tlwg/Garuda.ttf` as the service.
+  Unit `thanipitak-ai` restarted using its verified npm MainPID and
+  `Restart=on-failure` (no broad process kill). Local health/fixture chart-guide
+  and chart APIs passed; unauthenticated real chat returned 401. STT health
+  remained OK. Public `ai.html`, `ai.js`, `chartCommands.js` and `charts.js`
+  returned 200 with the new guide/renderer and `20260928` script versions.
+  No authenticated real registry read was used for deployment verification.
 
 
 ## Current continuation — September 2026 voice pilot (read first)

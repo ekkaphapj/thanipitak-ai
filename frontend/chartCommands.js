@@ -15,6 +15,9 @@
     if (!/(?:กราฟ(?!ิก|ฟิก|ฟิค)|แผนภูมิ|\b(?:graph|chart)\b)/iu.test(value)) return null;
     // A named person containing กราฟ isn't a request to draw a chart.
     if (/^(?:หา|ค้นหา|ขอรายชื่อ|ข้อมูล|ประวัติ)\s*(?:นาย|นาง|นางสาว|คุณ)?\s*กราฟ/u.test(value)) return null;
+    if (/(?:หา|ค้น|รายชื่อ|ประวัติ|ข้อมูล)/u.test(value)
+      && /(?:ชื่อ\s*(?:นาย|นางสาว|นาง|คุณ)?\s*|(?:นาย|นางสาว|นาง|คุณ)\s*)กราฟ/u.test(value)
+      && !/(?:สร้าง|ขอ|แสดง|ทำ)\s*(?:กราฟ|แผนภูมิ)/u.test(value)) return null;
     let clean = value.replace(/^(?:ช่วย\s*)?(?:สร้าง|ขอ|แสดง|ทำ)?\s*(?:กราฟ|แผนภูมิ|graph|chart)\s*/iu, '')
       .replace(/\s*(?:ให้หน่อย|หน่อย|ด้วย)?\s*(?:ครับ|ค่ะ|คะ|นะครับ|นะคะ)?[?!？]*$/u, '').trim();
     if (!clean || /ยังไง|อย่างไร|อะไรได้บ้าง|ทำไง|ใช้ไง|วิธ[ีิ]ใช้|วิธีสร้าง|วิธีทำ|ใช้งาน/u.test(value)) return { kind: 'help' };

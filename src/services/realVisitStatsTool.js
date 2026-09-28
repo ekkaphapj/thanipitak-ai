@@ -71,6 +71,7 @@ function createRealVisitStatsTool(rows) {
       // is resolved through stations.province — the authoritative source.
       const clean = String(province).replace(/[%*(),]/g, '').slice(0, 100);
       const stations = await rows(req, 'stations', new URLSearchParams({ select: 'station_id', province: `eq.${clean}`, limit: '1000' }));
+      if (stations.data.length !== stations.total) throw tooLarge('รายชื่อสถานีตอบกลับไม่ครบ จึงยังสร้างสรุปไม่ได้ กรุณาระบุ สภ.');
       const ids = stations.data.map((row) => Number(row.station_id)).filter(Number.isSafeInteger);
       peopleParams.set('station_id', `in.(${ids.length ? ids.join(',') : '0'})`);
     }
@@ -92,12 +93,13 @@ function createRealVisitStatsTool(rows) {
     const categoryById = new Map();
     if (typeIds.length) {
       const found = await rows(req, 'people_type', new URLSearchParams({ select: 'type_id,type_name', type_id: `in.(${typeIds.join(',')})`, limit: '1000' }));
+      if (found.data.length !== found.total) throw tooLarge('ประเภททะเบียนตอบกลับไม่ครบ จึงยังสร้างสรุปไม่ได้');
       for (const row of found.data) categoryById.set(Number(row.type_id), categoryOfTypeName(String(row.type_name || '')));
     }
     const categoryOf = new Map(people.map((person) => [person.id, categoryById.get(Number(person.type_id)) || 'other']));
 
     const monthList = monthsFromWindow(from, to, months);
-    if (!monthList.length) throw tooLarge('ช่วงเวลาที่ขอยาวเกินที่รองรับ (สูงสุด 24 เดือน) กรุณาระบุช่วงที่สั้นกว่า');
+    if (!monthList.length || monthList.length > MAX_MONTHS) throw tooLarge('ช่วงเวลาที่ขอยาวเกินที่รองรับ (สูงสุด 24 เดือน) กรุณาระบุช่วงที่สั้นกว่า');
     const monthIndex = new Map(monthList.map((month) => [month.key, month]));
     const monthTotals = new Map(monthList.map((month) => [month.key, 0]));
     const monthByType = new Map(monthList.map((month) => [month.key, new Map()]));
@@ -143,6 +145,7 @@ function createRealVisitStatsTool(rows) {
         if (visitsCounted > MAX_VISITS) throw tooLarge('ช่วงเวลานี้มีบันทึกการตรวจเยี่ยมมากเกินกว่าจะสรุปได้ในครั้งเดียว กรุณาระบุ สภ. หรือช่วงเวลาที่สั้นลง');
         if (!batch.data.length || offset >= chunkTotal) break;
       }
+      if (offset !== chunkTotal) { const error = new Error('ข้อมูลตรวจเยี่ยมตอบกลับไม่ครบ'); error.code = 'REAL_DATA_UNVERIFIABLE'; throw error; }
     }
 
     const includeTypes = (Array.isArray(types) && types.length ? types : DEFAULT_TYPES).filter((type) => TYPE_LABELS[type]);

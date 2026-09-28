@@ -196,6 +196,7 @@
   }
 
   function isUsageGuideQuestion(message) {
+    if (window.ChartCommands.detect(message)) return false;
     const text = String(message || '').replace(/\s+/g, '');
     return /(?:วิธ[ีิ]ใช้|วิธีการใช้|สอน(?:การ)?ใช้งาน?(?:ให้)?หน่อย|สอนใช้หน่อย|ใช้ยังไง|ต้องถามอะไรได้บ้าง|ทำยังไง(?:ต่อ)?|ทำไง(?:ต่อ)?|สั่งยังไง|ขอวิธีใช้|ไม่เข้าใจ(?:วิธีใช้)?|ทำไม่เป็น|ช่วย(?:สอน|บอกวิธี|หน่อย))/u.test(text);
   }
@@ -470,6 +471,7 @@
       ['พื้นที่และการยกเว้น', ['“ขอรายชื่อผู้เสพในตำบล…” / “เปลี่ยนจังหวัด…”', '“ผู้เสพยกเว้นตำบล…และตำบล…มีกี่คน”']],
       ['จัดอันดับและวิเคราะห์', ['“5 อันดับตำบลที่มีผู้ป่วยจิตเวชมากที่สุด”', '“วิเคราะห์ภาระงาน” / “ตรวจคุณภาพข้อมูล”']],
       ['รายงาน', ['“ทำเป็น PDF” หรือ “ทำเป็น Excel”', '“ส่งรายการนี้เป็น Excel” ใช้เงื่อนไขรายการล่าสุดให้']],
+      ['กราฟและแผนภูมิ', ['“สร้างกราฟ” หรือ “ขอแผนภูมิใช้ยังไง” เปิดตัวอย่างตามสังกัด', 'คลิกตัวอย่าง หรือพูด “เลือกข้อที่ 1” เพื่อสร้างกราฟทันที']],
       ['ติดตามรายการเดิม', ['“กำลังอ้างอิงรายการไหน”', '“ยกเลิกการเลือก” / “เริ่มใหม่” ล้างบริบท']],
       ['สั่งด้วยเสียง', ['กด “ผู้ช่วยเอไอธานีพิทักษ์”', 'กดค้างปุ่มไมค์ พูดจบแล้วปล่อยปุ่ม']],
       ['ข้อควรทราบ', ['ไม่ต้องพิมพ์ข้อมูลอ่อนไหวเกินจำเป็น', 'หากยังไม่แน่ใจ ระบบจะถามให้ระบุเพิ่ม']],
@@ -485,7 +487,7 @@
     const examples = document.createElement('div');
     examples.className = 'usage-guide-examples';
     const title = document.createElement('strong'); title.textContent = 'ลองถามได้ทันที'; examples.appendChild(title);
-    for (const prompt of ['ขอภาพรวม สภ.', 'ขอรายชื่อผู้เสพ', 'ผู้ป่วยจิตเวชที่เสี่ยงสูงมีใครบ้าง', 'ใครเสี่ยงสูงเดือนนี้']) {
+    for (const prompt of ['ขอภาพรวม สภ.', 'ขอรายชื่อผู้เสพ', 'ผู้ป่วยจิตเวชที่เสี่ยงสูงมีใครบ้าง', 'ใครเสี่ยงสูงเดือนนี้', 'สร้างกราฟ']) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'suggest-btn'; button.textContent = prompt;
       button.addEventListener('click', () => sendMessage(prompt)); examples.appendChild(button);
     }
@@ -747,7 +749,7 @@
   function answerNeedsFollowup(json) {
     const answer = String((json && json.answer) || '');
     const type = json && json.presentation && json.presentation.type;
-    return type === 'summary_choices' || type === 'person_candidates' || type === 'report_offer' || /(?:กรุณาระบุ|กรุณาเลือก|ขอรายละเอียด|ต้องการ.+หรือไม่)/u.test(answer);
+    return type === 'chart_help' || type === 'summary_choices' || type === 'person_candidates' || type === 'report_offer' || /(?:กรุณาระบุ|กรุณาเลือก|ขอรายละเอียด|ต้องการ.+หรือไม่)/u.test(answer);
   }
 
   function answerIsNotUnderstood(json) {
@@ -1195,9 +1197,10 @@
       const ordinals = items.map((item) => item.ordinal).filter(Number.isFinite).sort((a, b) => a - b);
       const min = ordinals[0];
       const max = ordinals[ordinals.length - 1];
+      const noun = items.some(item => item.personId) ? 'บุคคล' : 'รายการ';
       appendMessage('assistant', min === max
-        ? `ไม่พบบุคคลลำดับที่ ${ordinal} กรุณาเรียกดูรายชื่อและเลือกใหม่อีกครั้ง (รายการที่กำลังอ้างอิงมีเฉพาะลำดับที่ ${min})`
-        : `ไม่พบบุคคลลำดับที่ ${ordinal} กรุณาเรียกดูรายชื่อและเลือกใหม่อีกครั้ง (รายการที่กำลังอ้างอิงมีลำดับที่ ${min}-${max})`);
+        ? `ไม่พบ${noun}ลำดับที่ ${ordinal} กรุณาเลือกใหม่อีกครั้ง (รายการที่กำลังอ้างอิงมีเฉพาะลำดับที่ ${min})`
+        : `ไม่พบ${noun}ลำดับที่ ${ordinal} กรุณาเลือกใหม่อีกครั้ง (รายการที่กำลังอ้างอิงมีลำดับที่ ${min}-${max})`);
       return { handled: true };
     }
     if (chosen.personId) {
@@ -1214,6 +1217,7 @@
     const followup = ordinalPromptForLocation(chosen);
     if (followup) {
       recordReferenceChild(chosen);
+      if (chosen.clearSelection) clearSelectedPerson();
       if (command.action === 'select') appendMessage('assistant', `เลือกแล้ว: ${chosen.displayName} — กำลังเปิดรายการที่เกี่ยวข้อง`);
       return { message: followup };
     }
@@ -1873,6 +1877,26 @@
     hostForPresentation(wrap).appendChild(box);
   }
 
+  function renderChartHelp(wrap, presentation, answer) {
+    const box = document.createElement('section'); box.className = 'chart-help';
+    const heading = document.createElement('h3'); heading.textContent = 'วิธีใช้คำสั่งกราฟ'; box.appendChild(heading);
+    const intro = document.createElement('p');
+    intro.textContent = String(answer).split('\n').filter(line => !/^\d+\./.test(line) && !line.startsWith('วิธีใช้คำสั่งกราฟ')).join('\n');
+    if (presentation.affiliation) { const affiliation = document.createElement('p'); affiliation.textContent = presentation.affiliation; box.appendChild(affiliation); }
+    box.appendChild(intro);
+    const list = document.createElement('div'); list.className = 'chart-help-list';
+    const items = [];
+    for (const choice of presentation.choices || []) {
+      const button = document.createElement('button'); button.type = 'button';
+      const number = document.createElement('strong'); number.textContent = String(choice.ordinal);
+      const label = document.createElement('span'); label.textContent = choice.label;
+      button.append(number, label); button.addEventListener('click', () => sendMessage(choice.message)); list.appendChild(button);
+      items.push({ ordinal: choice.ordinal, displayName: choice.label, followup: choice.message });
+    }
+    rememberOrdinalItems(items, 'ตัวอย่างคำสั่งกราฟ');
+    box.appendChild(list); hostForPresentation(wrap).appendChild(box);
+  }
+
   function renderSummaryChoices(wrap, presentation) {
     const box = document.createElement('div');
     box.className = 'person-candidates';
@@ -1880,9 +1904,11 @@
     title.className = 'pc-title';
     title.textContent = 'เลือกสิ่งที่ต้องการสรุป';
     box.appendChild(title);
-    for (const choice of (presentation.choices || [])) {
+    const ordinalItems = [];
+    for (const [index, choice] of (presentation.choices || []).entries()) {
+      ordinalItems.push({ ordinal: index + 1, displayName: choice.label, followup: choice.message, clearSelection: choice.clearSelection });
       const button = document.createElement('button');
-      button.type = 'button'; button.className = 'suggest-btn'; button.textContent = choice.label;
+      button.type = 'button'; button.className = 'suggest-btn'; button.textContent = /^\d+\./.test(choice.label) ? choice.label : `${index + 1}. ${choice.label}`;
       button.addEventListener('click', () => {
         // Only the server may request this local selection reset; person IDs
         // are still re-authorized by the backend for every later request.
@@ -1891,6 +1917,7 @@
       });
       box.appendChild(button);
     }
+    rememberOrdinalItems(ordinalItems, 'คำถามให้เลือก');
     const locations = presentation.locations || {};
     const groups = [
       ['สภ.', 'stations', (value) => `สรุปจำนวนบุคคลใน สภ.${value}`],
@@ -2131,6 +2158,9 @@
     // local command path can return early (for example “เลือกคนที่ 18”).
     if (voiceTurn) clearChatInput();
 
+    message = window.ChartCommands.repair(message);
+    const chartCommand = window.ChartCommands.detect(message);
+
     const compactMessage = message.replace(/\s+/g, '');
     if (/(?:เริ่ม|สอน).*แบบฝึกหัด/u.test(compactMessage)) {
       appendMessage('user', message);
@@ -2140,7 +2170,7 @@
       if (voiceTurn) setFullscreenBusy(null);
       return;
     }
-    if (/(?:ดู|บอก).*(?:คำสั่ง|ตัวอย่าง)/u.test(compactMessage) && /(?:ใช้|สั่ง|ได้)/u.test(compactMessage)) {
+    if (!chartCommand && /(?:ดู|บอก).*(?:คำสั่ง|ตัวอย่าง)/u.test(compactMessage) && /(?:ใช้|สั่ง|ได้)/u.test(compactMessage)) {
       appendMessage('user', message);
       $('#chat-input').value = '';
       autoResizeInput();
@@ -2148,7 +2178,7 @@
       if (voiceTurn) setFullscreenBusy(null);
       return;
     }
-    if (state.tutorial.active && /(?:ทำ(?:ยัง)?ไงต่อ|ต่อไป|ทวน(?:ข้อ|คำสั่ง)?|ย้ำ(?:ข้อ|คำสั่ง)?)/u.test(compactMessage)) {
+    if (!chartCommand && state.tutorial.active && /(?:ทำ(?:ยัง)?ไงต่อ|ต่อไป|ทวน(?:ข้อ|คำสั่ง)?|ย้ำ(?:ข้อ|คำสั่ง)?)/u.test(compactMessage)) {
       appendMessage('user', message);
       $('#chat-input').value = '';
       autoResizeInput();
@@ -2271,7 +2301,7 @@
           });
         }
 
-        const isOverview = json.presentation && ['overview','visit_plan','visit_summary'].includes(json.presentation.type);
+        const isOverview = json.presentation && ['overview','visit_plan','visit_summary','chart','chart_help'].includes(json.presentation.type);
         const wrap = appendMessage('assistant', isOverview ? '' : (json.answer || ''));
         if (json.presentation && ['person_list', 'target_person_summary', 'station_ranking'].includes(json.presentation.type)) {
           wrap.classList.add('msg-data-table');
@@ -2309,6 +2339,8 @@
         if (json.presentation && json.presentation.type === 'target_person_summary') renderTargetPersonSummary(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'station_ranking') renderStationRanking(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);
+        if (json.presentation && json.presentation.type === 'chart_help') renderChartHelp(wrap, json.presentation, json.answer);
+        if (json.presentation && json.presentation.type === 'chart') window.ThaniCharts.render(hostForPresentation(wrap), json.presentation);
         if (json.presentation && json.presentation.type === 'summary_result') renderSummaryResult(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'report_offer') renderReportOffer(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'place_choices') renderPlaceChoices(wrap, json.presentation);

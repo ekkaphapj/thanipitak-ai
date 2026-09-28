@@ -24,6 +24,8 @@ const {analyzePeriods,extractTimeWindow,hasHardTimeReference,currentYearWindow}=
 const {parseAreaExclusions,removeSpans}=require('../ai/areaExclusion');
 const {normalizeQuerySpec,describeQuerySpec,filtersFromSpec}=require('../ai/querySpec');
 const {isIntroductionRequest,INTRODUCTION_TEXT}=require('../ai/introduction');
+const chartCommands=require('../../frontend/chartCommands');
+const chartPresentation=require('../services/chartPresentation');
 
 async function ollamaJson(path,body) {
  const response=await fetch(new URL(path,process.env.OLLAMA_HOST||'http://127.0.0.1:11434'),{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(120000),body:JSON.stringify(body)});
@@ -33,6 +35,7 @@ async function ollamaJson(path,body) {
 
 function realFailure(error) {
  const code=error&&error.code;
+ if(code==='REAL_AUDIT_UNAVAILABLE')return {status:503,code,error:'ไม่สามารถบันทึกการอ่านข้อมูลจริงได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง'};
  // Non-chat callers (for example the pagination fetch) keep the explicit
  // error contract; the chat layer converts the guidance to a 200 answer.
  if(code==='REAL_AREA_GUIDANCE')return {status:422,code:'REAL_LOCATION_NOT_FOUND',error:error.message||'ไม่พบพื้นที่ที่ระบุ'};
@@ -320,6 +323,7 @@ function detectAggregateSortContinuation(message, topic) {
 }
 
 function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
+ if(chartCommands.detect(message))return false;
  if(isProvinceChangeOnly(message)||isIntroductionRequest(message)||detectOwnStationOverview(message)||detectProvinceStationOverview(message)||detectVisitPlanIntent(message)||detectVisitStatsIntent(message)||detectExportIntent(message)||detectStationRanking(message)||detectAggregateSortContinuation(message,topic)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson||isUnderspecifiedQuestion(message))return false;
  if(detectContinuation(message, topic))return false;
  const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,topic);
@@ -328,7 +332,7 @@ function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
  return true;
 }
 
-function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent}={}) {
+function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent,readAudit=null}={}) {
  const router=express.Router();router.use(authenticate);
  const { createRealAiTools } = require('../services/realAiTools');
  const aiTools = createRealAiTools({ url, key, request });
@@ -336,6 +340,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  const readVisitStats=createRealVisitStatsTool(rows);
  const readProvincePeople=createRealProvincePeopleTool({url,key,request});
  async function rows(req,table,params) {
+  // Persist an audit entry before reading. An audit failure must not release
+  // data. The pending entry survives even if recording completion fails.
+  let finish;
+  try { finish=readAudit?.start(req,table,params); }
+  catch { throw Object.assign(new Error('audit unavailable'),{code:'REAL_AUDIT_UNAVAILABLE'}); }
+  try {
   let response;
   try { response=await request(`${url}/rest/v1/${table}?${params}`,{headers:{apikey:key,Authorization:`Bearer ${req.realToken}`,Prefer:'count=exact'},signal:AbortSignal.timeout(15000)}); }
   catch(error) { error.code=error?.name==='TimeoutError'||error?.name==='AbortError'?'REAL_UNAVAILABLE':'REAL_READ_FAILED';throw error; }
@@ -343,7 +353,12 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const data=await response.json();
   const count=response.headers.get('content-range')?.split('/')[1];
   if(!Array.isArray(data)|| !/^\d+$/.test(count||'')){const error=new Error('unverifiable registry response');error.code='REAL_DATA_UNVERIFIABLE';throw error;}
+  finish?.({status:'success',returned:data.length,total:Number(count)});
   return {data,total:Number(count)};
+  } catch(error) {
+   try { finish?.({status:'failed',code:error.code||'REAL_READ_FAILED'}); } catch { /* the pre-read entry remains */ }
+   throw error;
+  }
  }
  async function search(req,filters={},page=1,aggregate=false,pageSize=20,allowFuzzy=true) {
   const size=Math.min(50,Math.max(1,Number(pageSize)||20));
@@ -946,6 +961,39 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(isIntroductionRequest(message)){
    return res.json({answer:INTRODUCTION_TEXT,grounded:true,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
+  const chartIntent=chartCommands.detect(message);
+  if(chartIntent){
+   const help=()=>res.json(chartCommands.guide(req.user,'real'));
+   if(chartIntent.kind==='help')return help();
+   const ownId=parseStationId(req.user.stationId);
+   if(chartIntent.own&&(!ownId||!req.user.stationName))return help();
+   const provinceResult=canonicalProvince(req,chartIntent.province||req.user.province);
+   if(provinceResult.error||provinceResult.choices||!provinceResult.value)return help();
+   const province=provinceResult.value;
+   if(!hasCrossStationRead(req.user)&&province!==req.user.province)return sendRealFailure(res,Object.assign(new Error('out of scope'),{code:'REAL_ACCESS_DENIED'}),start);
+   const areaLabel=chartIntent.own?`สภ.${String(req.user.stationName).replace(/^สภ\.?\s*/u,'')} • จังหวัด${province}`:`จังหวัด${province} (ข้อมูลตามสิทธิ์บัญชี)`;
+   try {
+    let chart;
+    if(chartIntent.kind==='people'){
+     const result=await aiTools.targetPersonSummary(req.realToken,{province,stationId:chartIntent.own?ownId:null});
+     chart=chartPresentation.peopleChart(result,{own:chartIntent.own,areaLabel});
+    }else{
+     const analysis=chartIntent.period?analyzePeriods(chartIntent.period):null;
+     // A time condition must be completely understood; never substitute the
+     // current year for an unrecognized or competing period.
+     if(chartIntent.period&&(analysis.windows.length!==1||analysis.unresolved.length||analysis.comparison||analysis.windows[0].matchedText!==chartIntent.period))return help();
+     const window=analysis?.windows[0]||currentYearWindow();
+     if(!readAudit)throw Object.assign(new Error('audit unavailable'),{code:'REAL_AUDIT_UNAVAILABLE'});
+     req.realReadContext={province,station:chartIntent.own?String(ownId):null};
+     const data=await readVisitStats(req,{stationIds:chartIntent.own?[ownId]:null,province:chartIntent.own?null:province,areaLabel,from:window.from,to:window.to,months:window.months||null});
+     chart=chartPresentation.visitsChart(data,window.label);
+    }
+    return res.json({...chartPresentation.response(chart),toolsUsed:[{name:chartIntent.kind==='people'?'ai-summary/target_person_summary':'supabase_visit_stats_read'}],meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }catch(error){
+    if(error.answer)return res.json({answer:error.answer,grounded:false,dataSource:'real',meta:{fastPath:true,ollamaCalls:0}});
+    return sendRealFailure(res,error,start);
+   }
+  }
   if(isUnderspecifiedQuestion(message)){
    return res.json({
     answer:'ผู้ช่วยธานีพิทักษ์ เอไอ พร้อมให้บริการสืบค้นข้อมูลทะเบียนและติดตามบุคคลเป้าหมายตามสิทธิ์ของท่าน สามารถเลือกดูข้อมูลที่สนใจได้ดังนี้:',
@@ -1027,6 +1075,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   // The authenticated profile is server-verified.  It supplies the initial
   // province filter only when the officer did not name one in this command.
   const selectedProvince=explicitProvince||bareResolution?.value||incomingTopic?.province||req.user.province||null;
+  req.realReadContext={province:selectedProvince,station:requestedStation||null};
   // Attach the applied correction to every successful answer of this request
   // so the interface can show what the system understood.
   const respond=(payload)=>{

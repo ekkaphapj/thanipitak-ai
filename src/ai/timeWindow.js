@@ -44,7 +44,7 @@ const THAI_NUMBER_WORDS = thaiNumberWords();
 const WORD_NUMBER_ALT = THAI_NUMBER_WORDS.map(([word]) => word).join('|');
 
 const UNITS_ALT = 'วัน|สัปดาห์|อาทิตย์|เดือน|ปี';
-const LAST_N_RE = new RegExp(`(\\d{1,4}|${WORD_NUMBER_ALT})\\s*(${UNITS_ALT})\\s*(?:ล่าสุด|ที่ผ่านมา|ที่แล้ว|ก่อนหน้า?|ก่อน)(?:นี้)?`, 'u');
+const LAST_N_RE = new RegExp(`(\\d{1,4}|${WORD_NUMBER_ALT})\\s*(${UNITS_ALT})\\s*(?:ย้อนหลัง|ล่าสุด|ที่ผ่านมา|ที่แล้ว|ก่อนหน้า?|ก่อน)(?:นี้)?`, 'u');
 
 const UNIT_DAYS = { วัน: 1, สัปดาห์: 7, อาทิตย์: 7, เดือน: 30, ปี: 365 };
 const UNIT_CAP = { วัน: 365, สัปดาห์: 52, อาทิตย์: 52, เดือน: 24, ปี: 10 };

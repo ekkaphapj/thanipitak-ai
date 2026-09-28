@@ -65,7 +65,7 @@ function correctTranscript(text) {
   out = out.replace(/รายชื่ออ(?=\s+(?:ผู้ป่วย|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ|บุคคล))/gu, 'รายชื่อ');
   out = repairStationCue(out);
   out = repairVisitPlanStationCue(out);
-  return out.replace(/\s+/g, ' ').trim();
+  return require('../../frontend/chartCommands').repair(out).replace(/\s+/g, ' ').trim();
 }
 
 function repairStationCue(text) {

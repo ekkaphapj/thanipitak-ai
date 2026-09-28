@@ -12,6 +12,10 @@ const { createAIAuditor } = require('../repositories/aiAuditRepo');
 const { sanitizePersonContext } = require('../ai/personFastPath');
 const { detectVisitPlanIntent } = require('../ai/visitPlanIntent');
 const { detectVisitStatsIntent } = require('../ai/visitStatsIntent');
+const chartCommands = require('../../frontend/chartCommands');
+const chartPresentation = require('../services/chartPresentation');
+const { createUserService } = require('../services/userService');
+const { createPersonService } = require('../services/personService');
 
 const MAX_MESSAGE_LENGTH = 2000;
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
@@ -63,7 +67,7 @@ function createAIRoutes(db, authRequired, options = {}) {
     if (!message || typeof message !== 'string' || message.trim() === '') return res.status(400).json({ error: 'กรุณาส่ง message', code: 'MISSING_MESSAGE' });
     if (message.length > MAX_MESSAGE_LENGTH) return res.status(400).json({ error: `message ยาวเกิน ${MAX_MESSAGE_LENGTH} ตัวอักษร`, code: 'MESSAGE_TOO_LONG' });
     for (const field of FORBIDDEN_BODY_FIELDS) if (req.body[field] !== undefined) return res.status(400).json({ error: `ไม่อนุญาตให้ส่ง field "${field}" จาก frontend`, code: 'FORBIDDEN_FIELD' });
-    return res.json({ willUseLocalAi: willUseLocalAi(message.trim(), sanitizePersonContext(req.body.context)) });
+    return res.json({ willUseLocalAi: chartCommands.detect(message) ? false : willUseLocalAi(message.trim(), sanitizePersonContext(req.body.context)) });
   });
 
   router.post('/chat', authRequired, async (req, res) => {
@@ -89,6 +93,23 @@ function createAIRoutes(db, authRequired, options = {}) {
     const user = req.user;
     const context = sanitizePersonContext(req.body.context);
     aiAudit.logChat(user);
+    const chartIntent = chartCommands.detect(message);
+    if (chartIntent) {
+      const users = createUserService(db);
+      const storedUser = users.findById(user.id);
+      if (!storedUser) return res.status(401).json({ error: 'กรุณาเข้าสู่ระบบใหม่' });
+      const profile = users.publicProfile(storedUser);
+      if (chartIntent.kind === 'help' || (chartIntent.own && !profile.stationId)) return res.json(chartCommands.guide(profile, 'test'));
+      if (chartIntent.kind === 'visits') return res.json({ answer: 'กราฟการตรวจเยี่ยมใช้บันทึกจริง กรุณาเลือกโหมดข้อมูลจริงและเข้าสู่ระบบด้วยบัญชีตำรวจ', grounded: false, dataSource: 'test', code: 'REAL_FEATURE_REQUIRED', meta: { fastPath: true, ollamaCalls: 0 } });
+      const persons = createPersonService(db);
+      const filters = chartIntent.own ? {} : { province: chartIntent.province };
+      const summary = persons.summarizePersons(user, filters);
+      const groups = persons.groupByLocation(user, { groupBy: 'station', ...filters });
+      const chart = chartIntent.own
+        ? chartPresentation.peopleChart({ rows: [{ station_name: profile.stationName, psychiatric_total: summary.byType.psychiatric || 0, drug_user_total: summary.byType.drug_user || 0, dealer_total: summary.byType.dealer || 0, released_total: summary.byType.released || 0, target_total: summary.total }] }, { own: true, areaLabel: profile.stationName, source: 'test' })
+        : { type: 'chart', chartType: 'bar', title: `บุคคลเป้าหมายราย สภ. • จังหวัด${chartIntent.province}`, areaLabel: `จังหวัด${chartIntent.province} (ข้อมูลตามสิทธิ์บัญชี)`, labels: groups.groups.map(g => g.name), values: groups.groups.map(g => g.count), total: summary.total, unit: 'คน', dataSource: 'test', asOf: new Date().toISOString() };
+      return res.json(chartPresentation.response(chart));
+    }
     if (detectVisitPlanIntent(message)) {
       return res.json({ answer: 'แผนการตรวจเยี่ยมใช้ข้อมูลทะเบียนและผลตรวจจริง กรุณาเลือกโหมดข้อมูลจริงและเข้าสู่ระบบด้วยบัญชีตำรวจ', grounded: false, dataSource: 'test', code: 'REAL_FEATURE_REQUIRED' });
     }

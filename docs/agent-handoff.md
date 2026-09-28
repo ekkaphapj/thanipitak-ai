@@ -1,4 +1,59 @@
-# Coding agent handoff — current as of 2026-09-19
+# Coding agent handoff — current as of 2026-09-28
+
+## Latest continuation — 2026-09-28 chart guide and commands
+
+Current development/deployment branch is **`phase-3.3-low-latency`**. The dated
+pilot sections below are historical; the 2026-09-26 introduction/overview work
+and this section describe the current additions.
+
+- `frontend/chartCommands.js` is shared by browser and server. Bare
+  สร้างกราฟ/สร้างแผนภูมิ and help/unknown chart wording return `chart_help` with
+  numbered buttons personalized from the authenticated profile. Own station,
+  own province, own-station monthly visits (3 เดือนย้อนหลัง), and another
+  province are the four examples for an account with complete affiliation.
+  Missing affiliations are not guessed. Other-province access still requires
+  server-verified scope and RLS; examples never grant access.
+- Only the complete supported chart grammars execute. Unconsumed filters and
+  unresolved/competing periods return the guide before any chart fact read.
+  Context-bound STT repairs cover กาฟ/ก๊าฟ/คราฟ/กร๊าฟ/กราป/กราฟฟ์/กราฟ์ and
+  สร้างกราบ; ordinary กราบ, ขอกราบ, names, and กราฟิก remain untouched.
+- The browser registers `chart_help` and ordinary `summary_choices` in its
+  most recent reference list. เลือก/ขอ/เอา + ข้อ(ที่)/ลำดับ(ที่) + Arabic digits,
+  Thai digits or number words re-send the chosen command automatically.
+  Existing person ordinal selection/details still work. ข้อ inside ข้อมูล
+  cannot swallow a later valid ordinal. Logout/source switch/reset clear the
+  existing in-memory reference state.
+- `chart` results use `src/services/chartPresentation.js` and
+  `frontend/charts.js`: horizontal bars for registry counts, lines/bars for
+  monthly visits, table toggle, units, source, area and read time; visit charts
+  also show date bounds and partial-month notice. No personal fields are sent
+  in chart results. Registry graphs use caller-bound audited `ai-summary`,
+  including the verified own-station id. Monthly graphs use recorded visits
+  through the existing allowlisted REST reader. No Ollama is needed.
+- `createApp` installs `real_read_audit_logs` in the application SQLite DB,
+  separately from fixture-user foreign keys. `realReadAuditRepo` records actor,
+  timestamp, request type, requested province/station and result metadata before
+  each direct REST read through `realDataRoutes.rows`, then marks success/error.
+  It never stores JWTs, prompts or personal rows. An initial audit failure
+  blocks the read; an incomplete completion leaves the pre-read entry. Monthly
+  chart routes require this auditor. Primary `ai-summary`/RPC audit stays owned
+  by the primary service; the registry remains read-only.
+- Visit aggregation now rejects incomplete station/type/visit pages and more
+  than 24 displayed months. Graph totals must agree with their plotted values;
+  missing/negative/noninteger or inconsistent registry counts are refused.
+  Test-mode registry charts remain fixture/scoped, while visit charts answer
+  `REAL_FEATURE_REQUIRED`, with no real-to-fixture fallback.
+- Validation: **npm test: 500 tests, 27 suites, 0 failures**. Added
+  `chartCommands.test.js`, `realCharts.test.js`, `testCharts.test.js` (19 tests).
+  Real-data paths used **mocked Supabase with a throwing interpreter**, including
+  scope tampering, partial pages, denied reads and audit failure; no real user
+  credentials or authenticated registry data were used. Browser checks used
+  fixtures and a separate local Supabase mock: personalized buttons, automatic
+  Thai-word/Thai-digit choices, bars, monthly line/table and 390px mobile layout.
+  STT tests cover transcript text; no microphone/model audio test was performed.
+  Actual Ollama was not used for this deterministic feature. Donut/stacked
+  charts, graph export and the proposed analytics panel remain unimplemented.
+
 
 ## Current continuation — September 2026 voice pilot (read first)
 

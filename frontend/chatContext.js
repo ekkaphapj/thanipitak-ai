@@ -191,10 +191,12 @@
       // “คนลำดับที่ 5” / “บุคคลลำดับที่ 15” — drop the person headword when a
       // ranking headword follows, otherwise it swallows “ลำดับที่” as the value.
       .replace(/(?:คน|บุคคล)(?=\s*(?:ลำดับ|อันดับ|รายการ))/gu, '');
-    const match = text.match(/(?:ของ\s*)?(?:ลำดับ|อันดับ|รายการ|คน|บุคคล)\s*(?:ที่)?\s*([0-9๐-๙]+|[ก-๙]+)/u);
-    if (!match) return null;
-    const ordinal = parseOrdinalValue(match[1]);
-    return Number.isSafeInteger(ordinal) && ordinal > 0 ? { ordinal, matchedText: match[0], index: match.index, text } : null;
+    // Skip ข้อ in ข้อมูล/ข้อกฎหมาย so it cannot swallow a later valid ordinal.
+    for (const match of text.matchAll(/(?=((?:ของ\s*)?(?:ลำดับ|อันดับ|รายการ|คน|บุคคล|ข้อ)\s*(?:ที่)?\s*([0-9๐-๙]+|[ก-๙]+)))/gu)) {
+      const ordinal = parseOrdinalValue(match[2]);
+      if (Number.isSafeInteger(ordinal) && ordinal > 0) return { ordinal, matchedText: match[1], index: match.index, text };
+    }
+    return null;
   }
 
   // Ordinal references are resolved only against the most recently rendered

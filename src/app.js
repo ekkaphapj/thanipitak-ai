@@ -38,7 +38,8 @@ function createApp(db, options = {}) {
   );
   app.use('/api/stt', authenticateBySource, stt.router);
 
-  const realData = require('./routes/realDataRoutes').createRealDataRoutes(realAuth.authenticate,options.realAuth);
+  const realReadAudit = require('./repositories/realReadAuditRepo').createRealReadAuditor(db);
+  const realData = require('./routes/realDataRoutes').createRealDataRoutes(realAuth.authenticate,{ ...options.realAuth, readAudit: realReadAudit });
   app.use('/api', (req,res,next) => req.get('X-Data-Source') === 'real' ? realData(req,res,next) : next());
 
   app.get('/api/data-sources', (req, res) => res.json({

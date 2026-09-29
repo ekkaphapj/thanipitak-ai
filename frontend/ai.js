@@ -201,141 +201,33 @@
     return /(?:วิธ[ีิ]ใช้|วิธีการใช้|สอน(?:การ)?ใช้งาน?(?:ให้)?หน่อย|สอนใช้หน่อย|ใช้ยังไง|ต้องถามอะไรได้บ้าง|ทำยังไง(?:ต่อ)?|ทำไง(?:ต่อ)?|สั่งยังไง|ขอวิธีใช้|ไม่เข้าใจ(?:วิธีใช้)?|ทำไม่เป็น|ช่วย(?:สอน|บอกวิธี|หน่อย))/u.test(text);
   }
 
-  const TUTORIAL_STEPS = [
-    {
-      group: 'ดูข้อมูลพื้นฐาน',
-      title: 'ดูภาพรวมก่อน',
-      prompt: 'ขอภาพรวม สภ.',
-      hint: 'ระบบจะสรุปจำนวนบุคคลเป้าหมาย ประเภท สีความเสี่ยง และอันดับพื้นที่',
-      matches: /(?:ขอ)?ภาพรวม/u,
-    },
-    {
-      group: 'ดูข้อมูลพื้นฐาน',
-      title: 'นับจำนวนตามประเภท',
-      prompt: 'ผู้เสพมีกี่คน',
-      hint: 'ใช้ได้กับ ผู้ป่วยจิตเวช ผู้เสพ ผู้ค้า ผู้พ้นโทษ เช่น “ผู้ป่วยจิตเวชมีทั้งหมดกี่คน”',
-      matches: /มีกี่คน|กี่คน|มีทั้งหมด|มีกี่ราย|จำนวน/u,
-    },
-    {
-      group: 'ดูข้อมูลพื้นฐาน',
-      title: 'ขอรายชื่อ',
-      prompt: 'ขอรายชื่อผู้เสพ',
-      hint: 'ลองขอรายชื่อประเภทใดก็ได้ แล้วระบบจะแสดงลำดับกำกับทุกรายการ',
-      matches: /(?:ขอ)?รายชื่อ.*(?:ผู้เสพ|ผู้ค้า|จิตเวช|ผู้พ้นโทษ|บุคคล|ทั้งหมด)/u,
-    },
-    {
-      group: 'เจาะลึกรายการ',
-      title: 'เลือกรายการตามลำดับ',
-      prompt: 'เลือกคนที่ 1',
-      hint: 'เลือกได้ด้วยคำว่า เลือกคนที่, เลือกรายการที่ หรือ เลือกลำดับที่',
-      needs: 'list',
-      matches: /เลือก(?:คน|รายการ|ลำดับ)?ที่?\s*(?:1|๑|หนึ่ง)/u,
-    },
-    {
-      group: 'เจาะลึกรายการ',
-      title: 'ขอข้อมูลของรายการที่เลือก',
-      prompt: 'ขอข้อมูลคนที่ 1',
-      hint: 'หลังเลือกแล้ว จะถามว่า “คนนี้มีประวัติอย่างไร” ก็ได้',
-      needs: 'selection',
-      matches: /(?:ขอ)?ข้อมูล(?:คน|รายการ)?ที่?\s*(?:1|๑|หนึ่ง)|คนนี้.*(?:ข้อมูล|ประวัติ)|ประวัติ.*คนนี้/u,
-    },
-    {
-      group: 'เจาะลึกรายการ',
-      title: 'ถามข้อมูลเจาะลึกของคนที่เลือก',
-      prompt: 'คนนี้เยี่ยมล่าสุดเมื่อไหร่',
-      hint: 'ถามได้ เช่น “คนนี้เสี่ยงสูงเพราะอะไร” “คนนี้อายุเท่าไหร่” “คนนี้ผลตรวจยาล่าสุด” หรือ “เดือนที่แล้วเยี่ยมกี่ครั้ง”',
-      needs: 'selection',
-      matches: /คนนี้|บุคคลนี้|รายนี้/u,
-    },
-    {
-      group: 'เจาะลึกรายการ',
-      title: 'เปลี่ยนหน้ารายการ',
-      prompt: 'หน้าถัดไป',
-      hint: 'เลื่อนดูหน้าถัดไปด้วย “หน้าถัดไป” ย้อนด้วย “หน้าก่อนหน้า” — หน้าถัดไปเลขลำดับจะเปลี่ยน เช่น เลือกคนที่ 21',
-      matches: /หน้า(?:ถัดไป|ก่อนหน้า|ต่อไป)/u,
-    },
-    {
-      group: 'เจาะลึกรายการ',
-      title: 'ค้นหาด้วยชื่อ',
-      prompt: 'ค้นหาชื่อทดสอบ5',
-      hint: 'ในงานจริงใช้ชื่อจริงในทะเบียน พิมพ์ไม่ตรงเป๊ะก็ได้ ระบบจะเดาชื่อใกล้เคียงและถามยืนยันถ้าพบหลายคน',
-      matches: /ค้นหา|หาคน|ค้นชื่อ/u,
-    },
-    {
-      group: 'เฝ้าระวังและช่วงเวลา',
-      title: 'ดูรายการเสี่ยงสูง',
-      prompt: 'ใครเสี่ยงสูง',
-      hint: 'ระบบดึงจากบันทึกการเยี่ยมและรายงานผู้ดูแลที่บันทึกไว้จริง',
-      matches: /เสี่ยงสูง/u,
-    },
-    {
-      group: 'เฝ้าระวังและช่วงเวลา',
-      title: 'สลับเฉพาะกลุ่มเฝ้าระวัง',
-      prompt: 'เอาเฉพาะเฝ้าระวัง',
-      hint: 'คำสั่งสั้น ๆ เปลี่ยนระดับของรายการเดิมได้ทันที เช่น “แล้วกลุ่มเฝ้าระวังล่ะ”',
-      matches: /เฝ้าระวัง/u,
-    },
-    {
-      group: 'เฝ้าระวังและช่วงเวลา',
-      title: 'ถามตามช่วงเวลา',
-      prompt: 'ใครเสี่ยงสูงเดือนนี้',
-      hint: 'ใช้ได้ เช่น เดือนที่แล้ว, สัปดาห์นี้, 7 วันล่าสุด, เดือนสิงหาคม 2569 — คำตอบจะระบุช่วงเวลาให้เสมอ',
-      matches: /เดือนนี้|เดือนที่แล้ว|วันนี้|เมื่อวาน|ล่าสุด|สัปดาห์|ปีนี้|ปีที่แล้ว|ล่ะ/u,
-    },
-    {
-      group: 'เฝ้าระวังและช่วงเวลา',
-      title: 'ยกเว้นพื้นที่ที่ไม่สนใจ',
-      prompt: 'ผู้เสพยกเว้นตำบลจำลองมีกี่คน',
-      hint: 'ใช้ ยกเว้น / ไม่รวม ได้หลายพื้นที่ต่อกัน เช่น “ยกเว้นตำบลโพนสูงและตำบลวังใหญ่” — ทำงานเต็มรูปแบบบนข้อมูลจริง (โหมดทดสอบจะแจ้งว่ายังไม่รองรับ)',
-      matches: /ยกเว้น|ไม่รวม|ไม่นับ/u,
-    },
-    {
-      group: 'พื้นที่และจัดอันดับ',
-      title: 'กรองตามพื้นที่',
-      prompt: 'ขอรายชื่อผู้เสพในตำบลจำลอง',
-      hint: 'ระบุได้ทั้ง ตำบล อำเภอ จังหวัด และ สภ. ถ้าชื่อพลิดเพี้ยน ระบบจะเดาให้และถามยืนยัน',
-      matches: /ใน(?:ตำบล|อำเภอ|เขต|จังหวัด)/u,
-    },
-    {
-      group: 'พื้นที่และจัดอันดับ',
-      title: 'จัดอันดับพื้นที่',
-      prompt: '5 อันดับตำบลที่มีผู้ป่วยจิตเวชมากที่สุด',
-      hint: 'ใช้ได้ทั้งตำบล อำเภอ และ สภ. เช่น “จัดอันดับ สภ. ที่มีผู้เสพน้อยที่สุด”',
-      matches: /อันดับ|มากที่สุด|น้อยที่สุด|มากสุด|น้อยสุด|เยอะสุด/u,
-    },
-    {
-      group: 'พื้นที่และจัดอันดับ',
-      title: 'เลือกจังหวัดเป็นตัวกรอง',
-      prompt: 'เปลี่ยนจังหวัดอุดรธานี',
-      hint: 'คำสั่งนี้เป็นตัวกรองภายในสิทธิ์ของบัญชี ไม่ใช่การขยายสิทธิ์ — ใช้ชื่อจังหวัดในขอบเขตที่ท่านเข้าถึงได้',
-      matches: /(?:เปลี่ยน|เลือก|ตั้ง)(?:เป็น)?\s*จังหวัด/u,
-    },
-    {
-      group: 'รายงานและช่วยเหลือ',
-      title: 'สร้างรายงานจากรายการล่าสุด',
-      prompt: 'ทำเป็น Excel',
-      hint: 'ทำเป็น PDF หรือ Excel ได้ ระบบจะยืนยันก่อนสร้าง และรายงานไม่รวมเลขบัตรและเบอร์โทร',
-      matches: /pdf|excel|เอ็กเซล|รายงาน/u,
-    },
-    {
-      group: 'รายงานและช่วยเหลือ',
-      title: 'วิเคราะห์ข้อมูลภาพรวม',
-      prompt: 'วิเคราะห์ภาระงาน',
-      hint: 'ยังลอง “เปรียบเทียบพื้นที่” หรือ “ตรวจคุณภาพข้อมูล” ได้ด้วย',
-      matches: /(?:วิเคราะห์ภาระงาน|เปรียบเทียบพื้นที่|ตรวจคุณภาพข้อมูล|วิเคราะห์ผลการดำเนินงาน)/u,
-    },
-    {
-      group: 'รายงานและช่วยเหลือ',
-      title: 'ถามข้อมูลการใช้งานได้ตลอด',
-      prompt: 'ธานีพิทักษ์คืออะไร',
-      hint: 'ถามได้ เช่น “ถามอะไรได้บ้าง” “ใครพัฒนาระบบ” “ขอบเขตสภ. คืออะไร” — คำตอบมาจากคู่มือภายใน ไม่ใช่ทะเบียนจริง',
-      matches: /คืออะไร|ถามอะไรได้|ทำอะไรได้|ใครพัฒนา|หมายถึง/u,
-    },
-  ];
+  const TUTORIAL_STEPS = window.TutorialContent.steps;
+
+  function tutorialPromptFor(step) {
+    const user = state.user || {};
+    const station = String(user.stationName || '').replace(/^สภ\.?\s*/u, '').trim();
+    const availableProvinces = Array.isArray(user.aiScope?.provinces) ? user.aiScope.provinces : [];
+    const otherProvince = availableProvinces.find((province) => province && province !== user.province);
+    const replacements = {
+      station: station || '[ชื่อ สภ. ที่บัญชีเข้าถึง]',
+      province: String(user.province || '').trim() || '[จังหวัดที่บัญชีเข้าถึง]',
+      otherProvince: String(otherProvince || '').trim() || '[จังหวัดอื่นที่บัญชีเข้าถึง]',
+      district: '[ชื่ออำเภอในพื้นที่ที่บัญชีเข้าถึง]',
+      subdistrict: '[ชื่อตำบลในพื้นที่ที่บัญชีเข้าถึง]',
+      name: '[ชื่อบุคคลที่บัญชีมีสิทธิ์ค้นหา]',
+    };
+    return step.prompt.replace(/\{([a-z]+)\}/giu, (_match, key) => replacements[key.toLowerCase()] || `[${key}]`);
+  }
+
+  function tutorialPromptNeedsEditing(prompt) {
+    return /\[[^\]]+\]/u.test(prompt);
+  }
 
   function tutorialSpeechFor(step) {
     if (!step) return 'ทำแบบฝึกหัดครบแล้วค่ะ ตอนนี้ลองถามด้วยภาษาพูดตามงานจริงได้เลย พิมพ์ เริ่มใหม่ เพื่อล้างบริบทเมื่อไหร่ก็ได้';
-    return `แบบฝึกหัดข้อ ${state.tutorial.step + 1} ${step.group} ${step.title} ค่ะ ลองพูดหรือพิมพ์ว่า ${step.prompt}`;
+    const prompt = tutorialPromptFor(step);
+    const editHint = tutorialPromptNeedsEditing(prompt) ? ' โดยแทนข้อความในวงเล็บด้วยพื้นที่หรือชื่อที่บัญชีของท่านมีสิทธิ์ดู' : '';
+    return `แบบฝึกหัดข้อ ${state.tutorial.step + 1} ${step.group} ${step.title} ค่ะ ลองพูดหรือพิมพ์ว่า ${prompt}${editHint}`;
   }
 
   function speakTutorial(text) {
@@ -355,6 +247,8 @@
 
   function renderTutorialStep({ completed = false } = {}) {
     const step = TUTORIAL_STEPS[state.tutorial.step];
+    const promptText = step ? tutorialPromptFor(step) : '';
+    const promptNeedsEditing = step ? tutorialPromptNeedsEditing(promptText) : false;
     const dock = state.voiceMode ? $('#voice-tutorial-dock') : null;
     const wrap = dock || appendMessage('assistant', '');
     if (dock) {
@@ -371,7 +265,9 @@
     const head = document.createElement('div');
     head.className = 'tutorial-head';
     const finished = !step;
-    head.innerHTML = `<div class="tutorial-head-row"><span class="tutorial-kicker">${finished ? 'เรียนจบแล้ว' : `${step.group} • แบบฝึกหัด ${state.tutorial.step + 1} / ${TUTORIAL_STEPS.length}`}</span><button type="button" class="tutorial-exit-btn">ออกจากแบบฝึกหัด</button></div><h2>${finished ? 'พร้อมใช้งานครบทุกฟังก์ชันแล้ว' : step.title}</h2><p>${finished ? 'ครอบคลุมแล้วทั้ง ภาพรวม นับจำนวน รายชื่อและการเลื่อนหน้า เลือกรายการ ข้อมูลเจาะลึก ค้นหาชื่อ เฝ้าระวัง/เสี่ยงสูง ช่วงเวลา ยกเว้นพื้นที่ กรองพื้นที่ จัดอันดับ เลือกจังหวัด รายงาน PDF/Excel วิเคราะห์ และถามความรู้การใช้งาน — พิมพ์ “เริ่มใหม่” เพื่อล้างบริบทเมื่อไหร่ก็ได้' : step.hint}</p>`;
+    const finishedHint = 'ครอบคลุมภาพรวม จำนวน รายชื่อ การค้นหา เงื่อนไขซับซ้อน การเฝ้าระวังและเวลา การวิเคราะห์ แผนตรวจเยี่ยม รายงาน และแผนภูมิแล้ว — พิมพ์ “เริ่มใหม่” เพื่อล้างบริบทเมื่อไหร่ก็ได้';
+    const stepHint = step ? `${step.hint}${step.realOnly && state.dataSource !== 'real' ? ' ฟังก์ชันนี้ต้องใช้โหมดข้อมูลจริง' : ''}${promptNeedsEditing ? ' กดเติมคำสั่งก่อนส่ง แล้วแทนข้อความในวงเล็บให้ครบ' : ''}` : '';
+    head.innerHTML = `<div class="tutorial-head-row"><span class="tutorial-kicker">${finished ? 'เรียนจบแล้ว' : `${step.group} • แบบฝึกหัด ${state.tutorial.step + 1} / ${TUTORIAL_STEPS.length}`}</span><button type="button" class="tutorial-exit-btn">ออกจากแบบฝึกหัด</button></div><h2>${finished ? 'พร้อมใช้งานครบทุกฟังก์ชันแล้ว' : step.title}</h2><p>${finished ? finishedHint : stepHint}</p>`;
     head.querySelector('.tutorial-exit-btn').addEventListener('click', exitTutorial);
     const body = document.createElement('div');
     body.className = 'tutorial-body';
@@ -379,11 +275,21 @@
       const status = document.createElement('span');
       status.className = completed ? 'tutorial-complete' : 'tutorial-status';
       status.textContent = completed ? '✓ ทำข้อนี้แล้ว — ไปข้อถัดไป' : 'ลองทำตามคำสั่งนี้';
-      const prompt = document.createElement('code'); prompt.textContent = step.prompt;
+      const prompt = document.createElement('code'); prompt.textContent = promptText;
       const tryButton = document.createElement('button');
-      tryButton.type = 'button'; tryButton.className = 'suggest-btn'; tryButton.textContent = 'ใช้คำสั่งนี้';
-      tryButton.addEventListener('click', () => sendMessage(step.prompt));
-      body.append(status, prompt, tryButton);
+      tryButton.type = 'button'; tryButton.className = 'suggest-btn'; tryButton.textContent = promptNeedsEditing ? 'เติมคำสั่งก่อนส่ง' : 'ใช้คำสั่งนี้';
+      tryButton.addEventListener('click', () => {
+        if (!promptNeedsEditing) return sendMessage(promptText);
+        const input = $('#chat-input');
+        input.value = promptText;
+        autoResizeInput();
+        input.focus();
+        if (state.voiceMode) setMicStatus('แทนข้อความในวงเล็บ แล้วพูดหรือส่งคำสั่ง', false);
+      });
+      const skipButton = document.createElement('button');
+      skipButton.type = 'button'; skipButton.className = 'suggest-btn'; skipButton.textContent = 'ข้ามข้อนี้';
+      skipButton.addEventListener('click', skipTutorialStep);
+      body.append(status, prompt, tryButton, skipButton);
     } else {
       const restart = document.createElement('button');
       restart.type = 'button'; restart.className = 'suggest-btn'; restart.textContent = 'เริ่มแบบฝึกหัดใหม่';
@@ -401,6 +307,14 @@
 
   function startTutorial() {
     state.tutorial = { active: true, step: 0, lastAdvanced: false };
+    const step = renderTutorialStep();
+    if (state.voiceMode) speakTutorial(tutorialSpeechFor(step));
+  }
+
+  function skipTutorialStep() {
+    if (!state.tutorial.active) return;
+    state.tutorial.step += 1;
+    state.tutorial.lastAdvanced = true;
     const step = renderTutorialStep();
     if (state.voiceMode) speakTutorial(tutorialSpeechFor(step));
   }
@@ -440,10 +354,14 @@
     if (!state.tutorial.active) return false;
     const step = TUTORIAL_STEPS[state.tutorial.step];
     if (!step || !step.matches.test(String(message || ''))) return false;
+    if (/\[[^\]]+\]/u.test(String(message || ''))) return false;
+    if (step.requiresMatch && !step.requiresMatch.test(String(message || ''))) return false;
     // Steps that build on earlier results verify the prerequisite actually
     // exists: a list to flip/select from, or a person already selected.
     if (step.needs === 'list' && !(state.referenceList && state.referenceList.items.length)) return false;
     if (step.needs === 'selection' && !state.selectedPerson) return false;
+    if (step.needs === 'visit_plan' && state.conversationTopic?.report_kind !== 'visit_plan') return false;
+    if (step.needs === 'chart' && state.conversationTopic?.report_kind !== 'chart') return false;
     state.tutorial.step += 1;
     state.tutorial.lastAdvanced = true;
     renderTutorialStep(state.voiceMode ? {} : { completed: true });
@@ -461,21 +379,7 @@
     head.innerHTML = '<span class="usage-guide-kicker">คู่มือด่วน</span><h2>ใช้งานผู้ช่วยเอไอธานีพิทักษ์อย่างไร</h2><p>ถามด้วยภาษาพูดได้เลย ระบบจะแสดงเฉพาะข้อมูลในสิทธิ์ของผู้ใช้</p>';
     const grid = document.createElement('div');
     grid.className = 'usage-guide-grid';
-    const sections = [
-      ['ดูภาพรวมและนับจำนวน', ['“ขอภาพรวม สภ.”', '“ผู้เสพมีกี่คน” / “ผู้ป่วยจิตเวชมีทั้งหมดกี่คน”']],
-      ['รายชื่อและการเลื่อนหน้า', ['“ขอรายชื่อผู้เสพ”', '“หน้าถัดไป” / “หน้าก่อนหน้า” — เงื่อนไขเดิมยังอยู่']],
-      ['เลือกคนและถามเจาะลึก', ['“เลือกคนที่ 2” หรือ “ขอข้อมูลคนที่สอง”', '“คนนี้เยี่ยมล่าสุดเมื่อไหร่” / “คนนี้เสี่ยงสูงเพราะอะไร”']],
-      ['ค้นหาด้วยชื่อ', ['“ค้นหาชื่อ…” พิมพ์ไม่ตรงเป๊ะก็ได้', 'พบหลายคน ระบบจะถามให้เลือก']],
-      ['เฝ้าระวังและเสี่ยงสูง', ['“ใครเสี่ยงสูง” / “ใครเฝ้าระวัง”', '“เอาเฉพาะเฝ้าระวัง” — สลับระดับรายการเดิม']],
-      ['ช่วงเวลา', ['“ใครเสี่ยงสูงเดือนนี้” / “เดือนสิงหาคม 2569”', '“7 วันล่าสุด” และเมื่อเลือกคนไว้ “เดือนที่แล้วเยี่ยมกี่ครั้ง”']],
-      ['พื้นที่และการยกเว้น', ['“ขอรายชื่อผู้เสพในตำบล…” / “เปลี่ยนจังหวัด…”', '“ผู้เสพยกเว้นตำบล…และตำบล…มีกี่คน”']],
-      ['จัดอันดับและวิเคราะห์', ['“5 อันดับตำบลที่มีผู้ป่วยจิตเวชมากที่สุด”', '“วิเคราะห์ภาระงาน” / “ตรวจคุณภาพข้อมูล”']],
-      ['รายงาน', ['“ทำเป็น PDF” หรือ “ทำเป็น Excel”', '“ส่งรายการนี้เป็น Excel” ใช้เงื่อนไขรายการล่าสุดให้']],
-      ['กราฟและแผนภูมิ', ['“สร้างกราฟ” หรือ “ขอแผนภูมิใช้ยังไง” เปิดตัวอย่างตามสังกัด', 'คลิกตัวอย่าง หรือพูด “เลือกข้อที่ 1” เพื่อสร้างกราฟทันที']],
-      ['ติดตามรายการเดิม', ['“กำลังอ้างอิงรายการไหน”', '“ยกเลิกการเลือก” / “เริ่มใหม่” ล้างบริบท']],
-      ['สั่งด้วยเสียง', ['กด “ผู้ช่วยเอไอธานีพิทักษ์”', 'กดค้างปุ่มไมค์ พูดจบแล้วปล่อยปุ่ม']],
-      ['ข้อควรทราบ', ['ไม่ต้องพิมพ์ข้อมูลอ่อนไหวเกินจำเป็น', 'หากยังไม่แน่ใจ ระบบจะถามให้ระบุเพิ่ม']],
-    ];
+    const sections = window.TutorialContent.guideSections;
     for (const [title, items] of sections) {
       const section = document.createElement('div');
       section.className = 'usage-guide-section';
@@ -487,7 +391,7 @@
     const examples = document.createElement('div');
     examples.className = 'usage-guide-examples';
     const title = document.createElement('strong'); title.textContent = 'ลองถามได้ทันที'; examples.appendChild(title);
-    for (const prompt of ['ขอภาพรวม สภ.', 'ขอรายชื่อผู้เสพ', 'ผู้ป่วยจิตเวชที่เสี่ยงสูงมีใครบ้าง', 'ใครเสี่ยงสูงเดือนนี้', 'สร้างกราฟ']) {
+    for (const prompt of window.TutorialContent.quickExamples) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'suggest-btn'; button.textContent = prompt;
       button.addEventListener('click', () => sendMessage(prompt)); examples.appendChild(button);
     }
@@ -2186,6 +2090,14 @@
       const step = renderTutorialStep();
       if (voiceTurn) speakTutorial(tutorialSpeechFor(step));
       setFullscreenBusy(null);
+      return;
+    }
+    if (!chartCommand && state.tutorial.active && /^(?:ข้าม(?:ข้อนี้)?|skip)$/iu.test(compactMessage)) {
+      appendMessage('user', message);
+      $('#chat-input').value = '';
+      autoResizeInput();
+      skipTutorialStep();
+      if (voiceTurn) setFullscreenBusy(null);
       return;
     }
     if (isUsageGuideQuestion(message)) {

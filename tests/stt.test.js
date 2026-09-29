@@ -219,16 +219,23 @@ test('stt html includes hold-to-talk mic button', () => {
   assert.match(js, /ทำยังไง(?:ต่อ)?/);
   assert.match(js, /TUTORIAL_STEPS/);
   assert.match(js, /speechSynthesis/);
-  // The tutorial must cover every documented capability, not just the basics.
-  for (const prompt of ['ผู้เสพมีกี่คน','หน้าถัดไป','หน้าก่อนหน้า','คนนี้เยี่ยมล่าสุดเมื่อไหร่','ค้นหาชื่อทดสอบ5','ใครเสี่ยงสูง','เอาเฉพาะเฝ้าระวัง','ใครเสี่ยงสูงเดือนนี้','ยกเว้นตำบล','ในตำบลจำลอง','5 อันดับตำบล','เปลี่ยนจังหวัดอุดรธานี','ทำเป็น Excel','ธานีพิทักษ์คืออะไร']) {
-    assert.ok(js.includes(prompt), 'tutorial ต้องมีคำสั่ง: '+prompt);
+  assert.match(js, /window\.TutorialContent\.steps/);
+  assert.match(js, /function skipTutorialStep/);
+  assert.match(js, /ข้ามข้อนี้/);
+  const tutorial = require('../frontend/tutorialContent');
+  const tutorialText = JSON.stringify(tutorial);
+  // The tutorial must cover all documented command families, not just basics.
+  for (const prompt of ['ผู้เสพมีกี่คน','หน้าถัดไป','หน้าก่อนหน้า','คนนี้เยี่ยมล่าสุดเมื่อไหร่','ค้นหาชื่อ{name}','ใครเสี่ยงสูง','เอาเฉพาะเฝ้าระวัง','ใครเสี่ยงสูงเดือนนี้','ยกเว้นตำบล','ตำบล{subdistrict}','5 อันดับตำบล','อำเภอ{district}','เปลี่ยนจังหวัด{otherProvince}','ทำเป็น Excel','วิเคราะห์ภาระงาน','ตรวจคุณภาพข้อมูล','เปรียบเทียบพื้นที่','แผนการตรวจเยี่ยม','เลือกคนที่ 1','สร้างกราฟบุคคลเป้าหมาย','กราฟบุคคลเป้าหมายราย สภ.','จังหวัดอื่น','สร้างกราฟการตรวจเยี่ยมรายเดือน','สร้าง PDF ต่อ','ธานีพิทักษ์คืออะไร']) {
+    assert.ok(tutorialText.includes(prompt), 'tutorial ต้องมีคำสั่ง: '+prompt);
   }
-  assert.match(js, /needs:\s*'list'/);
-  assert.match(js, /needs:\s*'selection'/);
+  assert.match(tutorialText, /"needs":"list"/);
+  assert.match(tutorialText, /"needs":"selection"/);
   assert.doesNotMatch(js, /state\.tutorial\.step === \d/);
-  assert.match(js, /ขอภาพรวม สภ\./);
-  assert.match(js, /เลือกคนที่ 1/);
-  assert.match(js, /วิเคราะห์ภาระงาน/);
+  assert.ok(tutorialText.includes('ขอภาพรวม สภ.'));
+  assert.ok(tutorialText.includes('เลือกคนที่ 1'));
+  assert.match(tutorialText, /"needs":"visit_plan"/);
+  assert.match(tutorialText, /"needs":"chart"/);
+  assert.doesNotMatch(tutorialText, /ทดสอบ5|ตำบลจำลอง/);
   const css = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'ai-refresh.css'), 'utf8');
   assert.match(css, /voice-busy-overlay/);
   assert.match(css, /voice-audio-check/);

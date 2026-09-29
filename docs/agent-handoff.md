@@ -1381,3 +1381,23 @@ restart `thanipitak-ai`; browser users need Ctrl+F5 for the new `ai.js`.
 - Full `npm test`: **514 tests / 27 suites / 0 failures**. The separate live
   Ollama holdout above remains the interpreter-only result; this change does
   not claim a new model accuracy score.
+
+### Continuation update — 2026-09-29 (complete usage tutorial)
+
+- Moved the lesson and quick-guide content into `frontend/tutorialContent.js`
+  so the browser and tests use the same curriculum. The 38-step path covers
+  basic counts/lists, pagination and person details, name and area filters,
+  exclusions, ranking, monitoring/time windows, five aggregate-analysis
+  commands, visit plans and their PDF/details, people and visit charts, chart
+  PDF export, and product help.
+- Profile station/province values fill examples when available. Examples that
+  need a name or area leave an editable placeholder in the composer instead of
+  sending placeholder text to the registry. The learner can skip a lesson by
+  button or by saying “ข้ามข้อนี้”. Plan pagination/details and chart export
+  require the matching prior result in conversation context.
+- The quick-use guide now has separate analysis, visit-plan, and chart sections
+  and describes analysis as descriptive rather than predictive. A grammar test
+  checks every example against its progression matcher and checks key examples
+  against the actual deterministic analysis, visit-plan, and chart detectors.
+- Full `npm test`: **518 tests / 27 suites / 0 failures**; focused tutorial/STT
+  tests pass **12/12**. No authenticated real registry data was used.

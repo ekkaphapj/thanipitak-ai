@@ -1333,3 +1333,51 @@ outside app control.
 
 Deployment reminder: after pushing, `git pull --ff-only` on the pilot and
 restart `thanipitak-ai`; browser users need Ctrl+F5 for the new `ai.js`.
+
+### Continuation update — 2026-09-29 (real interpreter holdout)
+
+- Added a frozen 150-question synthetic Thai holdout at
+  `tests/fixtures/real-intent-holdout150.json` (SHA-256
+  `be9d72f4699970259106682d9ce5048cc8d5ae63f2fdfe58269647a2fc0a50b4`).
+  It covers count (32), list (28), grouping (60), name/area search (20), and
+  clarify/unsupported requests (10). Questions contain no registry rows or
+  credentials.
+- `npm run benchmark:real-intent -- --model qwen3:8b --runs 1` calls the same
+  `interpretRealIntent` schema as real chat against loopback Ollama only. It
+  never starts an app session or calls Supabase. Two separate one-run
+  invocations on this Windows checkout produced the same exact-plan accuracy,
+  94.0% (141/150): count 32/32, list 27/28, group 60/60, search 16/20,
+  clarify 6/10. Field accuracy was action 98.67%, person type 98.0%, group
+  99.33%, direction 100%, and all place slots 97.33%. The first run had median
+  latency 1,170 ms, p95 1,422 ms, max 47,763 ms; the second had median 1,158
+  ms, p95 1,430 ms, max 1,798 ms. Investigate the first-run latency outlier
+  with more repetitions. This is an interpreter result, not an end-to-end
+  chat, authorization, RLS, or real data parity result; `qwen3:8b` here is not
+  the Ubuntu pilot's Q6 tag.
+- The nine plan mismatches cluster in search-area loss (province/station was
+  omitted in three cases), a place search interpreted as grouping, one list/count
+  distinction, and unsupported/ambiguous requests that retained filters or
+  guessed a type. Use these cases to prioritize preservation of every spoken
+  condition and fail-closed handling of unsupported time requests before
+  changing prompts or selecting a different model.
+- Added pure regression tests for the frozen corpus and scoring semantics;
+  full `npm test` passed **512 tests / 27 suites / 0 failures**. No
+  authenticated real data, real Supabase, or registry credentials were used.
+
+### Continuation update — 2026-09-29 (spoken area preservation before fallback reads)
+
+- Before a real-data model fallback is executed, the route compares the
+  deterministic province, district, subdistrict, and station extracted from
+  the question with the model's proposed slots. If a spoken area is missing or
+  conflicts, the route asks the officer to confirm and does not read the people
+  registry. Group-by fields remain output dimensions, not area filters.
+- `extractLookupFilters()` now treats `แบบ` as the end of a place value, so a
+  district such as `เมือง` does not absorb following ranking wording like
+  `แบบที่เยอะก่อน`.
+- A route regression confirms `ผู้เสพเดือนที่แล้วมีใครบ้าง` asks which recorded
+  data is intended before calling the model or reading the registry. Tests use
+  mocked Supabase and an injected interpreter; they do not use a live model,
+  authenticated real data, or registry credentials.
+- Full `npm test`: **514 tests / 27 suites / 0 failures**. The separate live
+  Ollama holdout above remains the interpreter-only result; this change does
+  not claim a new model accuracy score.

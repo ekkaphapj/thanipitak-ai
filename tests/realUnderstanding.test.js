@@ -125,8 +125,10 @@ test('a missed sentence borrows only topic slots it did not name', async () => {
   });
   assert.equal(namedPlace.status, 200);
   const namedPeople = seen.filter((u) => u.pathname.endsWith('/people'));
-  assert.equal(namedPeople[0].searchParams.get('amphoe'), null);
-  assert.equal(namedPeople[0].searchParams.get('type_id'), 'in.(8)');
+  assert.equal(namedPeople.length, 0);
+  assert.equal(namedPlace.body.grounded, false);
+  assert.match(namedPlace.body.answer, /อำเภอ “เมือง”/);
+  assert.match(namedPlace.body.answer, /ยังไม่ค้นทะเบียน/);
 });
 
 test('a model place wins over the previous topic and a fast-path count does not borrow it', async () => {
@@ -165,4 +167,40 @@ test('a model place wins over the previous topic and a fast-path count does not 
   assert.equal(fastPeople.length, 1);
   assert.equal(fastPeople[0].searchParams.get('type_id'), 'in.(2)');
   assert.equal(fastPeople[0].searchParams.get('amphoe'), 'ilike.*ท่าอุเทน*');
+});
+
+test('a model that drops a spoken district asks back without reading the registry', async () => {
+  let modelCalls = 0;
+  let reads = 0;
+  const app = appFor(
+    { role: 'officer', stationId: 77, province: 'นครพนม', aiScope: { provinces: ['นครพนม'] } },
+    async () => { reads += 1; throw new Error('a dropped spoken filter must not read'); },
+    async () => {
+      modelCalls += 1;
+      return { action: 'list', person_type: 'drug_user', province: 'นครพนม' };
+    },
+  );
+  const res = await request(app).post('/ai/chat').send({ message: 'วิเคราะห์รายชื่อผู้เสพในอำเภอเมือง จังหวัดนครพนม' });
+  assert.equal(res.status, 200);
+  assert.equal(modelCalls, 1);
+  assert.equal(reads, 0);
+  assert.equal(res.body.grounded, false);
+  assert.match(res.body.answer, /อำเภอ “เมือง”/);
+  assert.match(res.body.answer, /ยังไม่ค้นทะเบียน/);
+});
+
+test('a previous-month people list asks which recorded data is wanted and performs no read', async () => {
+  let modelCalls = 0;
+  let reads = 0;
+  const app = appFor(
+    { role: 'officer', stationId: 77, province: 'นครพนม' },
+    async () => { reads += 1; throw new Error('an unsupported time filter must not read'); },
+    async () => { modelCalls += 1; throw new Error('time-window clarification must happen before the model'); },
+  );
+  const res = await request(app).post('/ai/chat').send({ message: 'ผู้เสพเดือนที่แล้วมีใครบ้าง' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.grounded, false);
+  assert.match(res.body.answer, /ช่วงเวลา/);
+  assert.equal(modelCalls, 0);
+  assert.equal(reads, 0);
 });

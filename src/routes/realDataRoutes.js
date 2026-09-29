@@ -334,6 +334,19 @@ function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
  return true;
 }
 
+function missedSpokenArea(message,plan){
+ const spoken=extractLookupFilters(message).filters||{};
+ const groupField=plan?.action==='group'?{ตำบล:'subdistrict',อำเภอ:'district',จังหวัด:'province'}[plan.group]:null;
+ for(const [field,label] of [['province','จังหวัด'],['district','อำเภอ'],['subdistrict','ตำบล'],['station','สภ.']]){
+  if(field===groupField)continue;
+  const expected=spoken[field];
+  if(!expected)continue;
+  const proposed=typeof plan?.[field]==='string'?plan[field].trim():'';
+  if(!proposed||placeKey(proposed)!==placeKey(expected))return {field,label,value:expected};
+ }
+ return null;
+}
+
 function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent,readAudit=null}={}) {
  const router=express.Router();router.use(authenticate);
  const { createRealAiTools } = require('../services/realAiTools');
@@ -1636,6 +1649,13 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     ollamaCalls=1;plan=await interpret(routingMessage);
     if(plan.action==='clarify')return respond({answer:'ต้องการจำนวน รายชื่อ หรือแยกยอดตามพื้นที่ใดครับ? กรุณาระบุประเภทบุคคลและพื้นที่ที่ต้องการ',grounded:false,dataSource:'real',meta:{fastPath:false,ollamaCalls,responseTimeMs:Date.now()-start}});
     if(plan.action==='group'){ranking=[routingMessage,plan.group,alphaOrder?'alpha':explicitCountOrder||'alpha'];showAll=true;}
+   }
+   // The model may propose a useful query while silently dropping a place the
+   // officer spoke. Do not turn that into a broader registry read: ask them to
+   // confirm the missing or conflicting place first.
+   if(plan){
+    const missed=missedSpokenArea(routingMessage,plan);
+    if(missed)return respond({answer:`คำถามระบุ${missed.label} “${missed.value}” แต่ระบบยังยืนยันเงื่อนไขนี้จากคำสั่งไม่ได้ จึงยังไม่ค้นทะเบียน กรุณายืนยัน${missed.label} “${missed.value}” หรือระบุใหม่`,grounded:false,dataSource:'real',conversation,meta:{fastPath:false,ollamaCalls,responseTimeMs:Date.now()-start}});
    }
    const filters={...(summary?.filters||intent?.filters||{})};
    if(plan){for(const key of ['province','district','subdistrict','station','search'])if(plan[key])filters[key]=plan[key];if(plan.person_type!=='all')filters.person_type=plan.person_type;}

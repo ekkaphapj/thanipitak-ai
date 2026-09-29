@@ -1,0 +1,1679 @@
+{
+  "version": 1,
+  "description": "Synthetic Thai phrasing holdout for the real-data read-only interpreter. Questions only; no registry rows or credentials.",
+  "cases": [
+    {
+      "id": "count-001",
+      "bucket": "count",
+      "message": "มีผู้ป่วยจิตเวชกี่คน",
+      "expected": {
+        "action": "count",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-002",
+      "bucket": "count",
+      "message": "ขอทราบว่ามีคนไข้จิตเวชจำนวนเท่าไร",
+      "expected": {
+        "action": "count",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-003",
+      "bucket": "count",
+      "message": "ตรวจสอบจำนวนผู้ป่วยให้หน่อย",
+      "expected": {
+        "action": "count",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-004",
+      "bucket": "count",
+      "message": "ขอยอดคนไข้",
+      "expected": {
+        "action": "count",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-005",
+      "bucket": "count",
+      "message": "ผู้ป่วยจิตเวชมีอยู่กี่ราย",
+      "expected": {
+        "action": "count",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-006",
+      "bucket": "count",
+      "message": "นับคนไข้จิตเวชทั้งหมด",
+      "expected": {
+        "action": "count",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-007",
+      "bucket": "count",
+      "message": "จำนวนผู้ป่วยในทะเบียนเท่าไหร่",
+      "expected": {
+        "action": "count",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-008",
+      "bucket": "count",
+      "message": "มีคนไข้ไหม",
+      "expected": {
+        "action": "count",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-009",
+      "bucket": "count",
+      "message": "มีผู้เสพกี่คน",
+      "expected": {
+        "action": "count",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-010",
+      "bucket": "count",
+      "message": "ขอทราบว่ามีคนเสพจำนวนเท่าไร",
+      "expected": {
+        "action": "count",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-011",
+      "bucket": "count",
+      "message": "ตรวจสอบจำนวนผู้ใช้ยาเสพติดให้หน่อย",
+      "expected": {
+        "action": "count",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-012",
+      "bucket": "count",
+      "message": "ขอยอดคนใช้ยา",
+      "expected": {
+        "action": "count",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-013",
+      "bucket": "count",
+      "message": "ผู้เสพมีอยู่กี่ราย",
+      "expected": {
+        "action": "count",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-014",
+      "bucket": "count",
+      "message": "นับคนเสพทั้งหมด",
+      "expected": {
+        "action": "count",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-015",
+      "bucket": "count",
+      "message": "จำนวนผู้ใช้ยาเสพติดในทะเบียนเท่าไหร่",
+      "expected": {
+        "action": "count",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-016",
+      "bucket": "count",
+      "message": "มีคนใช้ยาไหม",
+      "expected": {
+        "action": "count",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-017",
+      "bucket": "count",
+      "message": "มีผู้ค้ากี่คน",
+      "expected": {
+        "action": "count",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-018",
+      "bucket": "count",
+      "message": "ขอทราบว่ามีคนขายยาจำนวนเท่าไร",
+      "expected": {
+        "action": "count",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-019",
+      "bucket": "count",
+      "message": "ตรวจสอบจำนวนผู้จำหน่ายให้หน่อย",
+      "expected": {
+        "action": "count",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-020",
+      "bucket": "count",
+      "message": "ขอยอดพ่อค้ายา",
+      "expected": {
+        "action": "count",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-021",
+      "bucket": "count",
+      "message": "ผู้ค้ามีอยู่กี่ราย",
+      "expected": {
+        "action": "count",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-022",
+      "bucket": "count",
+      "message": "นับคนขายยาทั้งหมด",
+      "expected": {
+        "action": "count",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-023",
+      "bucket": "count",
+      "message": "จำนวนผู้จำหน่ายในทะเบียนเท่าไหร่",
+      "expected": {
+        "action": "count",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-024",
+      "bucket": "count",
+      "message": "มีพ่อค้ายาไหม",
+      "expected": {
+        "action": "count",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-025",
+      "bucket": "count",
+      "message": "มีผู้พ้นโทษกี่คน",
+      "expected": {
+        "action": "count",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-026",
+      "bucket": "count",
+      "message": "ขอทราบว่ามีบุคคลพ้นโทษจำนวนเท่าไร",
+      "expected": {
+        "action": "count",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-027",
+      "bucket": "count",
+      "message": "ตรวจสอบจำนวนคนที่ออกจากคุกให้หน่อย",
+      "expected": {
+        "action": "count",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-028",
+      "bucket": "count",
+      "message": "ขอยอดคนที่ออกจากเรือนจำ",
+      "expected": {
+        "action": "count",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-029",
+      "bucket": "count",
+      "message": "ผู้พ้นโทษมีอยู่กี่ราย",
+      "expected": {
+        "action": "count",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-030",
+      "bucket": "count",
+      "message": "นับบุคคลพ้นโทษทั้งหมด",
+      "expected": {
+        "action": "count",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-031",
+      "bucket": "count",
+      "message": "จำนวนคนที่ออกจากคุกในทะเบียนเท่าไหร่",
+      "expected": {
+        "action": "count",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "count-032",
+      "bucket": "count",
+      "message": "มีคนที่ออกจากเรือนจำไหม",
+      "expected": {
+        "action": "count",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-001",
+      "bucket": "list",
+      "message": "ขอรายชื่อผู้ป่วยจิตเวช",
+      "expected": {
+        "action": "list",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-002",
+      "bucket": "list",
+      "message": "แสดงรายชื่อคนไข้จิตเวชทั้งหมด",
+      "expected": {
+        "action": "list",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-003",
+      "bucket": "list",
+      "message": "มีผู้ป่วยคนไหนบ้าง",
+      "expected": {
+        "action": "list",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-004",
+      "bucket": "list",
+      "message": "ช่วยลิสต์คนไข้ให้หน่อย",
+      "expected": {
+        "action": "list",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-005",
+      "bucket": "list",
+      "message": "อยากดูรายชื่อผู้ป่วยจิตเวช",
+      "expected": {
+        "action": "list",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-006",
+      "bucket": "list",
+      "message": "ขอข้อมูลรายชื่อคนไข้จิตเวช",
+      "expected": {
+        "action": "list",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-007",
+      "bucket": "list",
+      "message": "แสดงผู้ป่วยให้ดู",
+      "expected": {
+        "action": "list",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-008",
+      "bucket": "list",
+      "message": "ขอรายชื่อผู้เสพ",
+      "expected": {
+        "action": "list",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-009",
+      "bucket": "list",
+      "message": "แสดงรายชื่อคนเสพทั้งหมด",
+      "expected": {
+        "action": "list",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-010",
+      "bucket": "list",
+      "message": "มีผู้ใช้ยาเสพติดคนไหนบ้าง",
+      "expected": {
+        "action": "list",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-011",
+      "bucket": "list",
+      "message": "ช่วยลิสต์คนใช้ยาให้หน่อย",
+      "expected": {
+        "action": "list",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-012",
+      "bucket": "list",
+      "message": "อยากดูรายชื่อผู้เสพ",
+      "expected": {
+        "action": "list",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-013",
+      "bucket": "list",
+      "message": "ขอข้อมูลรายชื่อคนเสพ",
+      "expected": {
+        "action": "list",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-014",
+      "bucket": "list",
+      "message": "แสดงผู้ใช้ยาเสพติดให้ดู",
+      "expected": {
+        "action": "list",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-015",
+      "bucket": "list",
+      "message": "ขอรายชื่อผู้ค้า",
+      "expected": {
+        "action": "list",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-016",
+      "bucket": "list",
+      "message": "แสดงรายชื่อคนขายยาทั้งหมด",
+      "expected": {
+        "action": "list",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-017",
+      "bucket": "list",
+      "message": "มีผู้จำหน่ายคนไหนบ้าง",
+      "expected": {
+        "action": "list",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-018",
+      "bucket": "list",
+      "message": "ช่วยลิสต์พ่อค้ายาให้หน่อย",
+      "expected": {
+        "action": "list",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-019",
+      "bucket": "list",
+      "message": "อยากดูรายชื่อผู้ค้า",
+      "expected": {
+        "action": "list",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-020",
+      "bucket": "list",
+      "message": "ขอข้อมูลรายชื่อคนขายยา",
+      "expected": {
+        "action": "list",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-021",
+      "bucket": "list",
+      "message": "แสดงผู้จำหน่ายให้ดู",
+      "expected": {
+        "action": "list",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-022",
+      "bucket": "list",
+      "message": "ขอรายชื่อผู้พ้นโทษ",
+      "expected": {
+        "action": "list",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-023",
+      "bucket": "list",
+      "message": "แสดงรายชื่อบุคคลพ้นโทษทั้งหมด",
+      "expected": {
+        "action": "list",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-024",
+      "bucket": "list",
+      "message": "มีคนที่ออกจากคุกคนไหนบ้าง",
+      "expected": {
+        "action": "list",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-025",
+      "bucket": "list",
+      "message": "ช่วยลิสต์คนที่ออกจากเรือนจำให้หน่อย",
+      "expected": {
+        "action": "list",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-026",
+      "bucket": "list",
+      "message": "อยากดูรายชื่อผู้พ้นโทษ",
+      "expected": {
+        "action": "list",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-027",
+      "bucket": "list",
+      "message": "ขอข้อมูลรายชื่อบุคคลพ้นโทษ",
+      "expected": {
+        "action": "list",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "list-028",
+      "bucket": "list",
+      "message": "แสดงคนที่ออกจากคุกให้ดู",
+      "expected": {
+        "action": "list",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-001",
+      "bucket": "group",
+      "message": "ขอแจกแจงบุคคลเป้าหมายแยกตามตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-002",
+      "bucket": "group",
+      "message": "แยกยอดบุคคลเป้าหมายรายตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-003",
+      "bucket": "group",
+      "message": "ขอยอดบุคคลเป้าหมายแยกเป็นรายตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-004",
+      "bucket": "group",
+      "message": "ตำบลไหนมีบุคคลเป้าหมายมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-005",
+      "bucket": "group",
+      "message": "ขอแจกแจงบุคคลเป้าหมายแยกตามอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-006",
+      "bucket": "group",
+      "message": "แยกยอดบุคคลเป้าหมายรายอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-007",
+      "bucket": "group",
+      "message": "ขอยอดบุคคลเป้าหมายแยกเป็นรายอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-008",
+      "bucket": "group",
+      "message": "อำเภอไหนมีบุคคลเป้าหมายมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-009",
+      "bucket": "group",
+      "message": "ขอแจกแจงบุคคลเป้าหมายแยกตามจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-010",
+      "bucket": "group",
+      "message": "แยกยอดบุคคลเป้าหมายรายจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-011",
+      "bucket": "group",
+      "message": "ขอยอดบุคคลเป้าหมายแยกเป็นรายจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-012",
+      "bucket": "group",
+      "message": "จังหวัดไหนมีบุคคลเป้าหมายมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "all",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-013",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้ป่วยจิตเวชแยกตามตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-014",
+      "bucket": "group",
+      "message": "แยกยอดผู้ป่วยจิตเวชรายตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-015",
+      "bucket": "group",
+      "message": "ขอยอดผู้ป่วยจิตเวชแยกเป็นรายตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-016",
+      "bucket": "group",
+      "message": "ตำบลไหนมีผู้ป่วยจิตเวชมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-017",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้ป่วยจิตเวชแยกตามอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-018",
+      "bucket": "group",
+      "message": "แยกยอดผู้ป่วยจิตเวชรายอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-019",
+      "bucket": "group",
+      "message": "ขอยอดผู้ป่วยจิตเวชแยกเป็นรายอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-020",
+      "bucket": "group",
+      "message": "อำเภอไหนมีผู้ป่วยจิตเวชมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-021",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้ป่วยจิตเวชแยกตามจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-022",
+      "bucket": "group",
+      "message": "แยกยอดผู้ป่วยจิตเวชรายจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-023",
+      "bucket": "group",
+      "message": "ขอยอดผู้ป่วยจิตเวชแยกเป็นรายจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-024",
+      "bucket": "group",
+      "message": "จังหวัดไหนมีผู้ป่วยจิตเวชมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "psychiatric",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-025",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้เสพแยกตามตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-026",
+      "bucket": "group",
+      "message": "แยกยอดผู้เสพรายตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-027",
+      "bucket": "group",
+      "message": "ขอยอดผู้เสพแยกเป็นรายตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-028",
+      "bucket": "group",
+      "message": "ตำบลไหนมีผู้เสพมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-029",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้เสพแยกตามอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-030",
+      "bucket": "group",
+      "message": "แยกยอดผู้เสพรายอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-031",
+      "bucket": "group",
+      "message": "ขอยอดผู้เสพแยกเป็นรายอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-032",
+      "bucket": "group",
+      "message": "อำเภอไหนมีผู้เสพมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-033",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้เสพแยกตามจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-034",
+      "bucket": "group",
+      "message": "แยกยอดผู้เสพรายจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-035",
+      "bucket": "group",
+      "message": "ขอยอดผู้เสพแยกเป็นรายจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-036",
+      "bucket": "group",
+      "message": "จังหวัดไหนมีผู้เสพมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "drug_user",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-037",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้ค้าแยกตามตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-038",
+      "bucket": "group",
+      "message": "แยกยอดผู้ค้ารายตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-039",
+      "bucket": "group",
+      "message": "ขอยอดผู้ค้าแยกเป็นรายตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-040",
+      "bucket": "group",
+      "message": "ตำบลไหนมีผู้ค้ามากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-041",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้ค้าแยกตามอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-042",
+      "bucket": "group",
+      "message": "แยกยอดผู้ค้ารายอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-043",
+      "bucket": "group",
+      "message": "ขอยอดผู้ค้าแยกเป็นรายอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-044",
+      "bucket": "group",
+      "message": "อำเภอไหนมีผู้ค้ามากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-045",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้ค้าแยกตามจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-046",
+      "bucket": "group",
+      "message": "แยกยอดผู้ค้ารายจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-047",
+      "bucket": "group",
+      "message": "ขอยอดผู้ค้าแยกเป็นรายจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-048",
+      "bucket": "group",
+      "message": "จังหวัดไหนมีผู้ค้ามากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "dealer",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-049",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้พ้นโทษแยกตามตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-050",
+      "bucket": "group",
+      "message": "แยกยอดผู้พ้นโทษรายตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-051",
+      "bucket": "group",
+      "message": "ขอยอดผู้พ้นโทษแยกเป็นรายตำบล",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-052",
+      "bucket": "group",
+      "message": "ตำบลไหนมีผู้พ้นโทษมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "ตำบล",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-053",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้พ้นโทษแยกตามอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-054",
+      "bucket": "group",
+      "message": "แยกยอดผู้พ้นโทษรายอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-055",
+      "bucket": "group",
+      "message": "ขอยอดผู้พ้นโทษแยกเป็นรายอำเภอ",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-056",
+      "bucket": "group",
+      "message": "อำเภอไหนมีผู้พ้นโทษมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "อำเภอ",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-057",
+      "bucket": "group",
+      "message": "ขอแจกแจงผู้พ้นโทษแยกตามจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-058",
+      "bucket": "group",
+      "message": "แยกยอดผู้พ้นโทษรายจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-059",
+      "bucket": "group",
+      "message": "ขอยอดผู้พ้นโทษแยกเป็นรายจังหวัด",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "group-060",
+      "bucket": "group",
+      "message": "จังหวัดไหนมีผู้พ้นโทษมากที่สุด",
+      "expected": {
+        "action": "group",
+        "person_type": "released",
+        "group": "จังหวัด",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "search-001",
+      "bucket": "search",
+      "message": "ค้นหาสมชาย",
+      "expected": {
+        "action": "list",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc",
+        "search": "สมชาย"
+      }
+    },
+    {
+      "id": "search-002",
+      "bucket": "search",
+      "message": "ค้นหาชื่อสมชาย",
+      "expected": {
+        "action": "list",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc",
+        "search": "สมชาย"
+      }
+    },
+    {
+      "id": "search-003",
+      "bucket": "search",
+      "message": "ค้นหาคนชื่อสมชาย",
+      "expected": {
+        "action": "list",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc",
+        "search": "สมชาย"
+      }
+    },
+    {
+      "id": "search-004",
+      "bucket": "search",
+      "message": "หานายสมชาย ใจดี",
+      "expected": {
+        "action": "list",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc",
+        "search": "สมชาย ใจดี"
+      }
+    },
+    {
+      "id": "search-005",
+      "bucket": "search",
+      "message": "ค้นหานางสาวสมหญิง ใจดี",
+      "expected": {
+        "action": "list",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc",
+        "search": "สมหญิง ใจดี"
+      }
+    },
+    {
+      "id": "search-006",
+      "bucket": "search",
+      "message": "ขอดูรายชื่อคนชื่อนายประเสริฐ",
+      "expected": {
+        "action": "list",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc",
+        "search": "ประเสริฐ"
+      }
+    },
+    {
+      "id": "search-007",
+      "bucket": "search",
+      "message": "หาเฉพาะผู้เสพชื่อแดง",
+      "expected": {
+        "action": "list",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc",
+        "search": "แดง"
+      }
+    },
+    {
+      "id": "search-008",
+      "bucket": "search",
+      "message": "ค้นหาผู้ป่วยชื่อสมศรี",
+      "expected": {
+        "action": "list",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc",
+        "search": "สมศรี"
+      }
+    },
+    {
+      "id": "search-009",
+      "bucket": "search",
+      "message": "ค้นหาผู้ค้าชื่อมานะ",
+      "expected": {
+        "action": "list",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc",
+        "search": "มานะ"
+      }
+    },
+    {
+      "id": "search-010",
+      "bucket": "search",
+      "message": "ค้นหาผู้พ้นโทษชื่อบุญมี",
+      "expected": {
+        "action": "list",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc",
+        "search": "บุญมี"
+      }
+    },
+    {
+      "id": "search-011",
+      "bucket": "search",
+      "message": "ค้นหาผู้เสพในจังหวัดร้อยเอ็ด",
+      "expected": {
+        "action": "list",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc",
+        "province": "ร้อยเอ็ด"
+      }
+    },
+    {
+      "id": "search-012",
+      "bucket": "search",
+      "message": "หาผู้ค้าสภ.บ้านดุง",
+      "expected": {
+        "action": "list",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc",
+        "station": "บ้านดุง"
+      }
+    },
+    {
+      "id": "search-013",
+      "bucket": "search",
+      "message": "ค้นหาผู้ป่วยอำเภอเมือง",
+      "expected": {
+        "action": "list",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc",
+        "district": "เมือง"
+      }
+    },
+    {
+      "id": "search-014",
+      "bucket": "search",
+      "message": "หารายชื่อผู้พ้นโทษตำบลโพนสูง",
+      "expected": {
+        "action": "list",
+        "person_type": "released",
+        "group": "none",
+        "direction": "desc",
+        "subdistrict": "โพนสูง"
+      }
+    },
+    {
+      "id": "search-015",
+      "bucket": "search",
+      "message": "ช่วยค้นหาคุณสมชายในจังหวัดนครพนม",
+      "expected": {
+        "action": "list",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc",
+        "search": "สมชาย",
+        "province": "นครพนม"
+      }
+    },
+    {
+      "id": "search-016",
+      "bucket": "search",
+      "message": "หาเด็กชายก้อง ใจดี สภ.ท่าอุเทน",
+      "expected": {
+        "action": "list",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc",
+        "search": "ก้อง ใจดี",
+        "station": "ท่าอุเทน"
+      }
+    },
+    {
+      "id": "search-017",
+      "bucket": "search",
+      "message": "ค้นหาผู้ใช้ยาเสพติดชื่อมานพ",
+      "expected": {
+        "action": "list",
+        "person_type": "drug_user",
+        "group": "none",
+        "direction": "desc",
+        "search": "มานพ"
+      }
+    },
+    {
+      "id": "search-018",
+      "bucket": "search",
+      "message": "ขอรายชื่อคนไข้จิตเวชในอำเภอท่าอุเทน",
+      "expected": {
+        "action": "list",
+        "person_type": "psychiatric",
+        "group": "none",
+        "direction": "desc",
+        "district": "ท่าอุเทน"
+      }
+    },
+    {
+      "id": "search-019",
+      "bucket": "search",
+      "message": "หาคนขายยาในตำบลหนองหิน",
+      "expected": {
+        "action": "list",
+        "person_type": "dealer",
+        "group": "none",
+        "direction": "desc",
+        "subdistrict": "หนองหิน"
+      }
+    },
+    {
+      "id": "search-020",
+      "bucket": "search",
+      "message": "ค้นหาบุคคลชื่อบุญทัน จังหวัดอุดรธานี",
+      "expected": {
+        "action": "list",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc",
+        "search": "บุญทัน",
+        "province": "อุดรธานี"
+      }
+    },
+    {
+      "id": "clarify-001",
+      "bucket": "clarify",
+      "message": "ขอประวัติเยี่ยมผู้เสพเดือนนี้",
+      "expected": {
+        "action": "clarify",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "clarify-002",
+      "bucket": "clarify",
+      "message": "มีใครเสี่ยงสูงบ้าง",
+      "expected": {
+        "action": "clarify",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "clarify-003",
+      "bucket": "clarify",
+      "message": "ขอรายชื่อคนเฝ้าระวังที่ตำบลโพนสูง",
+      "expected": {
+        "action": "clarify",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "clarify-004",
+      "bucket": "clarify",
+      "message": "ผู้เสพเดือนที่แล้วมีใครบ้าง",
+      "expected": {
+        "action": "clarify",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "clarify-005",
+      "bucket": "clarify",
+      "message": "คนไข้ปัสสาวะล่าสุดเป็นอย่างไร",
+      "expected": {
+        "action": "clarify",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "clarify-006",
+      "bucket": "clarify",
+      "message": "ขอหมายเลขโทรศัพท์ผู้ค้า",
+      "expected": {
+        "action": "clarify",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "clarify-007",
+      "bucket": "clarify",
+      "message": "ขอเลขบัตรประชาชนของสมชาย",
+      "expected": {
+        "action": "clarify",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "clarify-008",
+      "bucket": "clarify",
+      "message": "เสี่ยงสูงเพราะอะไร",
+      "expected": {
+        "action": "clarify",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "clarify-009",
+      "bucket": "clarify",
+      "message": "ประวัติผลตรวจปัสสาวะย้อนหลัง",
+      "expected": {
+        "action": "clarify",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc"
+      }
+    },
+    {
+      "id": "clarify-010",
+      "bucket": "clarify",
+      "message": "ค้นหาคดีล่าสุดของผู้พ้นโทษ",
+      "expected": {
+        "action": "clarify",
+        "person_type": "all",
+        "group": "none",
+        "direction": "desc"
+      }
+    }
+  ]
+}

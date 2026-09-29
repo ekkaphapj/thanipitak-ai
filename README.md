@@ -56,3 +56,7 @@ Test accounts: `station1_off` / `thanipitak123`, `station1_view` / `thanipitak12
 | PDF | Yes | Not yet implemented |
 
 `npm test` runs isolated tests. It does not prove production-data parity or real-model reliability. See the handoff for current validation and remaining work. The GitHub push does not deploy a server.
+
+## Real-intent interpreter benchmark
+
+An opt-in 150-question Thai holdout measures the real-data intent interpreter with a local Ollama model. It contains synthetic questions only; it does not log in, connect to Supabase, or read registry records. Example: `npm run benchmark:real-intent -- --model qwen3:8b`. Results report intent, type, group, direction, place-filter and exact-plan accuracy by question category. The frozen question set is `tests/fixtures/real-intent-holdout150.json`; review changes before updating its pinned SHA-256 in the regression test. A model benchmark is distinct from the mocked-Supabase HTTP tests and does not establish live authorization or registry parity.

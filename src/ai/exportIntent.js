@@ -63,6 +63,24 @@ function detectExportIntent(message) {
 }
 
 function reportRequestFromExport(intent, topic) {
+  // A chart was the most recent result: the export must re-render that same
+  // aggregate, never fall back to a registry name list. The report endpoint
+  // re-reads every number through the authenticated tool; the topic carries
+  // only which aggregate and its narrowing filters.
+  if (topic?.report_kind === 'chart') {
+    return {
+      report_kind: 'chart',
+      chart_kind: ['people', 'visits'].includes(topic.chart_kind) ? topic.chart_kind : 'people',
+      chart_own: topic.chart_own === true,
+      filters: {
+        ...(topic.province ? { province: topic.province } : {}),
+        ...(topic.window ? { window: topic.window } : {}),
+      },
+      includeCount: true,
+      includeList: false,
+      sort: 'name_asc',
+    };
+  }
   const filters = mergeTopicFilters(intent.filters || {}, topic);
   if (!filters.level) filters.level = 'all';
   // This distinguishes a monitoring list containing both levels from a plain

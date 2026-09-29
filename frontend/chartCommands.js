@@ -4,9 +4,14 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
   // Repairs are confined to a chart command head. กราบ in ordinary speech,
-  // person names and กราฟิก must remain untouched.
+  // person names and กราฟิก must remain untouched, as must แผนการตรวจเยี่ยม
+  // (visit plans) — only whole misheard chart tokens are rewritten.
+  const CHART_TAIL = '\\s|$|ยังไง|ทำยังไง|ใช้ยังไง|อะไร|ได้บ้าง|บุคคล|การตรวจ|ผู้ป่วย|รายเดือน|สภ\\.';
   function repair(text) {
-    return String(text || '').replace(/((?:สร้าง|ขอ|แสดง|ทำ)\s*)(?:กาฟ|ก๊าฟ|คราฟ|กร๊าฟ|กราป|กราฟฟ์|กราฟ์)(?=\s|$|ยังไง|ทำยังไง|ใช้ยังไง|อะไร|บุคคล|การตรวจ|ผู้ป่วย|รายเดือน|สภ\.)/gu, '$1กราฟ')
+    return String(text || '')
+      .replace(new RegExp(`((?:สร้าง|ขอ|แสดง|ทำ)\\s*)(?:กาฟ|ก๊าฟ|คราฟ|กร๊าฟ|กราป|กราฟฟ์|กราฟ์)(?=${CHART_TAIL})`, 'gu'), '$1กราฟ')
+      .replace(new RegExp(`((?:สร้าง|ขอ|แสดง|ทำ)\\s*)(?:แผนธูป|แผนธุป|แผนทูม|แผนตูม|แผนภูม|แผนปูม|แผนบูม|แผนดูป|แผนทุบ|แผนภูมิ์)(?=${CHART_TAIL})`, 'gu'), '$1แผนภูมิ')
+      .replace(new RegExp(`((?:สร้าง|ขอ|แสดง|ทำ)\\s*)(?:ชาร์ท|ชาร์ต|ชาต์|ชาร์ด|ชาร์|ชาท|ชาด)(?=${CHART_TAIL})`, 'gu'), '$1แผนภูมิ')
       .replace(/((?:สร้าง|แสดง|ทำ)\s*)กราบ(?=\s|$|ยังไง|ทำยังไง|ใช้ยังไง|อะไร|บุคคล|การตรวจ)/gu, '$1กราฟ')
       .replace(/(ขอ\s*)กราบ(?=\s*(?:บุคคล|การตรวจ|สภ\.|แยกตาม))/gu, '$1กราฟ');
   }
@@ -24,6 +29,9 @@
     // Only these complete grammars are executable. Unconsumed conditions
     // return the guide, never a broader query with silently dropped filters.
     if (/^บุคคลเป้าหมาย\s*สภ\.?\s*ของ(?:ฉัน|ผม|เรา)\s*แยก(?:ตาม)?ประเภท$/u.test(clean)) return { kind: 'people', own: true };
+    // “จังหวัดอื่น” is a deliberate incomplete command: the caller asks
+    // which province and only the spoken answer completes the chart.
+    if (/^บุคคลเป้าหมาย\s*ราย\s*สภ\.?\s*(?:ของ\s*)?จังหวัดอื่น$/u.test(clean)) return { kind: 'people', own: false, otherProvince: true };
     let m = clean.match(/^บุคคลเป้าหมาย\s*ราย\s*สภ\.?\s*(?:ของ\s*)?จังหวัด\s*([ก-๙]+)$/u);
     if (m) return { kind: 'people', own: false, province: m[1] };
     m = clean.match(/^การตรวจเยี่ยม\s*รายเดือน\s*(?:ของ\s*)?(สภ\.?\s*ของ(?:ฉัน|ผม|เรา)|จังหวัด\s*[ก-๙]+)(?:\s+(.+))?$/u);
@@ -39,6 +47,9 @@
     if (province) commands.push(`สร้างกราฟบุคคลเป้าหมายราย สภ. จังหวัด${province}`);
     if (station) commands.push('สร้างกราฟการตรวจเยี่ยมรายเดือน สภ.ของฉัน 3 เดือนย้อนหลัง');
     commands.push(`สร้างกราฟการตรวจเยี่ยมรายเดือนของจังหวัด ${other}`);
+    // The last example deliberately names “จังหวัดอื่น”: choosing it makes the
+    // assistant ask which province, then build that chart in the same turn.
+    commands.push('สร้างกราฟบุคคลเป้าหมายราย สภ. จังหวัดอื่น');
     const affiliation = [station && `สภ.${station}`, province && `จังหวัด${province}`].filter(Boolean).join(' • ');
     const choices = commands.map((message, index) => ({ ordinal: index + 1, label: message, message }));
     const answer = ['วิธีใช้คำสั่งกราฟ' + (affiliation ? ` • ${affiliation}` : ''),

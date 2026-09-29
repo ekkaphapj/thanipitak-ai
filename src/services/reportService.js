@@ -60,13 +60,22 @@ function safeReportRequest(input) {
   // people lists the caller must refuse the export instead of dropping it.
   const window = safeWindow(rawFilters.window);
   if (window) filters.window = window;
-  return {
-    report_kind: request.report_kind === 'target_person_aggregate' ? 'target_person_aggregate' : undefined,
+  // A chart export must stay a chart: dropping the marker here would silently
+  // turn "PDF ของแผนภูมิล่าสุด" into the full registry name list again.
+  const out = {
+    report_kind: request.report_kind === 'target_person_aggregate' ? 'target_person_aggregate'
+      : request.report_kind === 'chart' ? 'chart'
+        : undefined,
     filters,
     includeList: !!request.includeList,
     includeCount: request.includeCount !== false,
     sort: ['name_asc', 'name_desc', 'count_asc', 'count_desc'].includes(request.sort) ? request.sort : 'name_asc',
   };
+  if (out.report_kind === 'chart') {
+    out.chart_kind = ['people', 'visits'].includes(request.chart_kind) ? request.chart_kind : 'people';
+    out.chart_own = request.chart_own === true;
+  }
+  return out;
 }
 
 function reportFilterLabels(filters) {

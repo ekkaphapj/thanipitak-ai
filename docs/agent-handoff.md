@@ -1270,3 +1270,66 @@ workstation stores an app token in `~/.cloudflared`; one completed login made
 later `ssh -o ProxyCommand="cloudflared access ssh --hostname
 ssh.policeshield4.com"` (or a local `access tcp` proxy on 127.0.0.1:2222)
 work without re-login until the token expires.
+
+### Continuation update — 2026-09-29 (chart STT repairs, other-province guide flow, chart PDF export, RAG latency)
+
+Four owner-requested fixes on `phase-3.3-low-latency` (not yet deployed to the
+Ubuntu pilot at the time of this note). Full `npm test` after the work:
+**510 tests, 27 suites, 0 failures** (+10 tests). All real-data tests use
+mocked Supabase with a throwing interpreter; no live model and no
+authenticated registry read were used. The new chart PDF pages were visually
+verified from rendered PNGs (Thai glyphs, bars/line, tables, footers).
+
+**STT chart-word repairs.** Field report: “สร้างแผนภูมิ” transcribed as
+“สร้างแผนธูป”. `chartCommands.repair()` (shared browser/server, applied by
+`correctTranscript`) now repairs แผนภูมิ mishears (แผนธูป/แผนธุป/แผนทูม/แผนตูม/
+แผนภูม/แผนปูม/แผนดูป/แผนภูมิ์) and the ชาร์ท family (ชาร์ท/ชาร์ต/ชาต์/ชาร์ด/ชาร์/
+ชาท/ชาด → แผนภูมิ) only directly after a chart command head
+(สร้าง|ขอ|แสดง|ทำ). กราฟ repairs unchanged. Negatives pinned: แผนการตรวจเยี่ยม,
+ขอธูป/ซื้อธูป, ขอชา, and names/กราฟิก are never rewritten.
+
+**Guide example “จังหวัดอื่น” + province follow-up.** The chart guide now has
+a fifth, always-present example: “สร้างกราฟบุคคลเป้าหมายราย สภ. จังหวัดอื่น”.
+Choosing/saying it makes the assistant ask “ของจังหวัดใด”; the topic carries a
+new `pending {type:'chart_province'}` marker (server + frontend sanitizeTopic),
+and the next bare province name (typed/spoken/button) builds that chart at
+once. Province resolution only accepts the server-verified `aiScope.provinces`
+list (or, without a list, plain Thai wording); anything else drops the pending
+marker and continues as a new question. ยกเลิก cancels. Real-mode buttons list
+the scope provinces minus the own province. Test mode mirrors the flow over
+fixtures (unknown fixture provinces answer honestly “ไม่พบข้อมูล…”).
+
+**Chart PDF export (the old bug: chart → “สร้าง PDF ต่อ” returned the full
+name list).** Chart responses now set `conversation.topic
+{report_kind:'chart', chart_kind, chart_own, province?, window?}` — a marker
+plus narrowing filters only. On an export request with that topic, both the
+real route and the test gateway answer with a `report_offer`
+(report_kind 'chart', auto PDF when the format is explicit); the frontend also
+renders a “สร้างรายงาน PDF ของแผนภูมินี้” button under every chart with a
+verified topic. The real `/reports/summary.pdf` endpoint re-runs the exact
+audited read (`ai-summary/target_person_summary` for people, audited
+`readVisitStats` for visits, window from the topic) and prints
+`writeChartPdf` (new `src/services/chartPdf.js`): branded header/meta card,
+horizontal bars or a monthly line chart, a values table, and the standard
+footer; inconsistent/empty/negative data is refused
+(`REAL_DATA_UNVERIFIABLE`), downloads as `thanipitak-chart.pdf`. Chart exports
+are PDF-only (xlsx answers an explicit refusal). Test-mode `/api/reports/summary.pdf`
+rebuilds the fixture chart (own station or province) the same way; a visits
+chart request in test mode fails `REAL_FEATURE_REQUIRED`, never a fixture
+substitute. `safeReportRequest` now round-trips `report_kind 'chart'` +
+`chart_kind`/`chart_own` so a chart request can never silently become a
+name-list report again.
+
+**Local AI latency (~90s reported).** Two causes addressed in code:
+`src/ai/rag.js` cached the static catalogue's embeddings per model (before,
+every knowledge question re-embedded ~30 docs, then the query); and RAG
+embed/chat plus the real interpreter now send `keep_alive` (default `'30m'`,
+env `OLLAMA_KEEP_ALIVE`) so the 8B and embedding models stay resident instead
+of cold-reloading into VRAM after Ollama's 5-minute default. Both changes are
+covered by tests (embed-call counts and keep_alive bodies). If slow answers
+persist after deploy, check GPU residency on the pilot (`nvidia-smi`,
+`docker exec ollama ollama ps`) — a model falling back to CPU layers is
+outside app control.
+
+Deployment reminder: after pushing, `git pull --ff-only` on the pilot and
+restart `thanipitak-ai`; browser users need Ctrl+F5 for the new `ai.js`.

@@ -348,6 +348,30 @@ async function chatWithToolsWithFastPath(userMessage, toolRouter, currentUser, o
   if (exportIntent && !options.forceQwen) {
     const topic = sanitizeTopic((options.context || {}).topic);
     const reportRequest = reportRequestFromExport(exportIntent, topic);
+    // The latest result was a chart: the export re-renders that aggregate as
+    // a chart PDF instead of dropping back to a registry name list.
+    if (reportRequest.report_kind === 'chart') {
+      if (!exportIntent.formats.includes('pdf')) {
+        return { answer: 'แผนภูมิรองรับการส่งออกเป็นไฟล์ PDF เท่านั้น กรุณาระบุ “สร้าง PDF” หรือ “ทำเป็น PDF”', toolsUsed: [], grounded: false, databaseIntent: true, retryCount: 0, fastPath: true, intent: 'export_report', executionTier: 1, ollamaCalls: 0, conversation: { topic } };
+      }
+      const needsConfirm = !(exportIntent.formats.length === 1 && exportIntent.explicitFormat);
+      const answer = needsConfirm
+        ? 'ต้องการสร้างรายงาน PDF ของแผนภูมิล่าสุดใช่หรือไม่? เลือก 1. ใช่ หรือ 2. ไม่'
+        : 'พร้อมสร้างรายงาน PDF ของแผนภูมิล่าสุด กดดาวน์โหลดด้านล่าง';
+      return {
+        answer,
+        toolsUsed: [],
+        grounded: true,
+        databaseIntent: true,
+        retryCount: 0,
+        fastPath: true,
+        intent: 'export_report',
+        executionTier: 1,
+        ollamaCalls: 0,
+        presentation: { type: 'report_offer', formats: ['pdf'], auto: needsConfirm ? null : 'pdf', confirm: needsConfirm, reportRequest },
+        conversation: { topic },
+      };
+    }
     const bits = [];
     if (reportRequest.filters.person_type) bits.push({ psychiatric: 'ผู้ป่วยจิตเวช', drug_user: 'ผู้เสพ', dealer: 'ผู้ค้า', released: 'ผู้พ้นโทษ' }[reportRequest.filters.person_type]);
     if (reportRequest.filters.level === 'high') bits.push('เสี่ยงสูง');

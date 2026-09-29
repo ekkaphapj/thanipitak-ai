@@ -99,16 +99,55 @@ function createAIRoutes(db, authRequired, options = {}) {
       const storedUser = users.findById(user.id);
       if (!storedUser) return res.status(401).json({ error: 'กรุณาเข้าสู่ระบบใหม่' });
       const profile = users.publicProfile(storedUser);
-      if (chartIntent.kind === 'help' || (chartIntent.own && !profile.stationId)) return res.json(chartCommands.guide(profile, 'test'));
-      if (chartIntent.kind === 'visits') return res.json({ answer: 'กราฟการตรวจเยี่ยมใช้บันทึกจริง กรุณาเลือกโหมดข้อมูลจริงและเข้าสู่ระบบด้วยบัญชีตำรวจ', grounded: false, dataSource: 'test', code: 'REAL_FEATURE_REQUIRED', meta: { fastPath: true, ollamaCalls: 0 } });
+      if (chartIntent.kind === 'help') return res.json(chartCommands.guide(profile, 'test'));
+      // “จังหวัดอื่น” is deliberately incomplete: ask which province and
+      // remember the pending question, exactly like the real-data route.
+      if (chartIntent.otherProvince) {
+        return res.json({
+          answer: 'ต้องการแผนภูมิบุคคลเป้าหมายราย สภ. ของจังหวัดใด กรุณาพิมพ์หรือพูดชื่อจังหวัดที่ต้องการ',
+          grounded: true, dataSource: 'test',
+          conversation: { topic: { pending: { type: 'chart_province', chart_kind: 'people' } } },
+          meta: { fastPath: true, ollamaCalls: 0 },
+        });
+      }
       const persons = createPersonService(db);
-      const filters = chartIntent.own ? {} : { province: chartIntent.province };
-      const summary = persons.summarizePersons(user, filters);
-      const groups = persons.groupByLocation(user, { groupBy: 'station', ...filters });
-      const chart = chartIntent.own
-        ? chartPresentation.peopleChart({ rows: [{ station_name: profile.stationName, psychiatric_total: summary.byType.psychiatric || 0, drug_user_total: summary.byType.drug_user || 0, dealer_total: summary.byType.dealer || 0, released_total: summary.byType.released || 0, target_total: summary.total }] }, { own: true, areaLabel: profile.stationName, source: 'test' })
-        : { type: 'chart', chartType: 'bar', title: `บุคคลเป้าหมายราย สภ. • จังหวัด${chartIntent.province}`, areaLabel: `จังหวัด${chartIntent.province} (ข้อมูลตามสิทธิ์บัญชี)`, labels: groups.groups.map(g => g.name), values: groups.groups.map(g => g.count), total: summary.total, unit: 'คน', dataSource: 'test', asOf: new Date().toISOString() };
-      return res.json(chartPresentation.response(chart));
+      const buildFixtureChart = (spec) => {
+        const filters = spec.own ? {} : { province: spec.province };
+        const summary = persons.summarizePersons(user, filters);
+        const groups = persons.groupByLocation(user, { groupBy: 'station', ...filters });
+        if (!spec.own && !summary.total) return null;
+        const chart = spec.own
+          ? chartPresentation.peopleChart({ rows: [{ station_name: profile.stationName, psychiatric_total: summary.byType.psychiatric || 0, drug_user_total: summary.byType.drug_user || 0, dealer_total: summary.byType.dealer || 0, released_total: summary.byType.released || 0, target_total: summary.total }] }, { own: true, areaLabel: profile.stationName, source: 'test' })
+          : { type: 'chart', chartType: 'bar', title: `บุคคลเป้าหมายราย สภ. • จังหวัด${spec.province}`, areaLabel: `จังหวัด${spec.province} (ข้อมูลตามสิทธิ์บัญชี)`, labels: groups.groups.map(g => g.name), values: groups.groups.map(g => g.count), total: summary.total, unit: 'คน', dataSource: 'test', asOf: new Date().toISOString() };
+        return { ...chartPresentation.response(chart), conversation: { topic: { report_kind: 'chart', chart_kind: 'people', ...(spec.own ? { chart_own: true } : spec.province ? { province: spec.province } : {}) } } };
+      };
+      if (chartIntent.own && !profile.stationId) return res.json(chartCommands.guide(profile, 'test'));
+      if (chartIntent.kind === 'visits') return res.json({ answer: 'กราฟการตรวจเยี่ยมใช้บันทึกจริง กรุณาเลือกโหมดข้อมูลจริงและเข้าสู่ระบบด้วยบัญชีตำรวจ', grounded: false, dataSource: 'test', code: 'REAL_FEATURE_REQUIRED', meta: { fastPath: true, ollamaCalls: 0 } });
+      return res.json(buildFixtureChart(chartIntent));
+    }
+    // The answer to "ของจังหวัดไหน" is normally just a province name; build the
+    // pending fixture chart from it. Anything else is a new request and the
+    // pending marker is dropped before the ordinary gateway runs.
+    if (context?.topic?.pending?.type === 'chart_province') {
+      const stripped = String(message).replace(/^(?:เอา|ขอ|ต้องการ|ดู|แบบ|ที่|ของ)\s*/u, '').replace(/^จังหวัด\s*/u, '').trim();
+      if (/^(?:ยกเลิก|เอาไว้ก่อน|ไม่เอา|ไม่|พอ)$/.test(message)) {
+        return res.json({ answer: 'ยกเลิกการขอแผนภูมิจังหวัดอื่นแล้ว พิมพ์หรือพูดคำสั่งใหม่ได้เลย', grounded: true, dataSource: 'test', conversation: { topic: null }, meta: { fastPath: true, ollamaCalls: 0 } });
+      }
+      if (message.length <= 60 && /^[\u0e00-\u0e7f\s]{2,40}$/u.test(stripped)) {
+        const users = createUserService(db);
+        const storedUser = users.findById(user.id);
+        const profile = storedUser ? users.publicProfile(storedUser) : null;
+        const persons = createPersonService(db);
+        const summary = persons.summarizePersons(user, { province: stripped });
+        if (summary.total > 0) {
+          const groups = persons.groupByLocation(user, { groupBy: 'station', province: stripped });
+          const chart = { type: 'chart', chartType: 'bar', title: `บุคคลเป้าหมายราย สภ. • จังหวัด${stripped}`, areaLabel: `จังหวัด${stripped} (ข้อมูลตามสิทธิ์บัญชี)`, labels: groups.groups.map(g => g.name), values: groups.groups.map(g => g.count), total: summary.total, unit: 'คน', dataSource: 'test', asOf: new Date().toISOString() };
+          return res.json({ ...chartPresentation.response(chart), conversation: { topic: { report_kind: 'chart', chart_kind: 'people', province: stripped } }, meta: { fastPath: true, ollamaCalls: 0 } });
+        }
+        return res.json({ answer: `ไม่พบข้อมูลของจังหวัด${stripped} ในข้อมูลทดสอบ กรุณาระบุจังหวัดอื่น หรือพิมพ์คำสั่งใหม่`, grounded: false, dataSource: 'test', conversation: { topic: { pending: { type: 'chart_province', chart_kind: 'people' } } }, meta: { fastPath: true, ollamaCalls: 0 } });
+      }
+      const { pending: _drop, ...topicWithoutPending } = context.topic;
+      req.body.context = { ...context, topic: Object.keys(topicWithoutPending).length ? topicWithoutPending : undefined };
     }
     if (detectVisitPlanIntent(message)) {
       return res.json({ answer: 'แผนการตรวจเยี่ยมใช้ข้อมูลทะเบียนและผลตรวจจริง กรุณาเลือกโหมดข้อมูลจริงและเข้าสู่ระบบด้วยบัญชีตำรวจ', grounded: false, dataSource: 'test', code: 'REAL_FEATURE_REQUIRED' });

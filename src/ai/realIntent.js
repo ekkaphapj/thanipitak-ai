@@ -44,6 +44,10 @@ async function interpretRealIntent(message, { request = fetch } = {}) {
       stream: false,
       think: false,
       format: schema,
+      // Keep the interpreter model resident between questions: reloading an
+      // 8B model after the default keep-alive expiry added tens of seconds to
+      // the first question after a pause. Override with OLLAMA_KEEP_ALIVE.
+      keep_alive: process.env.OLLAMA_KEEP_ALIVE || '30m',
       options: { temperature: 0, num_predict: 260 },
       messages: [
         { role: 'system', content: INTERPRETER_SYSTEM_PROMPT },

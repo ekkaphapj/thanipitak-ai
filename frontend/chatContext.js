@@ -85,7 +85,11 @@
       if (typeof raw[key] === 'string' && raw[key].trim()) topic[key] = raw[key].trim().slice(0, 100);
     }
     if (raw.scope === 'all') topic.scope = 'all';
-    if (raw.report_kind === 'target_person_aggregate' || raw.report_kind === 'visit_plan') topic.report_kind = raw.report_kind;
+    if (['target_person_aggregate', 'visit_plan', 'visit_summary', 'chart'].includes(raw.report_kind)) topic.report_kind = raw.report_kind;
+    // Chart markers name which aggregate to redraw; the backend re-reads and
+    // re-authorizes every number before any export.
+    if (['people', 'visits'].includes(raw.chart_kind)) topic.chart_kind = raw.chart_kind;
+    if (raw.chart_own === true) topic.chart_own = true;
     if (TOPIC_LEVELS.includes(raw.level)) topic.level = raw.level;
     if (TOPIC_KINDS.includes(raw.kind)) topic.kind = raw.kind;
     if (Number.isSafeInteger(raw.page) && raw.page >= 1 && raw.page <= 1000) topic.page = raw.page;
@@ -113,13 +117,17 @@
       }
       if (exclude.length) topic.exclude = exclude;
     }
-    if (raw.pending && typeof raw.pending === 'object' && raw.pending.type === 'period_intent') {
-      const pending = { type: 'period_intent' };
-      if (TOPIC_TYPES.includes(raw.pending.person_type)) pending.person_type = raw.pending.person_type;
-      if (raw.pending.window && typeof raw.pending.window === 'object') {
-        const from = typeof raw.pending.window.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.pending.window.from) ? raw.pending.window.from : null;
-        const to = typeof raw.pending.window.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.pending.window.to) ? raw.pending.window.to : null;
-        if (from && to && from <= to) pending.window = { from, to, label: typeof raw.pending.window.label === 'string' && raw.pending.window.label.trim() ? raw.pending.window.label.trim().slice(0, 100) : `${from} ถึง ${to}` };
+    if (raw.pending && typeof raw.pending === 'object' && ['period_intent', 'chart_province'].includes(raw.pending.type)) {
+      const pending = { type: raw.pending.type };
+      if (raw.pending.type === 'period_intent') {
+        if (TOPIC_TYPES.includes(raw.pending.person_type)) pending.person_type = raw.pending.person_type;
+        if (raw.pending.window && typeof raw.pending.window === 'object') {
+          const from = typeof raw.pending.window.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.pending.window.from) ? raw.pending.window.from : null;
+          const to = typeof raw.pending.window.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.pending.window.to) ? raw.pending.window.to : null;
+          if (from && to && from <= to) pending.window = { from, to, label: typeof raw.pending.window.label === 'string' && raw.pending.window.label.trim() ? raw.pending.window.label.trim().slice(0, 100) : `${from} ถึง ${to}` };
+        }
+      } else if (['people', 'visits'].includes(raw.pending.chart_kind)) {
+        pending.chart_kind = raw.pending.chart_kind;
       }
       topic.pending = pending;
     }

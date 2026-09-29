@@ -11,6 +11,7 @@ const TYPE_LABELS = {
 };
 const VALID_LEVELS = ['all', 'high', 'watch'];
 const VALID_KINDS = ['monitoring_list', 'people_list'];
+const VALID_CHART_KINDS = ['people', 'visits'];
 const VALID_EXCLUDE_COLUMNS = ['tambon', 'amphoe', 'station_id'];
 const MAX_TOPIC_EXCLUDES = 3;
 const MAX_TOPIC_EXCLUDE_IDS = 1000;
@@ -101,20 +102,28 @@ function sanitizeTopic(raw) {
     }
     if (exclude.length) topic.exclude = exclude;
   }
-  if (raw.pending && typeof raw.pending === 'object' && raw.pending.type === 'period_intent') {
-    const pending = { type: 'period_intent' };
-    if (VALID_TYPES.includes(raw.pending.person_type)) pending.person_type = raw.pending.person_type;
-    if (raw.pending.window && typeof raw.pending.window === 'object') {
-      const from = cleanIsoDate(raw.pending.window.from);
-      const to = cleanIsoDate(raw.pending.window.to);
-      if (from && to && from <= to) pending.window = { from, to, label: cleanText(raw.pending.window.label) || `${from} ถึง ${to}` };
+  if (raw.pending && typeof raw.pending === 'object' && ['period_intent', 'chart_province'].includes(raw.pending.type)) {
+    const pending = { type: raw.pending.type };
+    if (raw.pending.type === 'period_intent') {
+      if (VALID_TYPES.includes(raw.pending.person_type)) pending.person_type = raw.pending.person_type;
+      if (raw.pending.window && typeof raw.pending.window === 'object') {
+        const from = cleanIsoDate(raw.pending.window.from);
+        const to = cleanIsoDate(raw.pending.window.to);
+        if (from && to && from <= to) pending.window = { from, to, label: cleanText(raw.pending.window.label) || `${from} ถึง ${to}` };
+      }
+    } else if (VALID_CHART_KINDS.includes(raw.pending.chart_kind)) {
+      pending.chart_kind = raw.pending.chart_kind;
     }
     topic.pending = pending;
   }
   // This is a display/report format marker, not an authorization field.  The
   // real export endpoint still obtains every aggregate through the caller's
   // authenticated token and server-verified scope.
-  if (['target_person_aggregate', 'visit_plan', 'visit_summary'].includes(raw.report_kind)) topic.report_kind = raw.report_kind;
+  if (['target_person_aggregate', 'visit_plan', 'visit_summary', 'chart'].includes(raw.report_kind)) topic.report_kind = raw.report_kind;
+  // Chart markers only name which aggregate to redraw; the export endpoint
+  // re-reads every number through the authenticated tool before printing.
+  if (VALID_CHART_KINDS.includes(raw.chart_kind)) topic.chart_kind = raw.chart_kind;
+  if (raw.chart_own === true) topic.chart_own = true;
   return Object.keys(topic).length ? topic : null;
 }
 

@@ -26,6 +26,7 @@ const {normalizeQuerySpec,describeQuerySpec,filtersFromSpec}=require('../ai/quer
 const {isIntroductionRequest,INTRODUCTION_TEXT}=require('../ai/introduction');
 const chartCommands=require('../../frontend/chartCommands');
 const chartPresentation=require('../services/chartPresentation');
+const {writeChartPdf}=require('../services/chartPdf');
 
 async function ollamaJson(path,body) {
  const response=await fetch(new URL(path,process.env.OLLAMA_HOST||'http://127.0.0.1:11434'),{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(120000),body:JSON.stringify(body)});
@@ -324,6 +325,7 @@ function detectAggregateSortContinuation(message, topic) {
 
 function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
  if(chartCommands.detect(message))return false;
+ if(topic?.pending?.type==='chart_province')return false;
  if(isProvinceChangeOnly(message)||isIntroductionRequest(message)||detectOwnStationOverview(message)||detectProvinceStationOverview(message)||detectVisitPlanIntent(message)||detectVisitStatsIntent(message)||detectExportIntent(message)||detectStationRanking(message)||detectAggregateSortContinuation(message,topic)||detectDiscoveryIntent(message)||detectOverview(message)||hasSelectedPerson||isUnderspecifiedQuestion(message))return false;
  if(detectContinuation(message, topic))return false;
  const summary=parseSummaryIntent(message);const intent=detectFastPathIntent(message,topic);
@@ -961,37 +963,93 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(isIntroductionRequest(message)){
    return res.json({answer:INTRODUCTION_TEXT,grounded:true,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
+  // One shared chart builder: the direct command, the "จังหวัดอื่น" follow-up
+  // answer, and the chart PDF export all run the exact same audited read and
+  // the same verification, so an export can never print numbers the chat never
+  // verified. Returns null when the guide should be shown instead.
+  const runChartIntent=async(chartSpec)=>{
+   const ownId=parseStationId(req.user.stationId);
+   if(chartSpec.own&&(!ownId||!req.user.stationName))return null;
+   const provinceResult=canonicalProvince(req,chartSpec.province||req.user.province);
+   if(provinceResult.error||provinceResult.choices||!provinceResult.value)return null;
+   const province=provinceResult.value;
+   if(!hasCrossStationRead(req.user)&&province!==req.user.province)return Promise.reject(Object.assign(new Error('out of scope'),{code:'REAL_ACCESS_DENIED'}));
+   const areaLabel=chartSpec.own?`สภ.${String(req.user.stationName).replace(/^สภ\.?\s*/u,'')} • จังหวัด${province}`:`จังหวัด${province} (ข้อมูลตามสิทธิ์บัญชี)`;
+   let chart;let window=null;
+   if(chartSpec.kind==='people'){
+    const result=await aiTools.targetPersonSummary(req.realToken,{province,stationId:chartSpec.own?ownId:null});
+    chart=chartPresentation.peopleChart(result,{own:chartSpec.own,areaLabel});
+   }else{
+    const analysis=chartSpec.period?analyzePeriods(chartSpec.period):null;
+    // A time condition must be completely understood; never substitute the
+    // current year for an unrecognized or competing period.
+    if(chartSpec.period&&(analysis.windows.length!==1||analysis.unresolved.length||analysis.comparison||analysis.windows[0].matchedText!==chartSpec.period))return null;
+    window=analysis?.windows[0]||currentYearWindow();
+    if(!readAudit)throw Object.assign(new Error('audit unavailable'),{code:'REAL_AUDIT_UNAVAILABLE'});
+    req.realReadContext={province,station:chartSpec.own?String(ownId):null};
+    const data=await readVisitStats(req,{stationIds:chartSpec.own?[ownId]:null,province:chartSpec.own?null:province,areaLabel,from:window.from,to:window.to,months:window.months||null});
+    chart=chartPresentation.visitsChart(data,window.label);
+   }
+   // The topic remembers only WHICH aggregate and its narrowing filters; the
+   // export endpoint re-reads and re-verifies every number before printing.
+   const topic=sanitizeTopic({report_kind:'chart',chart_kind:chartSpec.kind,chart_own:chartSpec.own===true,province,...(window?{window:{from:window.from,to:window.to,label:window.label}}:{})});
+   return {payload:{...chartPresentation.response(chart),conversation:{topic}},toolName:chartSpec.kind==='people'?'ai-summary/target_person_summary':'supabase_visit_stats_read'};
+  };
   const chartIntent=chartCommands.detect(message);
   if(chartIntent){
-   const help=()=>res.json(chartCommands.guide(req.user,'real'));
-   if(chartIntent.kind==='help')return help();
-   const ownId=parseStationId(req.user.stationId);
-   if(chartIntent.own&&(!ownId||!req.user.stationName))return help();
-   const provinceResult=canonicalProvince(req,chartIntent.province||req.user.province);
-   if(provinceResult.error||provinceResult.choices||!provinceResult.value)return help();
-   const province=provinceResult.value;
-   if(!hasCrossStationRead(req.user)&&province!==req.user.province)return sendRealFailure(res,Object.assign(new Error('out of scope'),{code:'REAL_ACCESS_DENIED'}),start);
-   const areaLabel=chartIntent.own?`สภ.${String(req.user.stationName).replace(/^สภ\.?\s*/u,'')} • จังหวัด${province}`:`จังหวัด${province} (ข้อมูลตามสิทธิ์บัญชี)`;
+   if(chartIntent.kind==='help')return res.json(chartCommands.guide(req.user,'real'));
+   if(chartIntent.otherProvince){
+    // The last guide example deliberately says "จังหวัดอื่น": ask which
+    // province, remember the pending question, and the spoken province name
+    // in the next turn builds that chart immediately.
+    const provinces=Array.isArray(req.user?.aiScope?.provinces)?req.user.aiScope.provinces.filter(item=>typeof item==='string'&&item.trim()):[];
+    const choices=provinces.filter(name=>name!==req.user.province).slice(0,6)
+     .map(name=>({label:`จังหวัด${name}`,message:`จังหวัด${name}`}));
+    return res.json({answer:'ต้องการแผนภูมิบุคคลเป้าหมายราย สภ. ของจังหวัดใด กรุณาพูดหรือพิมพ์ชื่อจังหวัดที่ต้องการ'+(choices.length?' หรือกดเลือกจังหวัดด้านล่าง':''),grounded:true,dataSource:'real',
+     ...(choices.length?{presentation:{type:'summary_choices',choices}}:{}),
+     conversation:{topic:sanitizeTopic({pending:{type:'chart_province',chart_kind:'people'}})},
+     meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
    try {
-    let chart;
-    if(chartIntent.kind==='people'){
-     const result=await aiTools.targetPersonSummary(req.realToken,{province,stationId:chartIntent.own?ownId:null});
-     chart=chartPresentation.peopleChart(result,{own:chartIntent.own,areaLabel});
-    }else{
-     const analysis=chartIntent.period?analyzePeriods(chartIntent.period):null;
-     // A time condition must be completely understood; never substitute the
-     // current year for an unrecognized or competing period.
-     if(chartIntent.period&&(analysis.windows.length!==1||analysis.unresolved.length||analysis.comparison||analysis.windows[0].matchedText!==chartIntent.period))return help();
-     const window=analysis?.windows[0]||currentYearWindow();
-     if(!readAudit)throw Object.assign(new Error('audit unavailable'),{code:'REAL_AUDIT_UNAVAILABLE'});
-     req.realReadContext={province,station:chartIntent.own?String(ownId):null};
-     const data=await readVisitStats(req,{stationIds:chartIntent.own?[ownId]:null,province:chartIntent.own?null:province,areaLabel,from:window.from,to:window.to,months:window.months||null});
-     chart=chartPresentation.visitsChart(data,window.label);
-    }
-    return res.json({...chartPresentation.response(chart),toolsUsed:[{name:chartIntent.kind==='people'?'ai-summary/target_person_summary':'supabase_visit_stats_read'}],meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+    const built=await runChartIntent(chartIntent);
+    if(!built)return res.json(chartCommands.guide(req.user,'real'));
+    return res.json({...built.payload,toolsUsed:[{name:built.toolName}],meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    }catch(error){
     if(error.answer)return res.json({answer:error.answer,grounded:false,dataSource:'real',meta:{fastPath:true,ollamaCalls:0}});
     return sendRealFailure(res,error,start);
+   }
+  }
+  // The answer to "ของจังหวัดไหน" is normally just a province name (typed,
+  // spoken, or a choices button). Build the pending chart from the verified
+  // scope list only; anything else is a new request and the pending marker
+  // must not leak into it.
+  if(incomingTopic?.pending?.type==='chart_province'){
+   const chartKind=['people','visits'].includes(incomingTopic.pending.chart_kind)?incomingTopic.pending.chart_kind:'people';
+   if(/^(?:ยกเลิก|เอาไว้ก่อน|ไม่เอา|ไม่|พอ)$/.test(message)){
+    const {pending:_drop,...topicWithoutPending}=incomingTopic;
+    return res.json({answer:'ยกเลิกการขอแผนภูมิจังหวัดอื่นแล้ว พูดหรือพิมพ์คำสั่งใหม่ได้เลย',grounded:true,dataSource:'real',conversation:{topic:sanitizeTopic(topicWithoutPending)},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   }
+   let chartAnswered=false;
+   if(message.length<=60){
+    const spoken=provinceFromMessage(message)||message.replace(/^(?:เอา|ขอ|ต้องการ|ดู|แบบ|ที่|ของ)\s*/u,'').replace(/^จังหวัด\s*/u,'').trim();
+    const resolution=canonicalProvince(req,spoken);
+    const provinces=Array.isArray(req.user?.aiScope?.provinces)?req.user.aiScope.provinces:[];
+    // Only a verified scope name completes the chart. Without a scope list
+    // there is nothing to verify against, so accept only plain Thai wording.
+    if(resolution.value&&(provinces.length?provinces.includes(resolution.value):/^[\u0e00-\u0e7f\s]{2,40}$/u.test(spoken))){
+     chartAnswered=true;
+     try{
+      const built=await runChartIntent({kind:chartKind,own:false,province:resolution.value});
+      if(built)return res.json({...built.payload,toolsUsed:[{name:built.toolName}],meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start,...(resolution.fuzzy?{fuzzy:resolution.fuzzy}:{})}});
+     }catch(error){
+      if(error.answer)return res.json({answer:error.answer,grounded:false,dataSource:'real',meta:{fastPath:true,ollamaCalls:0}});
+      return sendRealFailure(res,error,start);
+     }
+    }
+   }
+   if(!chartAnswered){
+    const {pending:_drop,...topicWithoutPending}=incomingTopic;
+    incomingTopic=sanitizeTopic(topicWithoutPending);
    }
   }
   if(isUnderspecifiedQuestion(message)){
@@ -1170,6 +1228,17 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if(planExport.formats.length!==1||planExport.formats[0]!=='pdf')return respond({answer:'แผนการตรวจเยี่ยมรองรับรายงาน PDF กรุณาระบุ “ทำเป็นรายงาน PDF”',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    const reportRequest={report_kind:'visit_plan',station:incomingTopic.station||null,province:incomingTopic.province||null};
    return respond({answer:`กำลังสร้างรายงาน PDF แผนการตรวจเยี่ยม ${incomingTopic.station||''} • ภ.จว.${incomingTopic.province||''}`,grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:['pdf'],auto:'pdf',confirm:false,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+  }
+  // The most recent result was a chart: "สร้าง PDF ต่อ" must re-render THAT
+  // aggregate, never fall back to a registry name list. The endpoint re-reads
+  // every number through the same audited path as the chart itself.
+  const chartExport=incomingTopic?.report_kind==='chart'?detectExportIntent(routingMessage):null;
+  if(chartExport){
+   if(!chartExport.formats.includes('pdf'))return respond({answer:'แผนภูมิรองรับการส่งออกเป็นไฟล์ PDF เท่านั้น กรุณาระบุ “สร้าง PDF” หรือ “ทำเป็น PDF”',grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
+   const reportRequest={report_kind:'chart',chart_kind:['people','visits'].includes(incomingTopic.chart_kind)?incomingTopic.chart_kind:'people',chart_own:incomingTopic.chart_own===true,
+    filters:{...(incomingTopic.province?{province:incomingTopic.province}:{}),...(incomingTopic.window?{window:incomingTopic.window}:{})},
+    includeCount:true,includeList:false,sort:'name_asc'};
+   return respond({answer:'กำลังสร้างรายงาน PDF ของแผนภูมิล่าสุด กดดาวน์โหลดด้านล่าง',grounded:true,dataSource:'real',presentation:{type:'report_offer',formats:['pdf'],auto:'pdf',confirm:false,reportRequest},conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   }
   if(incomingTopic?.report_kind==='visit_plan'&&/^(?:หน้า\s*ถัดไป|หน้าต่อไป|หน้าก่อนหน้า|ย้อน\s*หน้า)$/u.test(routingMessage)){
    const page=/ก่อน|ย้อน/u.test(routingMessage)?Math.max(1,(incomingTopic.page||1)-1):Math.min(1000,(incomingTopic.page||1)+1);
@@ -1673,6 +1742,27 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  async function realSummary(req,raw){
   const request=safeReportRequest(raw);
   const filters=request.filters||{};
+  if(request.report_kind==='chart'){
+   // Re-run the exact audited read behind the chat chart. The client may only
+   // name which aggregate; every printed number is re-read and re-verified.
+   const chartSpec={kind:request.chart_kind||'people',own:request.chart_own===true,province:filters.province||req.user.province||null};
+   const ownId=parseStationId(req.user.stationId);
+   if(chartSpec.own&&(!ownId||!req.user.stationName)){const error=new Error('บัญชีนี้ไม่ได้สังกัด สภ. จึงสร้างแผนภูมิสถานีตนเองไม่ได้');error.code='REPORT_FAILED';throw error;}
+   const provinceResult=canonicalProvince(req,chartSpec.province);
+   if(provinceResult.error||provinceResult.choices||!provinceResult.value){const error=new Error('ไม่พบชื่อจังหวัดของแผนภูมิในสิทธิ์ของบัญชี');error.code='REPORT_FAILED';throw error;}
+   chartSpec.province=provinceResult.value;
+   if(!hasCrossStationRead(req.user)&&chartSpec.province!==req.user.province){const error=new Error('out of scope');error.code='REAL_ACCESS_DENIED';throw error;}
+   const areaLabel=chartSpec.own?`สภ.${String(req.user.stationName).replace(/^สภ\.?\s*/u,'')} • จังหวัด${chartSpec.province}`:`จังหวัด${chartSpec.province} (ข้อมูลตามสิทธิ์บัญชี)`;
+   if(chartSpec.kind==='people'){
+    const result=await aiTools.targetPersonSummary(req.realToken,{province:chartSpec.province,stationId:chartSpec.own?ownId:null});
+    return {report_kind:'chart',chart:chartPresentation.peopleChart(result,{own:chartSpec.own,areaLabel})};
+   }
+   const window=filters.window||currentYearWindow();
+   if(!readAudit)throw Object.assign(new Error('audit unavailable'),{code:'REAL_AUDIT_UNAVAILABLE'});
+   req.realReadContext={province:chartSpec.province,station:chartSpec.own?String(ownId):null};
+   const data=await readVisitStats(req,{stationIds:chartSpec.own?[ownId]:null,province:chartSpec.own?null:chartSpec.province,areaLabel,from:window.from,to:window.to,months:window.months||null});
+   return {report_kind:'chart',chart:chartPresentation.visitsChart(data,window.label)};
+  }
   if(request.report_kind==='target_person_aggregate'){
    const aggregate=await targetPersonSummary(req,filters.province||req.user.province||null);
    const totals=aggregate.presentation.totals;
@@ -1745,6 +1835,10 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  router.post('/reports/summary.pdf',async(req,res)=>{
   try{
    const summary=await realSummary(req,req.body&&req.body.reportRequest);
+   if(summary.report_kind==='chart'){
+    const report=await writeChartPdf(summary.chart);
+    return sendReportFile(res,report,'thanipitak-chart.pdf');
+   }
    const report=await writeSummaryPdf(summary);
    return sendReportFile(res,report,'thanipitak-summary.pdf');
   }catch(e){return res.status(400).json({error:e.message||'สร้างรายงานไม่สำเร็จ',code:'REPORT_FAILED'});}
@@ -1777,6 +1871,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  router.post('/reports/summary.xlsx',async(req,res)=>{
   try{
    const summary=await realSummary(req,req.body&&req.body.reportRequest);
+   if(summary.report_kind==='chart')return res.status(400).json({error:'แผนภูมิรองรับการส่งออกเป็นไฟล์ PDF เท่านั้น กรุณาสั่ง “สร้าง PDF” จากแผนภูมินั้น',code:'REPORT_FAILED'});
    const report=writeSummaryExcel(summary);
    return sendReportFile(res,report,'thanipitak-summary.xlsx');
   }catch(e){return res.status(400).json({error:e.message||'สร้างรายงานไม่สำเร็จ',code:'REPORT_FAILED'});}

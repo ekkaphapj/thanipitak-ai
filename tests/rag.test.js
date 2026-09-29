@@ -42,3 +42,25 @@ test('RAG gives deterministic practical help and keeps registry facts behind aut
   assert.match(concept.answer, /ตรวจจากทะเบียนตามสิทธิ์/);
   assert.doesNotMatch(concept.answer, /SELECT|FROM people/i);
 });
+
+test('document embeddings are cached; later questions embed only the query', async () => {
+  const { retrieve, DOCS } = rag;
+  const calls = [];
+  const vec = (seed) => Array.from({ length: 8 }, (_, i) => ((seed + i + 1) % 7) / 7 || 0.1);
+  const request = async (path, body) => {
+    calls.push({ path, input: body.input, keepAlive: body.keep_alive });
+    if (path === '/api/embed') return { embeddings: (Array.isArray(body.input) ? body.input : [body.input]).map((_, i) => vec(i)) };
+    throw new Error('unexpected chat call');
+  };
+  await retrieve('คำถามแรกเกี่ยวกับธานีพิทักษ์', request);
+  let embeds = calls.filter(c => c.path === '/api/embed');
+  assert.equal(embeds.length, 2); // catalogue once, then the query
+  assert.equal(embeds[0].input.length, DOCS.length);
+  assert.equal(embeds[1].input.length, 1);
+  // Models stay resident between questions instead of reloading into VRAM.
+  assert.equal(embeds.every(c => c.keepAlive === (process.env.OLLAMA_KEEP_ALIVE || '30m')), true);
+  await retrieve('คำถามที่สอง', request);
+  embeds = calls.filter(c => c.path === '/api/embed');
+  assert.equal(embeds.length, 3); // the catalogue was NOT re-embedded
+  assert.equal(embeds[2].input.length, 1);
+});

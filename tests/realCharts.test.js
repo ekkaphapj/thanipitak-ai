@@ -25,7 +25,7 @@ function harness(t, options = {}) {
     assert.fail(`unexpected registry read ${u.pathname}`);
   };
   const app = express(); app.use(express.json());
-  app.use(createRealDataRoutes((req, res, next) => { req.user = options.user || USER; req.realToken = 'mock-caller-session'; next(); }, { url: 'https://registry.example.test', key: 'mock-anon', request: fetchMock, readAudit, interpret: async () => assert.fail('charts/help must never call the model') }));
+  app.use(createRealDataRoutes((req, res, next) => { req.user = options.user || USER; req.realToken = 'mock-caller-session'; next(); }, { url: 'https://registry.example.test', key: 'mock-anon', request: fetchMock, readAudit, interpret: options.interpret || (async () => assert.fail('charts/help must never call the model')) }));
   return { app, db, calls };
 }
 test('real guide is personalized without a registry or model read; browser profile cannot replace affiliation', async t => {
@@ -37,13 +37,17 @@ test('real guide is personalized without a registry or model read; browser profi
   }
   assert.equal(calls.length, 0);
 });
-test('all four guide buttons run audited, caller-bound aggregate paths', async t => {
+test('all four executable guide buttons run audited, caller-bound aggregate paths; the fifth asks a province', async t => {
   const { app, calls, db } = harness(t);
   const guide = await request(app).post('/ai/chat').send({ message: GUIDE });
-  for (const choice of guide.body.presentation.choices) {
+  const executable = guide.body.presentation.choices.filter(choice => !choice.message.endsWith('จังหวัดอื่น'));
+  assert.equal(executable.length, 4);
+  for (const choice of executable) {
     const out = await request(app).post('/ai/chat').send({ message: choice.message, context: { personId: 99, topic: { province: 'เชียงใหม่' } }, station_id: 999, allowedStationIds: [999] });
     assert.equal(out.status, 200, choice.message); assert.equal(out.body.presentation.type, 'chart', choice.message);
     assert.equal(out.body.presentation.total, 2); assert.equal(out.body.meta.ollamaCalls, 0);
+    // A verified chart topic marks which aggregate an export must re-render.
+    assert.equal(out.body.conversation.topic.report_kind, 'chart');
     assert.ok(!JSON.stringify(out.body).includes('person_id'));
   }
   const summaries = calls.filter(c => c.u.pathname.endsWith('/ai-summary'));
@@ -58,6 +62,85 @@ test('all four guide buttons run audited, caller-bound aggregate paths', async t
   assert.ok(audits.some(a => a.requested_station === '73'));
   assert.ok(audits.some(a => a.requested_province === 'นครพนม'));
   assert.ok(!JSON.stringify(audits).includes('mock-caller-session'));
+});
+test('the other-province example asks which province, then the spoken answer builds the chart immediately', async t => {
+  const { app, calls } = harness(t);
+  const ask = await request(app).post('/ai/chat').send({ message: 'สร้างแผนภูมิบุคคลเป้าหมายราย สภ. จังหวัดอื่น' });
+  assert.equal(ask.status, 200);
+  assert.match(ask.body.answer, /ของจังหวัดใด/);
+  assert.equal(ask.body.conversation.topic.pending.type, 'chart_province');
+  // Server-verified scope provinces (minus the own province) become buttons.
+  assert.deepEqual(ask.body.presentation.choices.map(c => c.message), ['จังหวัดนครพนม']);
+  assert.equal(calls.length, 0);
+  // A bare spoken province name completes the chart on the next turn.
+  const chart = await request(app).post('/ai/chat').send({ message: 'นครพนม', context: { topic: ask.body.conversation.topic } });
+  assert.equal(chart.status, 200);
+  assert.equal(chart.body.presentation.type, 'chart');
+  assert.match(chart.body.presentation.title, /นครพนม/);
+  assert.equal(chart.body.conversation.topic.report_kind, 'chart');
+  assert.equal(chart.body.conversation.topic.province, 'นครพนม');
+  assert.equal(chart.body.conversation.topic.pending, undefined);
+  const summary = calls.find(c => c.u.pathname.endsWith('/ai-summary'));
+  assert.equal(summary.body.province, 'นครพนม');
+  assert.equal(summary.body.station_id, null);
+});
+test('the pending chart question only accepts scope provinces and cancels cleanly', async t => {
+  const { app, calls } = harness(t, { interpret: async () => ({ action: 'clarify', person_type: 'all', group: 'none', direction: 'desc' }) });
+  const ask = await request(app).post('/ai/chat').send({ message: 'สร้างกราฟบุคคลเป้าหมายราย สภ. จังหวัดอื่น' });
+  const topic = ask.body.conversation.topic;
+  assert.equal(topic.pending.type, 'chart_province');
+  // A non-province answer never builds a chart and drops the pending marker:
+  // the following bare province word is an ordinary question, not a chart.
+  const moved = await request(app).post('/ai/chat').send({ message: 'ใช่', context: { topic } });
+  assert.equal(moved.status, 200);
+  assert.notEqual(moved.body.presentation && moved.body.presentation.type, 'chart');
+  assert.equal(calls.length, 0);
+  const after = await request(app).post('/ai/chat').send({ message: 'นครพนม', context: { topic: moved.body.conversation && moved.body.conversation.topic } });
+  assert.equal(after.status, 200);
+  assert.notEqual(after.body.presentation && after.body.presentation.type, 'chart');
+  const cancel = await request(app).post('/ai/chat').send({ message: 'ยกเลิก', context: { topic } });
+  assert.equal(cancel.status, 200);
+  assert.match(cancel.body.answer, /ยกเลิก/);
+});
+test('chart export: “สร้าง PDF ต่อ” re-renders the same audited aggregate, never the name list', async t => {
+  const { app, calls } = harness(t);
+  const chart = await request(app).post('/ai/chat').send({ message: 'สร้างกราฟบุคคลเป้าหมายราย สภ. จังหวัดร้อยเอ็ด' });
+  const topic = chart.body.conversation.topic;
+  const readsBefore = calls.length;
+  const offer = await request(app).post('/ai/chat').send({ message: 'สร้าง pdf ต่อ', context: { topic } });
+  assert.equal(offer.status, 200);
+  assert.equal(offer.body.presentation.type, 'report_offer');
+  assert.equal(offer.body.presentation.auto, 'pdf');
+  assert.equal(offer.body.presentation.reportRequest.report_kind, 'chart');
+  assert.equal(offer.body.presentation.reportRequest.chart_kind, 'people');
+  assert.equal(offer.body.presentation.reportRequest.filters.province, 'ร้อยเอ็ด');
+  assert.equal(calls.length, readsBefore); // the offer itself reads nothing
+  const pdf = await request(app).post('/reports/summary.pdf').send({ reportRequest: offer.body.presentation.reportRequest });
+  assert.equal(pdf.status, 200);
+  assert.match(pdf.headers['content-type'], /application\/pdf/);
+  // The endpoint re-read the audited aggregate for the printed numbers.
+  const after = calls.filter(c => c.u.pathname.endsWith('/ai-summary')).length;
+  assert.equal(after, 2);
+  // A chart topic never produces the old full name-list report.
+  assert.ok(!calls.some(c => c.u.pathname.endsWith('/people') && c.u.searchParams.get('province')));
+  const xlsx = await request(app).post('/reports/summary.xlsx').send({ reportRequest: offer.body.presentation.reportRequest });
+  assert.equal(xlsx.status, 400);
+  assert.match(xlsx.body.error, /PDF เท่านั้น/);
+});
+test('monthly chart export re-reads recorded visits and prints the same window', async t => {
+  const { app, calls, db } = harness(t);
+  const chart = await request(app).post('/ai/chat').send({ message: 'สร้างกราฟการตรวจเยี่ยมรายเดือน สภ.ของฉัน 3 เดือนย้อนหลัง' });
+  assert.equal(chart.body.conversation.topic.report_kind, 'chart');
+  assert.equal(chart.body.conversation.topic.chart_kind, 'visits');
+  const offer = await request(app).post('/ai/chat').send({ message: 'ทำเป็น pdf', context: { topic: chart.body.conversation.topic } });
+  assert.equal(offer.body.presentation.reportRequest.chart_kind, 'visits');
+  assert.equal(offer.body.presentation.reportRequest.chart_own, true);
+  assert.ok(offer.body.presentation.reportRequest.filters.window.from);
+  const visitsBefore = calls.filter(c => c.u.pathname.endsWith('/visits')).length;
+  const pdf = await request(app).post('/reports/summary.pdf').send({ reportRequest: offer.body.presentation.reportRequest });
+  assert.equal(pdf.status, 200);
+  assert.match(pdf.headers['content-type'], /application\/pdf/);
+  assert.ok(calls.filter(c => c.u.pathname.endsWith('/visits')).length > visitsBefore);
 });
 test('unknown filters, competing/unsupported/oversized periods show the guide without reads', async t => {
   const { app, calls } = harness(t);

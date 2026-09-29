@@ -2021,6 +2021,7 @@
     const isExcel = kind === 'xlsx';
     try {
       const visitPlan = requestBody.report_kind === 'visit_plan';
+      const chartFile = requestBody.report_kind === 'chart';
       const response = await fetch(visitPlan ? '/api/reports/visit-plan.pdf' : isExcel ? '/api/reports/summary.xlsx' : '/api/reports/summary.pdf', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + state.token, 'Content-Type': 'application/json', 'X-Data-Source': state.dataSource },
@@ -2028,11 +2029,11 @@
       });
       if (!response.ok) throw new Error('สร้างรายงานไม่สำเร็จ');
       const url = URL.createObjectURL(await response.blob());
-      const wrap = appendMessage('assistant', isExcel ? 'สร้างรายงาน Excel แล้ว' : 'สร้างรายงาน PDF แล้ว');
+      const wrap = appendMessage('assistant', isExcel ? 'สร้างรายงาน Excel แล้ว' : chartFile ? 'สร้างรายงาน PDF ของแผนภูมิแล้ว' : 'สร้างรายงาน PDF แล้ว');
       const link = document.createElement('a');
       link.href = url;
-      link.download = visitPlan ? 'thanipitak-visit-plan.pdf' : isExcel ? 'thanipitak-summary.xlsx' : 'thanipitak-summary.pdf';
-      link.textContent = isExcel ? 'ดาวน์โหลดรายงาน Excel' : 'ดาวน์โหลดรายงาน PDF';
+      link.download = visitPlan ? 'thanipitak-visit-plan.pdf' : chartFile ? 'thanipitak-chart.pdf' : isExcel ? 'thanipitak-summary.xlsx' : 'thanipitak-summary.pdf';
+      link.textContent = isExcel ? 'ดาวน์โหลดรายงาน Excel' : chartFile ? 'ดาวน์โหลดรายงาน PDF ของแผนภูมิ' : 'ดาวน์โหลดรายงาน PDF';
       link.className = 'suggest-btn';
       wrap.querySelector('.bubble').appendChild(document.createElement('br'));
       wrap.querySelector('.bubble').appendChild(link);
@@ -2340,7 +2341,34 @@
         if (json.presentation && json.presentation.type === 'station_ranking') renderStationRanking(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'chart_help') renderChartHelp(wrap, json.presentation, json.answer);
-        if (json.presentation && json.presentation.type === 'chart') window.ThaniCharts.render(hostForPresentation(wrap), json.presentation);
+        if (json.presentation && json.presentation.type === 'chart') {
+          window.ThaniCharts.render(hostForPresentation(wrap), json.presentation);
+          // A verified chart topic means "สร้าง PDF ต่อ" must export THIS
+          // chart; the server re-reads and re-verifies every number. The
+          // request carries only which aggregate and its narrowing filters.
+          const chartTopic = json.conversation && json.conversation.topic && json.conversation.topic.report_kind === 'chart' ? json.conversation.topic : null;
+          if (chartTopic) {
+            state.pendingSummaryReport = {
+              report_kind: 'chart',
+              chart_kind: chartTopic.chart_kind || 'people',
+              chart_own: chartTopic.chart_own === true,
+              filters: {
+                ...(chartTopic.province ? { province: chartTopic.province } : {}),
+                ...(chartTopic.window ? { window: chartTopic.window } : {}),
+              },
+              includeCount: true,
+              includeList: false,
+              sort: 'name_asc',
+            };
+            const chartBox = document.createElement('div');
+            chartBox.className = 'person-candidates';
+            const chartPdf = document.createElement('button');
+            chartPdf.type = 'button'; chartPdf.className = 'suggest-btn'; chartPdf.textContent = 'สร้างรายงาน PDF ของแผนภูมินี้';
+            chartPdf.addEventListener('click', () => downloadReport('pdf', state.pendingSummaryReport));
+            chartBox.appendChild(chartPdf);
+            hostForPresentation(wrap).appendChild(chartBox);
+          }
+        }
         if (json.presentation && json.presentation.type === 'summary_result') renderSummaryResult(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'report_offer') renderReportOffer(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'place_choices') renderPlaceChoices(wrap, json.presentation);

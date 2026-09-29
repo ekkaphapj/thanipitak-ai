@@ -91,14 +91,37 @@ function directAnswer(query) {
 function cosine(a,b){let dot=0,aa=0,bb=0;for(let i=0;i<Math.min(a.length,b.length);i++){dot+=a[i]*b[i];aa+=a[i]*a[i];bb+=b[i]*b[i];}return dot/(Math.sqrt(aa)*Math.sqrt(bb)||1);}
 function keywords(text){return new Set(String(text).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu)||[]);}
 function lexical(query){const q=keywords(query);return DOCS.map(doc=>{const d=keywords(doc.text);let n=0;for(const x of q)if(d.has(x))n++;return {doc,score:n/Math.max(q.size,1)};}).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,3);}
+
+// The catalogue is static for the life of the process, so its vectors are
+// embedded once per model and cached. Without this every question re-embedded
+// the whole catalogue (~30 inputs), which dominated the time local AI spent on
+// knowledge questions. A failed cache build simply keeps the lexical fallback.
+const DOC_EMBEDDINGS = new Map();
+// Models stay resident between questions instead of being reloaded into VRAM
+// after Ollama's short default keep-alive expires (a cold 8B reload costs tens
+// of seconds on the pilot GPU). Override with OLLAMA_KEEP_ALIVE.
+const KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || '30m';
+async function docVectors(request){
+  const cached=DOC_EMBEDDINGS.get(MODEL);
+  if(cached)return cached;
+  const out=await request('/api/embed',{model:MODEL,input:DOCS.map(d=>d.text),keep_alive:KEEP_ALIVE});
+  const vectors=out.embeddings||[];
+  if(vectors.length!==DOCS.length||vectors.some(v=>!Array.isArray(v)||!v.length))throw new Error('embedding shape mismatch');
+  DOC_EMBEDDINGS.set(MODEL,vectors);
+  return vectors;
+}
 async function retrieve(query, request){
   const fallback=lexical(query); if(!request)return fallback;
-  try { const out=await request('/api/embed',{model:MODEL,input:[query,...DOCS.map(d=>d.text)]});const vectors=out.embeddings||[];if(vectors.length!==DOCS.length+1)return fallback;
-    return DOCS.map((doc,i)=>({doc,score:cosine(vectors[0],vectors[i+1])})).filter(x=>x.score>=0.35).sort((a,b)=>b.score-a.score).slice(0,3);
+  try {
+    const vectors=await docVectors(request);
+    const out=await request('/api/embed',{model:MODEL,input:[query],keep_alive:KEEP_ALIVE});
+    const queryVector=(out.embeddings||[])[0];
+    if(!Array.isArray(queryVector)||!queryVector.length)return fallback;
+    return DOCS.map((doc,i)=>({doc,score:cosine(queryVector,vectors[i])})).filter(x=>x.score>=0.35).sort((a,b)=>b.score-a.score).slice(0,3);
   } catch { return fallback; }
 }
 async function answer(query, request, model){
   const direct=directAnswer(query);if(direct)return direct;
-  const hits=await retrieve(query,request);if(!hits.length)return null;const sources=hits.map(x=>x.doc.text).join('\n\n');const out=await request('/api/chat',{model,messages:[{role:'system',content:'ตอบภาษาไทยจากความรู้ที่ให้เท่านั้น ถ้าไม่มีคำตอบให้บอกว่าไม่พบในคู่มือ ห้ามให้ SQL ห้ามอ้างข้อมูลบุคคลจริง ห้ามเดาหรือแนะนำให้ข้ามสิทธิ์.'},{role:'user',content:`คำถาม: ${query}\n\nความรู้:\n${sources}`}],stream:false,think:false,options:{temperature:0,num_predict:220}});return out?.message?.content?{answer:out.message.content,sources:hits.map(x=>x.doc.id)}:null;
+  const hits=await retrieve(query,request);if(!hits.length)return null;const sources=hits.map(x=>x.doc.text).join('\n\n');const out=await request('/api/chat',{model,messages:[{role:'system',content:'ตอบภาษาไทยจากความรู้ที่ให้เท่านั้น ถ้าไม่มีคำตอบให้บอกว่าไม่พบในคู่มือ ห้ามให้ SQL ห้ามอ้างข้อมูลบุคคลจริง ห้ามเดาหรือแนะนำให้ข้ามสิทธิ์.'},{role:'user',content:`คำถาม: ${query}\n\nความรู้:\n${sources}`}],stream:false,think:false,keep_alive:KEEP_ALIVE,options:{temperature:0,num_predict:220}});return out?.message?.content?{answer:out.message.content,sources:hits.map(x=>x.doc.id)}:null;
 }
 module.exports={answer,retrieve,directAnswer,DOCS,MODEL};

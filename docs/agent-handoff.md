@@ -64,12 +64,33 @@ credentials).
   3. `sudo systemctl daemon-reload && sudo systemctl restart thanipitak-stt`
      then verify `curl -s http://127.0.0.1:8178/health` and that a real
      transcription reports `device:cuda`.
-- **VRAM caveat found during the audit**: ComfyUI (owner's, pid at audit
-  time) holds ~5.0 GB of the 3060's 12 GB; Ollama's `qwen3:8b-q6` needs
-  ~6.5 GB when resident and whisper `int8_float16` ~1.2 GB — all three
-  together exceed 12 GB. The GPU flip should be paired with a decision
-  about ComfyUI (stop it during voice use, or keep STT on CPU). Do not
-  load 14B-class Ollama models on this GPU while STT is GPU-resident.
+- **GPU flip completed 2026-10-04 (owner provided sudo)**: the pilot STT now
+  runs under systemd with `STT_DEVICE=cuda`, `STT_COMPUTE=int8_float16`,
+  `STT_BEAM=5`, `STT_IDLE_UNLOAD_MIN=10`. Verified live: a transcription
+  returns `timing {device:"cuda", beam:5}`, the python process holds
+  exactly 1,032 MiB VRAM (10.9 GB free), the model loads on GPU in 3.5 s,
+  and the manual user-process STT instance from the earlier deploy was
+  retired (port 8178 is systemd-owned again).
+- **VRAM policy (owner's rule: one system at a time; memory returns after
+  use) implemented as**:
+  1. STT holds ~1.0 GB while voice is in use and unloads after 10 idle
+     minutes (`STT_IDLE_UNLOAD_MIN`, watchdog thread in stt-server.py;
+     lazy reload on the next request costs ~3.5 s). `loaded/device/compute`
+     are visible in `GET /health`.
+  2. The app sends `OLLAMA_KEEP_ALIVE=5m` on every chat/RAG/embedding call
+     (unit env; was 30m default), so the ~6.5 GB chat model frees VRAM five
+     minutes after the last question.
+  3. `comfyui.service` (owner's image tool, ~5 GB when generating) is
+     **stopped and disabled**. To use it: `sudo systemctl start comfyui`,
+     and stop it again afterwards (`sudo systemctl stop comfyui`) to honor
+     the one-at-a-time rule. All three simultaneously would exceed 12 GB.
+  4. Do not load 14B-class Ollama models on this GPU (8B-q6 + STT + ComfyUI
+     already covers the budget).
+  Ollama showed no resident model after the restart (`ollama ps` empty) —
+  clean baseline; it loads on demand.
+- **Restart lesson (keep)**: plain `kill` (SIGTERM) does NOT trigger
+  `Restart=on-failure`; use `sudo systemctl restart` (password available
+  to the owner only) or `kill -9` for the on-failure path.
 - **Still pending for Phase 1 completion**: the systemd flip above, a week
   of `[stt] ok …` journald lines to rank field latency, the owner-recorded
   frozen corpus, and the turbo-vs-medium model swap only after turbo wins

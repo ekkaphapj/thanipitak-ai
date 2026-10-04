@@ -80,14 +80,19 @@ credentials).
   2. The app sends `OLLAMA_KEEP_ALIVE=5m` on every chat/RAG/embedding call
      (unit env; was 30m default), so the ~6.5 GB chat model frees VRAM five
      minutes after the last question.
-  3. `comfyui.service` (owner's image tool, ~5 GB when generating) is
-     **stopped and disabled**. To use it: `sudo systemctl start comfyui`,
-     and stop it again afterwards (`sudo systemctl stop comfyui`) to honor
-     the one-at-a-time rule. All three simultaneously would exceed 12 GB.
-  4. Do not load 14B-class Ollama models on this GPU (8B-q6 + STT + ComfyUI
-     already covers the budget).
-  Ollama showed no resident model after the restart (`ollama ps` empty) —
-  clean baseline; it loads on demand.
+  3. Do not load 14B-class Ollama models on this GPU (8B-q6 + STT +
+     ComfyUI already covers the budget).
+- **Owner service rules (2026-10-04, binding — also in AGENTS.md)**: never
+  run `systemctl stop`/`disable` against `comfyui.service`,
+  `qwen-draw@ekkaphap`, or `cloudflared`; cloudflared is the remote-access
+  lifeline and the draw stack is systemd-managed only. Never run
+  `draw_server.py` manually or from any folder other than its unit's
+  WorkingDirectory. These services manage their own VRAM (--lowvram
+  releases between generations; observed ~0.2 GB idle) — the app must
+  never free VRAM by stopping them. An earlier agent action (stop+disable
+  comfyui during the GPU flip) was reverted the same day: comfyui is
+  active/enabled again, and the STT idle-unload + Ollama keep-alive are
+  the only VRAM levers the app owns.
 - **Restart lesson (keep)**: plain `kill` (SIGTERM) does NOT trigger
   `Restart=on-failure`; use `sudo systemctl restart` (password available
   to the owner only) or `kill -9` for the on-failure path.

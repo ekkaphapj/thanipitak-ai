@@ -1,4 +1,29 @@
-# Coding agent handoff — current as of 2026-10-04
+# Coding agent handoff — current as of 2026-10-05
+
+## Pending — cloud model comparison, resume here (owner paused 2026-10-04 night)
+
+The owner asked whether a different cloud model would beat the current
+setup. Stage-1 (first 50 holdout cases × 6 models) showed every model that
+got an answer through was correct — the misses were almost entirely
+OpenRouter HTTP 429 rate limits (the trial key is tight; scripts now pace
+with `DELAY_MS=3500`). Stage-1: gemini-3.8-flash and deepseek-v4.1-flash
+50/50; qwen3-max 39/39, glm-5.3-prime 34/34, gpt-5.4-mini 30/30,
+claude-haiku-4.5 20/20 (all 429-masked — their true scores are unknown).
+Stage-2 full-150 with pacing: **google/gemini-3.8-flash = 88.7 %**
+(133/150, 1 error, 1 guard block; call latency ≈ 3 s) — better than
+glm-5.3-flashx (86.0 %) but still behind local qwen3:8b-q6 (92.7 %).
+**The deepseek-v4.1-flash full-150 run was still executing when the owner
+paused; its result lands in `/dev/shm/stage2.log` on the pilot (volatile —
+if the box rebooted, rerun `/home/ekkaphap/stage2.sh`).** Next steps when
+resuming: read the deepseek result; optionally rerun the 429-masked four
+with pacing (`/home/ekkaphap/stage1.sh` pattern with full 150 +
+`DELAY_MS=3500`) — qwen3-max is the interesting one (same family as the
+local model); then decide whether to keep `z-ai/glm-5.3-flashx` or switch
+the drop-in model. All benchmark scripts live in `/home/ekkaphap/`
+(compare-intent.js supports `LIMIT` and `DELAY_MS` envs; ambiguity-intent.js
+is the 10-case suite). Local evidence so far: local 92.7 % / ~1.0 s is
+still the strongest overall; no cloud model has beaten it yet on the
+frozen holdout.
 
 ## Latest continuation — 2026-10-04 Cloud AI (OpenRouter) intent trial
 

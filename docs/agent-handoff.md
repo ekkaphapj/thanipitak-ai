@@ -52,6 +52,24 @@ mocked — no key, no registry, no live model).
   `OPENROUTER_API_KEY=…`, `OPENROUTER_MODEL=…` then
   `sudo systemctl restart thanipitak-ai`. No key exists in the repo, .env or
   unit templates.
+- **LIVE on the pilot since 2026-10-04**: `z-ai/glm-5.3-flashx` selected
+  after a live A/B against `z-ai/glm-5.3-flash` (flash missed the
+  แจกแจงแต่ละตำบล→group case twice and averaged ~4 s; flashx scored 6/6
+  on the same six synthetic utterances at 1.4–4.0 s). The API key lives
+  only in `/etc/systemd/system/thanipitak-ai.service.d/cloud.conf`
+  (systemd drop-in; never in the repo, frontend or logs). The placeholder
+  contract was verified against the real model: `ค้นหานายสมชาย ใจดี
+  ตำบลโพนสูง` egressed as `ค้นหา[PERSON_1] ตำบลโพนสูง` and the model
+  returned `search:"[PERSON_1]"` + `subdistrict:"โพนสูง"` verbatim. Two
+  guard defects the live dry-run exposed are fixed and regression-tested
+  (`392e810` place cue swallowed into a placeholder; `55d8581` egress gate
+  false-positive on ตำบล after a stripped placeholder). Honest latency
+  note: warm local qwen3:8b-q6 (~1.2 s) still beats cloud (1.5–4 s), but
+  cold local after the 5-minute keep-alive is far slower than both, so
+  cloud gives consistent mid-range latency. Officers must Ctrl+F5 once to
+  see the Local/Cloud switch. Model swap = edit the drop-in env + restart;
+  `/home/ekkaphap/test-cloud-intent.js` (and `…2.js`, 6-case comparison)
+  re-run the live check using the app's own modules.
 - **Known limitations**: Thai bare-name detection relies on cue words/titles
   + the deterministic `filters.query` classifier — a completely uncued bare
   name that also dodges every deterministic detector could reach the guard's

@@ -62,4 +62,18 @@ const TEST_DOMAIN_HINT = [
   'เมื่อไม่เข้าใจคำถาม ให้เรียก tool ที่ใกล้ที่สุดหรือบอกว่ายังไม่รองรับ ห้ามเดายอดหรือแต่งรายชื่อ',
 ].join('\n');
 
-module.exports = { INTERPRETER_SYSTEM_PROMPT, TEST_DOMAIN_HINT };
+// Cloud (OpenRouter) variant of the interpreter prompt. The local prompt's
+// few-shot examples carry fictional Thai person names; on the egress path
+// even fictional name-shaped tokens are replaced with the same opaque
+// placeholders the runtime uses, so a captured outbound payload contains no
+// person names at all and the examples teach placeholder preservation
+// instead of name echoing. If the local prompt's examples change, keep
+// these substitutions covering every name they use (tests/cloudIntent
+// fails if a name leaks through).
+const CLOUD_INTERPRETER_PROMPT = INTERPRETER_SYSTEM_PROMPT
+  .replace(/นายแดง ใจดี/gu, '[PERSON_3]')
+  .replace(/แดง ใจดี/gu, '[PERSON_3]')
+  .replace(/สมหญิง/gu, '[PERSON_2]')
+  .replace(/สมชาย/gu, '[PERSON_1]');
+
+module.exports = { INTERPRETER_SYSTEM_PROMPT, CLOUD_INTERPRETER_PROMPT, TEST_DOMAIN_HINT };

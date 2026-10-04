@@ -15,6 +15,8 @@ const fs=require('fs');
 const {parseStationId,hasCrossStationRead,applyPeopleStationScope,personInOwnStation}=require('../services/stationScope');
 const {detectOverview,formatOverview,TYPE_LABELS}=require('../services/overviewService');
 const {hasDBIntent}=require('../ai/intentDetector');
+const {sanitizeForCloud,restoreLocalReferences,assertCloudSafe}=require('../ai/privacyGuard');
+const {cloudConfig,interpretViaCloud}=require('../ai/openRouter');
 rag=require('../ai/rag');
 const {detectDiscoveryIntent,discover}=require('../services/discoveryService');
 const {normalizeUtterance,matchPlaceNames,placeKey}=require('../ai/thaiText');
@@ -347,8 +349,12 @@ function missedSpokenArea(message,plan){
  return null;
 }
 
-function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent,readAudit=null}={}) {
+function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key=require('../realConfig').key,request=fetch,interpret=require('../ai/realIntent').interpretRealIntent,readAudit=null,cloudInterpret=interpretViaCloud,cloudEnv=process.env}={}) {
  const router=express.Router();router.use(authenticate);
+ // Cloud AI (OpenRouter) is a CONTROL-PLANE-only intent parser. The client
+ // flag is advisory: the env gate and the privacy guard both run
+ // server-side on every request, and any failure falls back to Local AI.
+ const cloud=cloudConfig(cloudEnv);
  const { createRealAiTools } = require('../services/realAiTools');
  const aiTools = createRealAiTools({ url, key, request });
  const readVisitPlan=createRealVisitPlanTool({url,key,request});
@@ -891,7 +897,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
  function peopleListSpec({filters,page}){
   return normalizeQuerySpec({kind:'list',person_type:filters.person_type||null,area:{province:filters.province,district:filters.district,subdistrict:filters.subdistrict,station:filters.station},exclude:filters.exclude||[],page});
  }
- router.get('/ai/status',(req,res)=>res.json({available:true,model:'ข้อมูลจริง • อ่านจาก Supabase'}));
+  router.get('/ai/status',(req,res)=>res.json({available:true,model:'ข้อมูลจริง • อ่านจาก Supabase',cloudAvailable:cloud.ok,cloudModel:cloud.ok?cloud.model:null}));
  router.get('/ai/access-scope',(req,res)=>res.json({scope:req.user.aiScope||null,readOnly:true}));
  // The Edge Function scope object describes the account's authority (for
  // example level "all"), never the requested filter, so the heading must name
@@ -1121,6 +1127,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const explicitCountOrder=/น้อย|ต่ำ|เบา/u.test(routingMessage)?'น้อยสุด':/มาก|เยอะ|สูง/u.test(routingMessage)?'มากสุด':null;
   if(!ranking&&ordered)ranking=[routingMessage,ordered[1],alphaOrder?'alpha':explicitCountOrder||'alpha'];
   let plan=null;let ollamaCalls=0;
+  let intentAiProvider='local';
   const provinceResolution=canonicalProvince(req,provinceFromMessage(routingMessage));
   if(provinceResolution.error)return res.status(422).json({error:provinceResolution.error,code:'REAL_LOCATION_NOT_FOUND',dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   if(provinceResolution.choices){
@@ -1151,6 +1158,10 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   // so the interface can show what the system understood.
   const respond=(payload)=>{
    if(fuzzyNote&&!(payload.meta&&payload.meta.fuzzy))payload.meta={...(payload.meta||{}),fuzzy:fuzzyNote};
+   // Which intent engine served this turn. Only set when the answer went
+   // through the cloud trial (cloud / local-fallback / local-guard), so
+   // the interface can tell the officer exactly what happened.
+   if(intentAiProvider!=='local')payload.meta={...(payload.meta||{}),aiProvider:intentAiProvider};
    return res.json(payload);
   };
   const selectedTopic=selectedProvince?sanitizeTopic({...(incomingTopic||{}),province:selectedProvince}):incomingTopic;
@@ -1646,7 +1657,36 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'supabase_people_read'}],conversation,meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
    }
    if((!ranking&&!summary&&!intent)||summary?.intent==='summary_choices'){
-    ollamaCalls=1;plan=await interpret(routingMessage);
+    // Cloud trial (OpenRouter): sanitize → assert → cloud parse → restore
+    // local references. Every failure mode falls back to Local AI; the
+    // guard can only narrow what leaves the machine.
+    const wantsCloud=cloud.ok&&req.body&&req.body.ai_provider==='cloud';
+    if(wantsCloud){
+     const guard=sanitizeForCloud(routingMessage);
+     const safety=assertCloudSafe(guard.safeText,guard.mapping);
+     if(!safety.ok){
+      console.log(`[cloud-intent] blocked-by-guard reason=${safety.reason}`);
+      intentAiProvider='local-guard';
+     }else{
+      cloudGuard=guard;
+      try{
+       const cloudPlan=await cloudInterpret(guard.safeText);
+       const restored=restoreLocalReferences(cloudPlan,guard.mapping);
+       if(restored===null){
+        console.log('[cloud-intent] fallback reason=unresolved-reference');
+        intentAiProvider='local-fallback';
+       }else{
+        plan=restored;intentAiProvider='cloud';
+       }
+      }catch(err){
+       console.log('[cloud-intent] fallback reason=provider-error');
+       intentAiProvider='local-fallback';
+      }
+     }
+    }
+    if(!plan){
+     ollamaCalls=1;plan=await interpret(routingMessage);
+    }
     if(plan.action==='clarify')return respond({answer:'ต้องการจำนวน รายชื่อ หรือแยกยอดตามพื้นที่ใดครับ? กรุณาระบุประเภทบุคคลและพื้นที่ที่ต้องการ',grounded:false,dataSource:'real',meta:{fastPath:false,ollamaCalls,responseTimeMs:Date.now()-start}});
     if(plan.action==='group'){ranking=[routingMessage,plan.group,alphaOrder?'alpha':explicitCountOrder||'alpha'];showAll=true;}
    }

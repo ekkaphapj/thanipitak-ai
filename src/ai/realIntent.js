@@ -34,6 +34,25 @@ function coercePlan(plan) {
   return out;
 }
 
+// Shared plan validation: the same rules run on local Ollama output and on
+// cloud (OpenRouter) output. Label names the source in officer-facing
+// error messages.
+function validatePlan(plan, label = 'Local AI') {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan) || Object.keys(plan).some((key) => !schema.properties[key])) {
+    throw new Error(`${label} ส่งเงื่อนไขที่ไม่รองรับ`);
+  }
+  plan = coercePlan(plan);
+  for (const key of schema.required) {
+    if (!schema.properties[key].enum.includes(plan[key])) throw new Error(`${label} ส่งเงื่อนไขไม่ถูกต้อง`);
+  }
+  for (const key of PLACE_KEYS) {
+    if (plan[key] === undefined) continue;
+    if (typeof plan[key] !== 'string' || plan[key].length > 100) throw new Error('เงื่อนไขพื้นที่ไม่ถูกต้อง');
+    if (/select\s|insert\s|drop\s|;|--/i.test(plan[key])) throw new Error('เงื่อนไขพื้นที่ไม่ถูกต้อง');
+  }
+  return plan;
+}
+
 async function interpretRealIntent(message, { request = fetch } = {}) {
   const response = await request(new URL('/api/chat', process.env.OLLAMA_HOST || 'http://127.0.0.1:11434'), {
     method: 'POST',
@@ -63,19 +82,7 @@ async function interpretRealIntent(message, { request = fetch } = {}) {
   } catch {
     throw new Error('Local AI แปลคำถามไม่สำเร็จ กรุณาระบุประเภทบุคคลหรือพื้นที่เพิ่ม');
   }
-  if (!plan || typeof plan !== 'object' || Object.keys(plan).some((key) => !schema.properties[key])) {
-    throw new Error('Local AI ส่งเงื่อนไขที่ไม่รองรับ');
-  }
-  plan = coercePlan(plan);
-  for (const key of schema.required) {
-    if (!schema.properties[key].enum.includes(plan[key])) throw new Error('Local AI ส่งเงื่อนไขไม่ถูกต้อง');
-  }
-  for (const key of PLACE_KEYS) {
-    if (plan[key] === undefined) continue;
-    if (typeof plan[key] !== 'string' || plan[key].length > 100) throw new Error('เงื่อนไขพื้นที่ไม่ถูกต้อง');
-    if (/select\s|insert\s|drop\s|;|--/i.test(plan[key])) throw new Error('เงื่อนไขพื้นที่ไม่ถูกต้อง');
-  }
-  return plan;
+  return validatePlan(plan);
 }
 
-module.exports = { interpretRealIntent, schema, coercePlan };
+module.exports = { interpretRealIntent, validatePlan, schema, coercePlan };

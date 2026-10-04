@@ -5,12 +5,17 @@
   const SOURCE_KEY = 'tp_data_source';
   const REFRESH_KEY = 'tp_refresh_token';
   const EXPIRY_KEY = 'tp_token_expires_at';
+  const PROVIDER_KEY = 'tp_ai_provider';
   const CLIENT_TIMEOUT_MS = 180000;
 
   const state = {
     token: localStorage.getItem(TOKEN_KEY) || null,
     dataSource: localStorage.getItem(SOURCE_KEY) === 'real' ? 'real' : 'test',
     tokenExpiresAt: Number(localStorage.getItem(EXPIRY_KEY)) || null,
+    // Preference only. The server re-checks env config and the privacy
+    // guard on every request; this flag can ask for cloud, never force it.
+    aiProvider: localStorage.getItem(PROVIDER_KEY) === 'cloud' ? 'cloud' : 'local',
+    cloudAiAvailable: false,
     user: null,
     aiAvailable: null,
     aiModel: 'scb10x/llama3.1-typhoon2-8b-instruct:latest',
@@ -217,11 +222,32 @@
     }
   }
 
+  function renderAiProvider() {
+    const box = $('#ai-provider-switch');
+    const note = $('#ai-provider-note');
+    if (!box || !note) return;
+    // The switch only appears when the server reports a configured cloud
+    // provider; an unconfigured pilot keeps the familiar local-only UI.
+    box.classList.toggle('hidden', !state.cloudAiAvailable);
+    $('#ai-provider-local').setAttribute('aria-pressed', String(state.aiProvider !== 'cloud'));
+    $('#ai-provider-cloud').setAttribute('aria-pressed', String(state.aiProvider === 'cloud'));
+    note.classList.toggle('hidden', state.aiProvider !== 'cloud' || !state.cloudAiAvailable);
+  }
+
+  function setAiProvider(provider) {
+    state.aiProvider = provider === 'cloud' ? 'cloud' : 'local';
+    if (state.aiProvider === 'cloud') localStorage.setItem(PROVIDER_KEY, 'cloud');
+    else localStorage.removeItem(PROVIDER_KEY);
+    renderAiProvider();
+  }
+
   async function loadAiStatus() {
     try {
       const json = await api('/api/ai/status');
       state.aiModel = json.model || state.aiModel;
+      state.cloudAiAvailable = json.cloudAvailable === true;
       renderAiStatus(json.available);
+      renderAiProvider();
       renderUser();
     } catch (_) {
       renderAiStatus(false);
@@ -2270,6 +2296,9 @@
     }, CLIENT_TIMEOUT_MS);
 
     const chatBody = window.ChatContext.buildChatBody(message, state.selectedPerson, state.conversationTopic, ordinalResolution.reference);
+    // Advisory provider preference for the cloud intent trial. The backend
+    // gates it on server config and the privacy guard regardless.
+    if (state.aiProvider === 'cloud' && state.cloudAiAvailable) chatBody.ai_provider = 'cloud';
     // This authenticated preflight is classification only: it neither reads
     // registry data nor calls a model.  Starting the cue before /ai/chat
     // ensures it is heard only when the ensuing request will use Local AI.
@@ -2318,6 +2347,21 @@
           tools.className = 'msg-tools';
           tools.textContent = 'ตรวจสอบข้อมูลจาก: ' + toolNames.join(', ');
           wrap.insertBefore(tools, wrap.querySelector('.msg-time'));
+        }
+        // Transparency for the cloud trial: state which engine parsed the
+        // command and why a safer fallback ran, without echoing content.
+        if (json.meta && json.meta.aiProvider) {
+          const providerNote = {
+            cloud: 'แปลงคำถามด้วย Cloud AI (OpenRouter) • ข้อมูลบุคคลไม่ถูกส่งออก',
+            'local-fallback': 'Cloud AI ไม่พร้อมใช้งาน ระบบกำลังใช้ Local AI',
+            'local-guard': 'พบข้อมูลส่วนบุคคลในคำถาม ใช้ Local AI เพื่อความปลอดภัย',
+          }[json.meta.aiProvider];
+          if (providerNote) {
+            const note = document.createElement('div');
+            note.className = 'msg-tools';
+            note.textContent = providerNote;
+            wrap.insertBefore(note, wrap.querySelector('.msg-time'));
+          }
         }
 
         if (json.presentation && json.presentation.type === 'person_list') {
@@ -2486,6 +2530,8 @@
     });
 
     bindMicButton();
+    $('#ai-provider-local').addEventListener('click', () => setAiProvider('local'));
+    $('#ai-provider-cloud').addEventListener('click', () => setAiProvider('cloud'));
     $('#voice-assistant-btn').addEventListener('click', () => { openVoiceAssistant(); });
     $('#voice-assistant-close').addEventListener('click', closeVoiceAssistant);
     $('#voice-speaker-test').addEventListener('click', () => { testSpeakerOutput(); });

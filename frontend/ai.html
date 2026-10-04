@@ -48,6 +48,11 @@
 
     <div class="sidebar-foot">
       <div id="ai-status" class="ai-status status-unknown">กำลังตรวจสอบ Local AI…</div>
+      <div id="ai-provider-switch" class="ai-provider-switch hidden" role="group" aria-label="เลือกโหมด AI">
+        <button id="ai-provider-local" type="button" aria-pressed="true">Local AI</button>
+        <button id="ai-provider-cloud" type="button" aria-pressed="false">Cloud AI <small>OpenRouter</small></button>
+      </div>
+      <div id="ai-provider-note" class="ai-provider-note hidden" role="status">Cloud AI ใช้เฉพาะการวิเคราะห์คำสั่ง ข้อมูลบุคคลและข้อมูลลับจะไม่ถูกส่งออกจากระบบ</div>
       <div class="user-box">
         <div id="user-name" class="user-name">-</div>
         <div id="user-meta" class="user-meta"></div>

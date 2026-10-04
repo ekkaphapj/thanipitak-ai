@@ -1,5 +1,65 @@
 # Coding agent handoff — current as of 2026-10-04
 
+## Latest continuation — 2026-10-04 Cloud AI (OpenRouter) intent trial
+
+Owner-requested CONTROL-PLANE/DATA-PLANE split, built on top of the existing
+real interpreter path (no rewrite). Full `npm test`: **547 tests, 27 suites,
+0 failures** (new `tests/cloudIntent.test.js`, 15 tests; all network calls
+mocked — no key, no registry, no live model).
+
+- **What cloud does**: only intent parsing / tool-call JSON for the real-mode
+  interpreter fallback. The structured output is the *existing* validated
+  plan schema (action/person_type/group/places/search) — the schema enums
+  already are the allowlisted tool list; cloud output goes through the same
+  `validatePlan` as local Ollama output, and authorization/scope stay 100 %
+  server-side (unchanged). Cloud never sees registry rows, tokens, scopes or
+  tool results — the data plane is untouched.
+- **`src/ai/privacyGuard.js`** (default deny): `sanitizeForCloud()` replaces
+  national IDs (13-digit, Thai digits too), phones, emails, long numbers,
+  title-prefixed names, cue-introduced names (ค้นหา/ใครชื่อ/คนชื่อ/ชื่อ/นามสกุล,
+  with รายชื่อ/ชื่ออะไร/ชื่อ สภ. exclusions) and `filters.query` names from
+  the deterministic layer with `[PERSON_n]`/`[NATIONAL_ID_n]`/`[PHONE_n]`/
+  `[EMAIL_n]`/`[NUMBER_n]`; the mapping lives in request memory only.
+  `assertCloudSafe()` re-scans the exact outbound string (mapping-leak, digit,
+  email, JWT, credential, title-name, uncued-name checks) — any doubt blocks
+  the request. `restoreLocalReferences()` puts real values back into the
+  validated plan server-side; an unresolved/mangled placeholder fails closed
+  to Local AI.
+- **`src/ai/openRouter.js`**: env-only config (`CLOUD_AI_ENABLED`,
+  `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL`,
+  `OPENROUTER_TIMEOUT_MS` default 15 s, `CLOUD_AI_SAFE_DEBUG`). The key never
+  reaches the frontend or localStorage; calls are backend-only to
+  `https://openrouter.ai/api/v1/chat/completions` (https enforced), JSON mode,
+  temperature 0. Invalid JSON retries once then falls back; provider errors
+  fail fast to Local AI. The cloud system prompt is the interpreter prompt
+  with its fictional example names placeholderized
+  (`CLOUD_INTERPRETER_PROMPT` in domainCatalog) plus opaque-placeholder
+  rules — a captured outbound payload contains no person names at all.
+- **Route wiring** (`realDataRoutes.js`, interpret fallback site): client
+  `ai_provider:'cloud'` is advisory; server re-checks env + guard every
+  request, falls back to local on guard block / provider error / unresolved
+  refs, and stamps `meta.aiProvider` (`cloud`/`local-fallback`/`local-guard`)
+  on the answer. `/ai/status` reports `cloudAvailable` + `cloudModel` (never
+  the key). Journald audit lines are numbers-only (`[cloud-intent] ok ms=…
+  model=… action=…`); utterances/mappings are never logged.
+- **UI**: sidebar Local AI / Cloud AI (OpenRouter) switch, visible only when
+  the server reports cloud configured; privacy note when cloud is selected;
+  per-answer badge states which engine parsed the command and why a
+  fallback ran. Preference persists in `tp_ai_provider` (a wish, not
+  authorization).
+- **Enabling on the pilot** (currently inert): `sudo systemctl edit
+  thanipitak-ai` with `CLOUD_AI_ENABLED=true`,
+  `OPENROUTER_API_KEY=…`, `OPENROUTER_MODEL=…` then
+  `sudo systemctl restart thanipitak-ai`. No key exists in the repo, .env or
+  unit templates.
+- **Known limitations**: Thai bare-name detection relies on cue words/titles
+  + the deterministic `filters.query` classifier — a completely uncued bare
+  name that also dodges every deterministic detector could reach the guard's
+  UNCUED_NAME check only if no cue word precedes it (assertCloudSafe still
+  blocks title/cue shapes); test-mode intent router is not cloud-wired (real
+  interpreter only); admin-UI toggles and token-usage accounting are future
+  work; the trial has not run against a real OpenRouter key yet.
+
 ## Latest continuation — 2026-10-04 STT Phase 0+1 (measurement + server fast path)
 
 Owner approved Phase 0+1 of `docs/stt-client-first-design.md`. Implemented on

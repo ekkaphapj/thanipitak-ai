@@ -97,8 +97,10 @@ describe('STEP 2.5 selected-person context (pure logic)', () => {
     for (const m of setItems) {
       const snippet = AI_JS.slice(m.index, m.index + 40);
       // REFRESH_KEY/EXPIRY_KEY are session credentials of the same class as
-      // the access token itself; selection/person data is still never persisted.
-      assert.ok(/^localStorage\.setItem\((TOKEN_KEY|SOURCE_KEY|REFRESH_KEY|EXPIRY_KEY)/.test(snippet), 'only session credentials and source preference may be persisted: ' + snippet);
+      // the access token itself; PROVIDER_KEY is a UI preference like
+      // SOURCE_KEY (a wish, re-validated server-side). Selection/person
+      // data is still never persisted.
+      assert.ok(/^localStorage\.setItem\((TOKEN_KEY|SOURCE_KEY|REFRESH_KEY|EXPIRY_KEY|PROVIDER_KEY)/.test(snippet), 'only session credentials and UI preferences may be persisted: ' + snippet);
     }
     assert.ok(!/localStorage[^;\n]*selectedPerson/.test(AI_JS), 'selection must never touch localStorage');
     // Logout path must clear the selection.

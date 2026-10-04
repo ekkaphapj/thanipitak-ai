@@ -135,3 +135,10 @@ body{font-family:"Leelawadee UI","Noto Sans Thai","Segoe UI",Tahoma,sans-serif;l
 .chart-help-list button:hover { background: #dbeafe; }
 .chart-help-list button:focus-visible, .chart-controls button:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
 @media (max-width: 520px) { .chat-chart, .chart-help { padding: 14px; } .chart-head { flex-direction: column; gap: 4px; } .chart-bar-row { grid-template-columns: minmax(85px, 35%) 1fr 45px; gap: 7px; } }
+
+/* Cloud AI (OpenRouter) trial switch — mirrors the source-switch look. */
+.ai-provider-switch { display: flex; padding: 4px; margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; background: #f5f4f1; gap: 4px; }
+.ai-provider-switch button { border: 0; background: transparent; padding: 8px 10px; min-height: 38px; border-radius: 9px; color: #666; cursor: pointer; font: inherit; font-size: 12px; }
+.ai-provider-switch button[aria-pressed=true] { background: #fff; color: #9f2028; box-shadow: 0 1px 5px #00000012; font-weight: 700; }
+.ai-provider-switch small { font-size: 10px; color: #777; margin-left: 4px; }
+.ai-provider-note { margin-top: 8px; font-size: 11px; line-height: 1.5; color: #777; }

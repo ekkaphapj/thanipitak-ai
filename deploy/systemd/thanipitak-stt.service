@@ -27,11 +27,15 @@ Environment=STT_DEVICE=cuda
 Environment=STT_COMPUTE=int8_float16
 Environment=STT_BEAM=5
 Environment=STT_IDLE_UNLOAD_MIN=10
-ExecStart=/home/ekkaphap/thanipitak-ai/.venv-stt/bin/python scripts/stt-server.py
+ExecStart=/home/ekkaphap/thanipitak-ai/.venv-stt/bin/python /home/ekkaphap/thanipitak-ai/scripts/stt-server.py
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=300
 KillSignal=SIGTERM
+# Hardening kept from the originally installed unit.
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

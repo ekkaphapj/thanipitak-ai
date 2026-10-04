@@ -200,10 +200,10 @@ if __name__ == "__main__":
     if HOST not in ("127.0.0.1", "localhost", "::1"):
         print("STT must bind loopback only", file=sys.stderr)
         sys.exit(1)
-    print(f"[stt] loading {MODEL_NAME} on {DEVICE}/{COMPUTE} …")
+    print(f"[stt] loading {MODEL_NAME} on {DEVICE}/{COMPUTE} …", flush=True)
     load_model()
     if IDLE_UNLOAD_MIN > 0:
         threading.Thread(target=idle_watchdog, daemon=True).start()
-        print(f"[stt] idle unload after {IDLE_UNLOAD_MIN:g} min")
-    print(f"[stt] listening http://{HOST}:{PORT}")
+        print(f"[stt] idle unload after {IDLE_UNLOAD_MIN:g} min", flush=True)
+    print(f"[stt] listening http://{HOST}:{PORT}", flush=True)
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")

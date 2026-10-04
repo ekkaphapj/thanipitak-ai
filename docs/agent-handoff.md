@@ -70,6 +70,25 @@ mocked — no key, no registry, no live model).
   see the Local/Cloud switch. Model swap = edit the drop-in env + restart;
   `/home/ekkaphap/test-cloud-intent.js` (and `…2.js`, 6-case comparison)
   re-run the live check using the app's own modules.
+- **Live A/B evidence (2026-10-04, frozen holdout-150, same prompt/schema,
+  scripts on the pilot: `/home/ekkaphap/compare-intent.js`,
+  `/home/ekkaphap/ambiguity-intent.js`)**: local `qwen3:8b-q6` scored
+  **92.7%** exact-plan at avg 1,012 ms (search 18/20, clarify 4/10);
+  cloud `glm-5.3-flashx` scored **86.0%** at avg 2,824 ms after two
+  fairness fixes (reasoning ate the old 400 max_tokens → 13 truncated
+  JSONs, now 2000 → 2 timeouts; guard now normalizes captured names and
+  keeps person-type vocabulary visible). Cloud is *perfect* on
+  group/ranking (60/60 vs 58/60), ties count (32/32) and list (27/28),
+  wins informal/Isan phrasings and spoken-number fragments in the
+  ambiguity suite, but is clearly weaker on name searches (7/20 — it
+  copies surrounding context into the search value around placeholders,
+  and unspaced Thai defeats cue segmentation) and tends to *guess* where
+  local asks a clarify question (ใครบ้าง/มีคนไหม). Ambiguity suite:
+  local 7/10, cloud 7/9 (+1 timeout). Net: local remains the smarter
+  default for this interpreter; cloud is a solid fallback with different
+  strengths. Deterministic routing in front of the model absorbs most
+  traffic, and name searches mostly resolve before the model, so the
+  cloud search weakness is narrower in production than in this bench.
 - **Known limitations**: Thai bare-name detection relies on cue words/titles
   + the deterministic `filters.query` classifier — a completely uncued bare
   name that also dodges every deterministic detector could reach the guard's

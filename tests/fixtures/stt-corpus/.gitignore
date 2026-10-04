@@ -1,0 +1,7 @@
+# Owner-recorded audio and the real manifest never enter git.
+*.wav
+*.webm
+*.m4a
+*.mp3
+*.ogg
+manifest.json

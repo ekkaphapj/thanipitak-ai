@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import wave
 from pathlib import Path
 
@@ -23,6 +24,9 @@ PORT = int(os.environ.get("STT_PORT", "8178"))
 MODEL_NAME = os.environ.get("STT_MODEL", "Vinxscribe/biodatlab-whisper-th-medium-faster")
 DEVICE = os.environ.get("STT_DEVICE", "cpu")
 COMPUTE = os.environ.get("STT_COMPUTE", "int8")
+# Beam width. 8 is the historical CPU default; STT_BEAM=5 is the tuned value
+# once the model runs on a GPU (see docs/stt-client-first-design.md §5).
+BEAM = max(1, min(8, int(os.environ.get("STT_BEAM", "8"))))
 MAX_SECONDS = 45.0
 # A conservative quality gate: if Whisper itself reports predominantly low
 # confidence or silence, return no usable transcript so the UI asks the
@@ -90,6 +94,19 @@ def to_wav(src: str, dest: str) -> None:
         raise RuntimeError("STT_BAD_AUDIO")
 
 
+def timing_block(audio_ms, ffmpeg_ms, decode_ms):
+    # Numbers and short config labels only — never transcript text — so the
+    # field-latency data can travel through logs and the app response safely.
+    return {
+        "audio_ms": int(round(audio_ms)),
+        "ffmpeg_ms": int(round(ffmpeg_ms)),
+        "decode_ms": int(round(decode_ms)),
+        "device": DEVICE,
+        "compute": COMPUTE,
+        "beam": BEAM,
+    }
+
+
 @app.post("/v1/audio/transcriptions")
 async def transcribe(file: UploadFile = File(...), language: str = Form("th")):
     if model is None:
@@ -101,29 +118,38 @@ async def transcribe(file: UploadFile = File(...), language: str = Form("th")):
         data = await file.read()
         with open(src_path, "wb") as handle:
             handle.write(data)
+        t_ffmpeg = time.perf_counter()
         to_wav(src_path, wav_path)
-        if wav_duration_seconds(wav_path) > MAX_SECONDS + 0.5:
+        ffmpeg_ms = (time.perf_counter() - t_ffmpeg) * 1000.0
+        audio_ms = wav_duration_seconds(wav_path) * 1000.0
+        if audio_ms > (MAX_SECONDS + 0.5) * 1000.0:
             return JSONResponse(status_code=400, content={"code": "AUDIO_TOO_LONG", "error": "too long"})
+        t_decode = time.perf_counter()
         segments, _info = model.transcribe(
             wav_path,
             language=language or "th",
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 400},
-            beam_size=8,
-            best_of=8,
+            beam_size=BEAM,
+            best_of=BEAM,
             temperature=0.0,
             condition_on_previous_text=False,
             without_timestamps=True,
             initial_prompt=THAI_PROMPT,
         )
         segment_list = list(segments)
+        decode_ms = (time.perf_counter() - t_decode) * 1000.0
         text = "".join(segment.text for segment in segment_list).strip()
         if not text:
-            return {"text": "", "quality": {"accepted": False}}
+            return {"text": "", "quality": {"accepted": False}, "timing": timing_block(audio_ms, ffmpeg_ms, decode_ms)}
         avg_logprob = sum(segment.avg_logprob for segment in segment_list) / len(segment_list)
         no_speech_prob = max(segment.no_speech_prob for segment in segment_list)
         accepted = avg_logprob >= MIN_AVG_LOGPROB and no_speech_prob <= MAX_NO_SPEECH_PROB
-        return {"text": text, "quality": {"accepted": accepted}}
+        return {
+            "text": text,
+            "quality": {"accepted": accepted},
+            "timing": timing_block(audio_ms, ffmpeg_ms, decode_ms),
+        }
     except RuntimeError:
         return JSONResponse(status_code=400, content={"code": "STT_BAD_AUDIO", "error": "cannot decode audio"})
     finally:

@@ -4,7 +4,7 @@
 |---|---|
 | **Document** | STT v2 — device-side first, server fallback, server fast path |
 | **Date** | 2026-10-04 |
-| **Status** | Design (awaiting owner decisions in §9; no code yet) |
+| **Status** | Phase 0+1 implemented 2026-10-04 (timing instrumentation, STT_BEAM/Opus-24k recording, tracked GPU systemd template, CER bake-off harness). GPU activation on the pilot + turbo model swap still pending the §7 Phase 1 gates. |
 | **Branch** | `phase-3.3-low-latency` |
 | **Supersedes** | Performance/latency sections of `docs/local-voice-stt.md` v1 (privacy invariants unchanged) |
 

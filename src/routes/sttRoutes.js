@@ -8,6 +8,20 @@ const { correctTranscript } = require('../stt/correctTranscript');
 const MAX_MESSAGE_LENGTH = 2000;
 const AUDIO_TYPE = /^audio\/(webm|mp4|mpeg|wav|ogg|x-wav|wave)(;.*)?$/i;
 
+// Second whitelist at the route: even an injected/custom client can only
+// ever emit round numbers and short labels here.
+function responseTiming(t) {
+  if (!t || typeof t !== 'object') return undefined;
+  const out = {};
+  for (const key of ['audio_ms', 'ffmpeg_ms', 'decode_ms']) {
+    if (Number.isFinite(t[key])) out[key] = Math.round(t[key]);
+  }
+  for (const key of ['device', 'compute']) {
+    if (typeof t[key] === 'string' && t[key].length > 0 && t[key].length <= 40) out[key] = t[key];
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 function createSttRoutes(options = {}) {
   const client = createSttClient(options);
   const router = express.Router();
@@ -33,11 +47,22 @@ function createSttRoutes(options = {}) {
     if (body.length > config.stt.maxBytes) {
       return res.status(413).json({ error: 'ไฟล์เสียงใหญ่เกินกำหนด กรุณาพูดใหม่ให้สั้นลง', code: 'AUDIO_TOO_LARGE' });
     }
+    const startedAt = Date.now();
     try {
       const result = await client.transcribe(body, type);
       const transcript = correctTranscript(String(result && result.text ? result.text : '')).slice(0, MAX_MESSAGE_LENGTH);
+      // Numbers-only latency line for field diagnosis; transcript text never
+      // enters the log.
+      if (result && result.timing) {
+        console.log('[stt] ok bytes=' + body.length
+          + ' total_ms=' + (Date.now() - startedAt)
+          + ' decode_ms=' + (Number.isFinite(result.timing.decode_ms) ? result.timing.decode_ms : '?')
+          + ' ffmpeg_ms=' + (Number.isFinite(result.timing.ffmpeg_ms) ? result.timing.ffmpeg_ms : '?')
+          + ' device=' + (result.timing.device || '?'));
+      }
+      const timing = responseTiming(result && result.timing);
       if (!transcript) {
-        return res.json({ transcript: '', language: config.stt.language, code: 'EMPTY_TRANSCRIPT' });
+        return res.json({ transcript: '', language: config.stt.language, code: 'EMPTY_TRANSCRIPT', timing });
       }
       if (result && result.quality && result.quality.accepted === false) {
         return res.status(422).json({
@@ -45,7 +70,7 @@ function createSttRoutes(options = {}) {
           code: 'STT_LOW_CONFIDENCE',
         });
       }
-      return res.json({ transcript, language: config.stt.language });
+      return res.json({ transcript, language: config.stt.language, timing });
     } catch (err) {
       const http = err && err.http;
       if (http && http.status) {

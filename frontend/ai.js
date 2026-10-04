@@ -935,7 +935,12 @@
       if (event && event.currentTarget && event.pointerId != null) {
         try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
       }
-      micCtl.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Mono speech at a speech bitrate keeps clips small; the STT server
+      // downmixes to 16 kHz mono anyway, so stereo buys nothing but upload
+      // time (docs/stt-client-first-design.md §5.4).
+      micCtl.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
       if (!micCtl.held) {
         // The officer released while permission/capture was starting.
         micCtl.stream.getTracks().forEach((track) => track.stop());
@@ -952,7 +957,10 @@
     }
     const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
     micCtl.chunks = [];
-    micCtl.recorder = mime ? new MediaRecorder(micCtl.stream, { mimeType: mime }) : new MediaRecorder(micCtl.stream);
+    // 24 kbps Opus mono is ample for 16 kHz speech recognition and roughly
+    // halves the upload versus the browser's music default.
+    const recorderOptions = mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 };
+    micCtl.recorder = new MediaRecorder(micCtl.stream, recorderOptions);
     micCtl.recorder.addEventListener('dataavailable', (ev) => {
       if (ev.data && ev.data.size) micCtl.chunks.push(ev.data);
     });

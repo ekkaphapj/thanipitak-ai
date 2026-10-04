@@ -1,5 +1,45 @@
 # Coding agent handoff — current as of 2026-10-04
 
+## Latest continuation — 2026-10-04 STT Phase 0+1 (measurement + server fast path)
+
+Owner approved Phase 0+1 of `docs/stt-client-first-design.md`. Implemented on
+`phase-3.3-low-latency`; full `npm test`: **532 tests, 27 suites, 0 failures**
+(new files `tests/sttTiming.test.js`, `tests/sttBakeoff.test.js`; all STT
+paths tested with injected/mocked clients — no live model, no audio, no
+credentials).
+
+- **Phase 0 instrumentation**: `scripts/stt-server.py` now returns a
+  numbers-only `timing {audio_ms, ffmpeg_ms, decode_ms, device, compute,
+  beam}` block on every transcription (including empty-text); `src/stt/client.js`
+  `pickTiming()` and a second whitelist in `src/routes/sttRoutes.js` copy
+  only round numbers and ≤40-char labels, so transcript text can never ride
+  the timing channel. The Node log gains `[stt] ok bytes=… total_ms=…
+  decode_ms=… ffmpeg_ms=… device=…` per successful call — one week of
+  journald data now ranks the real bottleneck in the field. The response
+  body carries `timing` for direct curl probes.
+- **Phase 1 flags (defaults unchanged until the pilot unit flips them)**:
+  `STT_BEAM` env (1–8, default 8; tuned value 5 for GPU) in stt-server.py;
+  the browser records mono Opus at 24 kbps (`audioBitsPerSecond` +
+  `channelCount:1` constraints) to cut upload size; tracked
+  `deploy/systemd/thanipitak-stt.service` template now exists with
+  `STT_DEVICE=cuda`, `STT_COMPUTE=int8_float16`, `STT_BEAM=5` and a
+  documented CPU fallback line. VRAM budget and the "no 14B while STT is
+  GPU-resident" rule are written in the unit comments.
+- **Bake-off harness**: `src/stt/cer.js` (Thai normalize + char-level
+  Levenshtein CER — Thai has no inter-word spaces, WER is meaningless),
+  `src/stt/bakeoff.js` (manifest validation with pinned SHA-256 +
+  summarization), `scripts/stt-bakeoff.js` CLI (loopback-only URL guard,
+  raw engine output — deliberately NO correctTranscript repairs — per-run
+  CER/latency stats, worst-five phrases). Corpus format lives in
+  `tests/fixtures/stt-corpus/README.md` with `manifest.example.json`;
+  audio + real manifest are gitignored (owner records 30–60 synthetic-name
+  phrases ×3 takes; never real registry persons).
+- **Still pending for Phase 1 completion**: flip the pilot STT unit to the
+  GPU template (needs sudo on the box), watch VRAM for a week, and run the
+  turbo-vs-medium model swap **only after** the owner records the frozen
+  corpus and turbo wins the bake-off (§7 gates). Browser users need
+  Ctrl+F5 for the new recording settings.
+
 ## Latest continuation — 2026-10-04 STT client-first design (no code yet)
 
 Owner reported the pilot Whisper STT is slow and Thai accuracy is weak, and

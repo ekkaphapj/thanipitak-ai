@@ -129,6 +129,22 @@ function parseUpstreamError(status, body) {
   return { status: 503, code: 'STT_UNAVAILABLE', error: 'ระบบแปลงเสียงในเครื่องยังไม่พร้อม กรุณาพิมพ์คำถามได้ตามปกติ' };
 }
 
+// Whitelist-copy the upstream latency block. Only round numbers and short
+// config labels survive; a hostile or buggy upstream can never smuggle
+// transcript text into the timing channel.
+function pickTiming(json) {
+  const t = json && json.timing;
+  if (!t || typeof t !== 'object') return undefined;
+  const out = {};
+  for (const key of ['audio_ms', 'ffmpeg_ms', 'decode_ms']) {
+    if (Number.isFinite(t[key])) out[key] = Math.round(t[key]);
+  }
+  for (const key of ['device', 'compute']) {
+    if (typeof t[key] === 'string' && t[key].length > 0 && t[key].length <= 40) out[key] = t[key];
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 async function defaultTranscribe(buffer, contentType) {
   if (!effectiveEnabled()) {
     const err = new Error('stt unavailable');
@@ -180,6 +196,7 @@ async function defaultTranscribe(buffer, contentType) {
     quality: json && json.quality && typeof json.quality === 'object'
       ? { accepted: json.quality.accepted !== false }
       : undefined,
+    timing: pickTiming(json),
   };
 }
 
@@ -217,4 +234,4 @@ function createSttClient(options = {}) {
   };
 }
 
-module.exports = { isAllowedSttUrl, createSttClient };
+module.exports = { isAllowedSttUrl, createSttClient, pickTiming };

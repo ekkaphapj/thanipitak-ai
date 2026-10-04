@@ -1,0 +1,31 @@
+[Unit]
+Description=ThaniPitak local STT (faster-whisper, loopback only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ekkaphap
+Group=ekkaphap
+WorkingDirectory=/home/ekkaphap/thanipitak-ai
+# Loopback only — the app proxies authenticated audio here; never expose
+# this port through Caddy or the Cloudflare Tunnel.
+Environment=STT_BIND=127.0.0.1
+Environment=STT_PORT=8178
+# Phase 1 fast path (docs/stt-client-first-design.md §5): run Whisper on
+# the RTX 3060 beside Ollama (~7 GB), int8_float16 needs ~1.2 GB VRAM.
+# VRAM rules while this is active: keep Ollama keep_alive at 30m and do
+# NOT pull/load 14B-class models on this GPU.
+# If CUDA/cuDNN is missing on a box, fall back with:
+#   STT_DEVICE=cpu STT_COMPUTE=int8 STT_BEAM=8
+Environment=STT_DEVICE=cuda
+Environment=STT_COMPUTE=int8_float16
+Environment=STT_BEAM=5
+ExecStart=/home/ekkaphap/thanipitak-ai/.venv-stt/bin/python scripts/stt-server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=300
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

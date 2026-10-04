@@ -1,6 +1,44 @@
-# Coding agent handoff — current as of 2026-09-28
+# Coding agent handoff — current as of 2026-10-04
 
-## Latest continuation — 2026-09-28 chart guide and commands
+## Latest continuation — 2026-10-04 real-data session token refresh
+
+Owner asked to continue development from the backlog; the token refresh item
+(former "Next / still limited" #4) is now implemented on
+`phase-3.3-low-latency`. Full `npm test` after the work: **523 tests, 27
+suites, 0 failures** (new file `tests/realAuthRefresh.test.js`, 5 tests; the
+localStorage guard in `tests/aiChatContext.test.js` now also allows the two
+new session-credential keys). All Supabase interaction in the tests is
+mocked; no real credentials, no live registry read, and no live model were
+used.
+
+- Server: `POST /api/auth/refresh` (real source router only) accepts
+  `{refreshToken}`, exchanges it at Supabase
+  `/auth/v1/token?grant_type=refresh_token` with the anon key, then re-runs
+  the whole `profile()` verification (auth user, `users` row, station row,
+  Edge Function `ai-access-scope`). A rejected grant is 401, a missing/blank
+  token is 400, a Supabase outage is 502, and a valid grant for an account
+  that no longer has privileges (demoted/External/deleted `users` row) is
+  403 with no token in the body — refresh fails closed and never widens
+  access. `/login` now also returns `refreshToken` and `expiresIn` when
+  Supabase provides them.
+- Frontend (`frontend/ai.js`): stores `tp_refresh_token` and
+  `tp_token_expires_at` beside `tp_token`. On a real-source 401 the chat,
+  STT, and report-download paths refresh once (single-flight) and retry the
+  original request; the auth endpoints never refresh, so a wrong password
+  cannot resurrect an old session from a stored refresh token. A 60 s timer
+  refreshes proactively within 5 minutes of expiry. Every intentional
+  logout, source switch, and rejected session clears the refresh token and
+  expiry, not just the access token.
+- Deliberate decisions: the refresh token is persisted in localStorage like
+  the access token (same threat model as supabase-js defaults; Supabase
+  rotation makes a stolen copy single-use); test-mode sessions are unchanged
+  and never refresh; `aiScope` is still rebuilt server-side per request, so
+  the refresh flow adds no new authorization surface.
+- Not yet deployed to the Ubuntu pilot (no SSH/deploy was performed in this
+  task). Deploy with the usual `git pull --ff-only` + `thanipitak-ai`
+  restart; browsers need Ctrl+F5 for the new `ai.js`.
+
+## Continuation — 2026-09-28 chart guide and commands
 
 Current development/deployment branch is **`phase-3.3-low-latency`**. The dated
 pilot sections below are historical; the 2026-09-26 introduction/overview work
@@ -362,7 +400,7 @@ Official DDL (tables only): workspace root `THANI PITAK-new.sql`. Do not execute
 - `src/app.js` order: real auth for `X-Data-Source: real` → **STT** (`POST /api/stt/transcribe` raw-then-auth, `GET /api/stt/status`) → real data interceptor → test routes. Missing source = test. Unsupported real paths 409; never fall back to fixtures.
 - Frontend: `frontend/ai.html`, `ai.js`, `voiceInput.js`, `chatContext.js`, `ai.css` + `ai-refresh.css`. No bundler. `tp_token` / `tp_data_source` in localStorage. Selected person and conversation topic are **memory only**. Source header on chat, PDF, Excel, STT. Source switch logs out.
 - Test AI: `src/routes/aiRoutes.js` → `src/ai/gateway.js` (summary → export → monitoring → person facts → name → analysis → fastPath → Ollama). Tools hit SQLite via `toolRouter.js`.
-- Real auth: `src/routes/realAuthRoutes.js`. Password grant `${username}@thaniphitak.local`, `/auth/v1/user`, `users` by `auth_id`, `stations` by parsed `station_id`. `stationId` coerced with `parseStationId` (string `"2"` → `2`). Token is the Supabase access token, not the test JWT. No refresh-token flow.
+- Real auth: `src/routes/realAuthRoutes.js`. Password grant `${username}@thaniphitak.local`, `/auth/v1/user`, `users` by `auth_id`, `stations` by parsed `station_id`. `stationId` coerced with `parseStationId` (string `"2"` → `2`). Token is the Supabase access token, not the test JWT. Session renewal: `POST /api/auth/refresh` plus client 401 retry and a proactive expiry timer (2026-10-04).
 - Real data: `src/routes/realDataRoutes.js`, `src/services/realRegistryRead.js`, `src/services/stationScope.js`. Allowlisted GETs with user token. **If `users.station_id` is set, every people/visits/report query is `station_id=eq.<id>` even when `user_type` is Admin.** Stationless non-admin is deny. Stationless Admin may still be province-wide (RLS). Rows with a mismatched `station_id` are dropped after fetch.
 - Interpreter: `src/ai/realIntent.js` + `src/ai/domainCatalog.js`. Ollama JSON schema, `think:false`, temp 0, 260 tokens, 60s. Question only. Validate enums; coerce bad `group` to `clarify`. No model SQL.
 - Reports: `src/services/reportService.js` + `excelReport.js` + `src/ai/exportIntent.js`. Test: `POST /api/reports/summary.pdf` and `/summary.xlsx`. Real: same paths on the real router. Temp file, download, unlink. No `id_card` / phones.
@@ -489,7 +527,7 @@ After changing `OLLAMA_MODEL` or STT code, restart the matching process. Node do
 1. Reconcile real counts vs main UI with the **same** account, station, type, time, exclusions; print filters in the answer.
 2. More grammar: negation, top-N, months, `ยกเว้น` — clarify, don’t silently broaden.
 3. Real monitoring is latest visit + guardian alert only.
-4. Token refresh, External user_type, province/division-only admins (station_id null).
+4. External user_type (stationless non-admin is denied). Token refresh is done (2026-10-04); province/division-wide admins read across stations only through the server-verified `aiScope` (2026-09-22).
 5. In-flight source switch can still apply an old answer; abort + generation token.
 6. Real `/api/ai/status` still hardcodes available=true (STT has its own status).
 7. List/report cap 200; grouping/monitoring fetch up to 1000 then chunk visits.

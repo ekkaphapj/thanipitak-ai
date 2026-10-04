@@ -41,6 +41,12 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
       role: ['Admin', 'SuperAdmin', 'ผู้ดูแลระบบ'].includes(p.user_type) ? 'admin' : 'officer',
       aiScope, dataSource: 'real' };
   }
+  function sessionPayload(session, user) {
+    const payload = { token: session.access_token, user, dataSource: 'real' };
+    if (session.refresh_token) payload.refreshToken = session.refresh_token;
+    if (Number.isFinite(session.expires_in)) payload.expiresIn = session.expires_in;
+    return payload;
+  }
   router.post('/login', async (req, res) => {
     const { username, password } = req.body || {};
     if (typeof username !== 'string' || typeof password !== 'string' || !username.trim() || !password) return res.status(400).json({ error: 'กรุณาระบุชื่อผู้ใช้และรหัสผ่าน' });
@@ -53,7 +59,25 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
       const session = await result.json();
       const user = await profile(session.access_token);
       if (!user) return res.status(403).json({ error: 'ไม่พบบัญชีผู้ใช้ที่มีสิทธิ์ในระบบจริง' });
-      return res.json({ token: session.access_token, user, dataSource: 'real' });
+      return res.json(sessionPayload(session, user));
+    } catch { return res.status(502).json({ error: 'ติดต่อระบบเข้าสู่ฐานข้อมูลจริงไม่ได้ กรุณาลองใหม่' }); }
+  });
+  router.post('/refresh', async (req, res) => {
+    const { refreshToken } = req.body || {};
+    if (typeof refreshToken !== 'string' || !refreshToken.trim()) return res.status(400).json({ error: 'ไม่พบรหัสต่ออายุการเข้าสู่ระบบ' });
+    try {
+      const result = await request(`${url}/auth/v1/token?grant_type=refresh_token`, {
+        method: 'POST', headers: { apikey: key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }), signal: AbortSignal.timeout(10000),
+      });
+      if (!result.ok) return res.status(401).json({ error: 'หมดเวลาการเข้าสู่ระบบ กรุณาเข้าสู่ระบบใหม่' });
+      const session = await result.json();
+      if (!session || !session.access_token) return res.status(401).json({ error: 'หมดเวลาการเข้าสู่ระบบ กรุณาเข้าสู่ระบบใหม่' });
+      // Re-verify the whole profile after the refresh grant. A disabled or
+      // demoted account fails closed here; the new token is never issued to it.
+      const user = await profile(session.access_token);
+      if (!user) return res.status(403).json({ error: 'ไม่พบบัญชีผู้ใช้ที่มีสิทธิ์ในระบบจริง' });
+      return res.json(sessionPayload(session, user));
     } catch { return res.status(502).json({ error: 'ติดต่อระบบเข้าสู่ฐานข้อมูลจริงไม่ได้ กรุณาลองใหม่' }); }
   });
   router.get('/me', async (req, res) => {

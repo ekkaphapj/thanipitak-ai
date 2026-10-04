@@ -3,11 +3,14 @@
 
   const TOKEN_KEY = 'tp_token';
   const SOURCE_KEY = 'tp_data_source';
+  const REFRESH_KEY = 'tp_refresh_token';
+  const EXPIRY_KEY = 'tp_token_expires_at';
   const CLIENT_TIMEOUT_MS = 180000;
 
   const state = {
     token: localStorage.getItem(TOKEN_KEY) || null,
     dataSource: localStorage.getItem(SOURCE_KEY) === 'real' ? 'real' : 'test',
+    tokenExpiresAt: Number(localStorage.getItem(EXPIRY_KEY)) || null,
     user: null,
     aiAvailable: null,
     aiModel: 'scb10x/llama3.1-typhoon2-8b-instruct:latest',
@@ -77,7 +80,7 @@
     $('#chat-input').focus();
   }
 
-  async function api(path, opts = {}) {
+  async function api(path, opts = {}, allowSessionRefresh = true) {
     const headers = { ...(opts.headers || {}) };
     headers['X-Data-Source'] = state.dataSource;
     if (state.token) headers.Authorization = 'Bearer ' + state.token;
@@ -90,12 +93,72 @@
       /* empty body */
     }
     if (!res.ok) {
+      // A real-data 401 is usually an expired Supabase access token. Refresh
+      // once and retry instead of forcing the officer back to the login
+      // screen. Auth endpoints never refresh (a wrong password must not
+      // resurrect an old session through a stored refresh token).
+      if (res.status === 401 && allowSessionRefresh && state.dataSource === 'real'
+        && path !== '/api/auth/login' && path !== '/api/auth/refresh'
+        && await refreshSession()) {
+        return api(path, opts, false);
+      }
       const err = new Error((json && json.error) || 'Request failed');
       err.status = res.status;
       err.json = json;
       throw err;
     }
     return json;
+  }
+
+  function storeSession(json) {
+    state.token = json.token;
+    localStorage.setItem(TOKEN_KEY, json.token);
+    if (json.refreshToken) localStorage.setItem(REFRESH_KEY, json.refreshToken);
+    if (json.expiresIn) {
+      state.tokenExpiresAt = Date.now() + json.expiresIn * 1000;
+      localStorage.setItem(EXPIRY_KEY, String(state.tokenExpiresAt));
+    }
+  }
+
+  function clearStoredSession() {
+    state.token = null;
+    state.tokenExpiresAt = null;
+    localStorage.removeItem(TOKEN_KEY);
+    // Clearing the refresh token on every intentional logout, source switch
+    // and rejected session prevents a later user of this browser from
+    // entering the previous account without its credentials.
+    localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(EXPIRY_KEY);
+  }
+
+  let refreshInFlight = null;
+  async function refreshSession() {
+    if (state.dataSource !== 'real') return false;
+    if (!refreshInFlight) {
+      refreshInFlight = (async () => {
+        const refreshToken = localStorage.getItem(REFRESH_KEY);
+        if (!refreshToken) return false;
+        try {
+          const res = await fetch('/api/auth/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Data-Source': 'real' },
+            body: JSON.stringify({ refreshToken }),
+          });
+          if (!res.ok) return false;
+          const json = await res.json();
+          if (!json || !json.token) return false;
+          storeSession(json);
+          return true;
+        } catch (_) {
+          // Network failures are retried by the next send or the expiry
+          // timer; only a rejected grant ends the session.
+          return false;
+        } finally {
+          refreshInFlight = null;
+        }
+      })();
+    }
+    return refreshInFlight;
   }
 
   function roleLabel(role) {
@@ -731,27 +794,38 @@
   }
 
   async function transcribeAudio(blob) {
-    const headers = {
-      'X-Data-Source': state.dataSource,
-      'Content-Type': blob.type || 'audio/webm',
-    };
-    if (state.token) headers.Authorization = 'Bearer ' + state.token;
-    micCtl.abort = new AbortController();
-    const timer = setTimeout(() => micCtl.abort.abort(), 35000);
-    try {
-      const res = await fetch('/api/stt/transcribe', { method: 'POST', headers, body: blob, signal: micCtl.abort.signal });
-      let json = null;
-      try { json = await res.json(); } catch (_) { /* empty */ }
-      if (!res.ok) {
-        const err = new Error((json && json.error) || 'Request failed');
-        err.status = res.status;
-        err.json = json;
-        throw err;
+    const attempt = async () => {
+      const headers = {
+        'X-Data-Source': state.dataSource,
+        'Content-Type': blob.type || 'audio/webm',
+      };
+      if (state.token) headers.Authorization = 'Bearer ' + state.token;
+      micCtl.abort = new AbortController();
+      const timer = setTimeout(() => micCtl.abort.abort(), 35000);
+      try {
+        const res = await fetch('/api/stt/transcribe', { method: 'POST', headers, body: blob, signal: micCtl.abort.signal });
+        let json = null;
+        try { json = await res.json(); } catch (_) { /* empty */ }
+        if (!res.ok) {
+          const err = new Error((json && json.error) || 'Request failed');
+          err.status = res.status;
+          err.json = json;
+          throw err;
+        }
+        return json;
+      } finally {
+        clearTimeout(timer);
+        micCtl.abort = null;
       }
-      return json;
-    } finally {
-      clearTimeout(timer);
-      micCtl.abort = null;
+    };
+    try {
+      return await attempt();
+    } catch (err) {
+      if (err && err.status === 401 && state.dataSource === 'real' && await refreshSession()) {
+        // Blobs are reusable; only the first attempt's stream was consumed.
+        return attempt();
+      }
+      throw err;
     }
   }
 
@@ -1926,11 +2000,16 @@
     try {
       const visitPlan = requestBody.report_kind === 'visit_plan';
       const chartFile = requestBody.report_kind === 'chart';
-      const response = await fetch(visitPlan ? '/api/reports/visit-plan.pdf' : isExcel ? '/api/reports/summary.xlsx' : '/api/reports/summary.pdf', {
+      const reportPath = visitPlan ? '/api/reports/visit-plan.pdf' : isExcel ? '/api/reports/summary.xlsx' : '/api/reports/summary.pdf';
+      const doFetch = () => fetch(reportPath, {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + state.token, 'Content-Type': 'application/json', 'X-Data-Source': state.dataSource },
         body: JSON.stringify({ reportRequest: requestBody }),
       });
+      let response = await doFetch();
+      if (response.status === 401 && state.dataSource === 'real' && await refreshSession()) {
+        response = await doFetch();
+      }
       if (!response.ok) throw new Error('สร้างรายงานไม่สำเร็จ');
       const url = URL.createObjectURL(await response.blob());
       const wrap = appendMessage('assistant', isExcel ? 'สร้างรายงาน Excel แล้ว' : chartFile ? 'สร้างรายงาน PDF ของแผนภูมิแล้ว' : 'สร้างรายงาน PDF แล้ว');
@@ -2026,8 +2105,7 @@
   async function messageForError(err) {
     const status = err && err.status;
     if (status === 401) {
-      state.token = null;
-      localStorage.removeItem(TOKEN_KEY);
+      clearStoredSession();
       clearSelectedPerson();
       showLogin();
       return 'กรุณาเข้าสู่ระบบใหม่';
@@ -2348,8 +2426,8 @@
     updateLoginHint();
     $('#login-source').addEventListener('change', () => {
       state.dataSource = $('#login-source').value;
-      state.token = null; state.user = null;
-      localStorage.removeItem(TOKEN_KEY);
+      state.user = null;
+      clearStoredSession();
       localStorage.setItem(SOURCE_KEY, state.dataSource);
       $('#password').value = '';
       $('#login-error').classList.add('hidden');
@@ -2373,8 +2451,7 @@
             password: $('#password').value,
           }),
         });
-        state.token = json.token;
-        localStorage.setItem(TOKEN_KEY, json.token);
+        storeSession(json);
         state.user = json.user;
         renderUser();
         showApp();
@@ -2390,9 +2467,8 @@
 
     $('#logout-btn').addEventListener('click', () => {
       abortMic();
-      state.token = null;
+      clearStoredSession();
       state.user = null;
-      localStorage.removeItem(TOKEN_KEY);
       clearSelectedPerson();
       state.conversationTopic = null;
       state.ordinalItems = null;
@@ -2410,6 +2486,15 @@
         loadSttStatus();
       }
     }, 10000);
+    // Refresh the real-data session before the Supabase access token expires
+    // so an officer mid-shift is never forced back to the login screen. A
+    // failed attempt is harmless here; the next API call refreshes on its 401.
+    setInterval(() => {
+      if (!state.token || state.dataSource !== 'real' || state.mic === 'uploading') return;
+      const at = state.tokenExpiresAt || Number(localStorage.getItem(EXPIRY_KEY)) || null;
+      if (!at) return;
+      if (at - Date.now() < 5 * 60 * 1000) refreshSession();
+    }, 60000);
     $('#send-btn').addEventListener('click', () => sendMessage());
     $('#chat-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -2437,8 +2522,7 @@
         loadSttStatus();
         return;
       } catch (_) {
-        localStorage.removeItem(TOKEN_KEY);
-        state.token = null;
+        clearStoredSession();
       }
     }
     showLogin();

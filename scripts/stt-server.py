@@ -6,10 +6,12 @@ Requires ffmpeg on PATH. Temp files are unlinked in finally.
 """
 from __future__ import annotations
 
+import gc
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import wave
 from pathlib import Path
@@ -27,6 +29,11 @@ COMPUTE = os.environ.get("STT_COMPUTE", "int8")
 # Beam width. 8 is the historical CPU default; STT_BEAM=5 is the tuned value
 # once the model runs on a GPU (see docs/stt-client-first-design.md §5).
 BEAM = max(1, min(8, int(os.environ.get("STT_BEAM", "8"))))
+# VRAM policy (docs/stt-client-first-design.md §5): systems share one GPU
+# one at a time. After this many minutes without a transcription the model
+# is unloaded and its GPU/CPU memory returned; the next request reloads it
+# (a few seconds on GPU). 0 = stay resident forever (old behavior).
+IDLE_UNLOAD_MIN = float(os.environ.get("STT_IDLE_UNLOAD_MIN", "0"))
 MAX_SECONDS = 45.0
 # A conservative quality gate: if Whisper itself reports predominantly low
 # confidence or silence, return no usable transcript so the UI asks the
@@ -40,18 +47,42 @@ THAI_PROMPT = (
 
 app = FastAPI()
 model = None
+_model_lock = threading.Lock()
+_last_used = time.monotonic()
 
 
 def load_model():
     global model
-    from faster_whisper import WhisperModel
+    with _model_lock:
+        if model is not None:
+            return
+        from faster_whisper import WhisperModel
 
-    model = WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE)
+        t0 = time.perf_counter()
+        model = WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE)
+        print(f"[stt] model loaded in {time.perf_counter() - t0:.1f}s on {DEVICE}/{COMPUTE}", flush=True)
+
+
+def _release_model_memory():
+    # Drop the reference and collect so CTranslate2 frees its device memory.
+    gc.collect()
+
+
+def idle_watchdog():
+    while True:
+        time.sleep(15)
+        if IDLE_UNLOAD_MIN <= 0:
+            continue
+        with _model_lock:
+            if model is not None and time.monotonic() - _last_used >= IDLE_UNLOAD_MIN * 60.0:
+                print(f"[stt] idle {IDLE_UNLOAD_MIN:g} min — unloading model, memory returned", flush=True)
+                globals()["model"] = None
+                _release_model_memory()
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "model": MODEL_NAME}
+    return {"ok": True, "model": MODEL_NAME, "loaded": model is not None, "device": DEVICE, "compute": COMPUTE}
 
 
 @app.get("/v1/models")
@@ -109,8 +140,12 @@ def timing_block(audio_ms, ffmpeg_ms, decode_ms):
 
 @app.post("/v1/audio/transcriptions")
 async def transcribe(file: UploadFile = File(...), language: str = Form("th")):
-    if model is None:
-        return JSONResponse(status_code=503, content={"code": "STT_UNAVAILABLE", "error": "model not loaded"})
+    global _last_used
+    # Lazy load: after an idle unload the first request pays the model load
+    # (seconds on GPU) instead of failing. A local reference keeps the
+    # model alive for this request even if the watchdog unloads meanwhile.
+    load_model()
+    active = model
     src_fd, src_path = tempfile.mkstemp(suffix=".webm")
     wav_path = src_path + ".wav"
     os.close(src_fd)
@@ -125,7 +160,7 @@ async def transcribe(file: UploadFile = File(...), language: str = Form("th")):
         if audio_ms > (MAX_SECONDS + 0.5) * 1000.0:
             return JSONResponse(status_code=400, content={"code": "AUDIO_TOO_LONG", "error": "too long"})
         t_decode = time.perf_counter()
-        segments, _info = model.transcribe(
+        segments, _info = active.transcribe(
             wav_path,
             language=language or "th",
             vad_filter=True,
@@ -139,6 +174,7 @@ async def transcribe(file: UploadFile = File(...), language: str = Form("th")):
         )
         segment_list = list(segments)
         decode_ms = (time.perf_counter() - t_decode) * 1000.0
+        _last_used = time.monotonic()
         text = "".join(segment.text for segment in segment_list).strip()
         if not text:
             return {"text": "", "quality": {"accepted": False}, "timing": timing_block(audio_ms, ffmpeg_ms, decode_ms)}
@@ -166,5 +202,8 @@ if __name__ == "__main__":
         sys.exit(1)
     print(f"[stt] loading {MODEL_NAME} on {DEVICE}/{COMPUTE} …")
     load_model()
+    if IDLE_UNLOAD_MIN > 0:
+        threading.Thread(target=idle_watchdog, daemon=True).start()
+        print(f"[stt] idle unload after {IDLE_UNLOAD_MIN:g} min")
     print(f"[stt] listening http://{HOST}:{PORT}")
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")

@@ -12,15 +12,21 @@ WorkingDirectory=/home/ekkaphap/thanipitak-ai
 # this port through Caddy or the Cloudflare Tunnel.
 Environment=STT_BIND=127.0.0.1
 Environment=STT_PORT=8178
+Environment=STT_MODEL=Vinxscribe/biodatlab-whisper-th-medium-faster
 # Phase 1 fast path (docs/stt-client-first-design.md §5): run Whisper on
-# the RTX 3060 beside Ollama (~7 GB), int8_float16 needs ~1.2 GB VRAM.
-# VRAM rules while this is active: keep Ollama keep_alive at 30m and do
-# NOT pull/load 14B-class models on this GPU.
+# the RTX 3060, int8_float16 needs ~1.2 GB VRAM.
+# VRAM policy — one system at a time, memory returns after use:
+#   * STT unloads after 10 idle minutes and reloads on the next request.
+#   * The app sets OLLAMA_KEEP_ALIVE=5m so Ollama frees ~6.5 GB after chat
+#     goes idle (see thanipitak-ai.service).
+#   * Do not run ComfyUI (~5 GB) while voice or chat is active; do not
+#     load 14B-class Ollama models on this GPU.
 # If CUDA/cuDNN is missing on a box, fall back with:
 #   STT_DEVICE=cpu STT_COMPUTE=int8 STT_BEAM=8
 Environment=STT_DEVICE=cuda
 Environment=STT_COMPUTE=int8_float16
 Environment=STT_BEAM=5
+Environment=STT_IDLE_UNLOAD_MIN=10
 ExecStart=/home/ekkaphap/thanipitak-ai/.venv-stt/bin/python scripts/stt-server.py
 Restart=on-failure
 RestartSec=5

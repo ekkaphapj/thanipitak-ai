@@ -16,6 +16,10 @@ Environment=RAG_ENABLED=true
 Environment=RAG_EMBEDDING_MODEL=qwen3-embedding:0.6b
 Environment=OLLAMA_HOST=http://127.0.0.1:11434
 Environment=OLLAMA_MODEL=qwen3:8b-q6
+# VRAM policy (see thanipitak-stt.service): return the ~6.5 GB the chat
+# model holds a few minutes after the last question instead of the 30m
+# default, so GPU memory is free for STT/ComfyUI one system at a time.
+Environment=OLLAMA_KEEP_ALIVE=5m
 Environment=REPORT_FONT_PATH=/usr/share/fonts/truetype/tlwg/Garuda.ttf
 ExecStart=/usr/bin/npm start
 Restart=on-failure

@@ -30,7 +30,8 @@ test('guard: title-prefixed person name becomes PERSON_n and never leaves (spec 
   assert.ok(out.safeText.includes('[PERSON_1]'), out.safeText);
   assert.ok(!out.safeText.includes('สมชาย'));
   assert.ok(!out.safeText.includes('ใจดี'));
-  assert.equal(out.mapping['[PERSON_1]'], 'นายสมชาย ใจดี');
+  // Stored value follows the prompt rule: bare name, title stripped.
+  assert.equal(out.mapping['[PERSON_1]'], 'สมชาย ใจดี');
   assert.equal(assertCloudSafe(out.safeText, out.mapping).ok, true);
 });
 
@@ -59,20 +60,32 @@ test('guard: name capture stops at place cues and keeps the station for the plan
   assert.ok(out.safeText.includes('[PERSON_1]'));
   assert.ok(out.safeText.includes('สภ.ท่าอุเทน'));
   assert.ok(out.safeText.includes('จังหวัดนครพนม'));
-  assert.equal(out.mapping['[PERSON_1]'], 'นายแดง ใจดี');
+  assert.equal(out.mapping['[PERSON_1]'], 'แดง ใจดี');
 });
 
 test('guard: a Thai-script subdistrict is never swallowed into the name (live dry-run regression)', () => {
   const out = sanitizeForCloud('ค้นหานายสมชาย ใจดี ตำบลโพนสูง');
   assert.ok(out.safeText.includes('[PERSON_1]'), out.safeText);
   assert.ok(out.safeText.includes('ตำบลโพนสูง'), out.safeText);
-  assert.equal(out.mapping['[PERSON_1]'], 'นายสมชาย ใจดี');
+  assert.equal(out.mapping['[PERSON_1]'], 'สมชาย ใจดี');
   const cue = sanitizeForCloud('ค้นหาสมหญิง ตำบลโพนสูง');
   assert.ok(cue.safeText.includes('ตำบลโพนสูง'));
   assert.equal(cue.mapping['[PERSON_1]'], 'สมหญิง');
   // The egress gate must accept the placeholder+place combination.
   assert.deepEqual(assertCloudSafe(out.safeText, out.mapping), { ok: true });
   assert.deepEqual(assertCloudSafe(cue.safeText, cue.mapping), { ok: true });
+});
+
+test('guard: captured names normalize like the prompt teaches (holdout-150 live regressions)', () => {
+  // Title prefixes and the ชื่อ cue are stripped from the stored value.
+  assert.equal(sanitizeForCloud('หานายสมชาย ใจดี').mapping['[PERSON_1]'], 'สมชาย ใจดี');
+  assert.equal(sanitizeForCloud('ค้นหานางสาวสมหญิง ใจดี').mapping['[PERSON_1]'], 'สมหญิง ใจดี');
+  assert.equal(sanitizeForCloud('ค้นหาชื่อสมชาย').mapping['[PERSON_1]'], 'สมชาย');
+  assert.equal(sanitizeForCloud('ขอดูรายชื่อคนชื่อนายประเสริฐ').mapping['[PERSON_1]'], 'ประเสริฐ');
+  // Person-type vocabulary stays visible to the model; only the name hides.
+  const typed = sanitizeForCloud('หาเฉพาะผู้เสพชื่อแดง');
+  assert.ok(typed.safeText.includes('ผู้เสพ'), typed.safeText);
+  assert.equal(typed.mapping['[PERSON_1]'], 'แดง');
 });
 
 test('guard: assertCloudSafe fails closed on leaks and credential shapes', () => {

@@ -23,10 +23,10 @@ const TITLE_SRC = '(?:นาย|นางสาว|นาง|ด\\.?ช\\.?|ด\
 // Cue words that introduce a bare spoken name. ชื่อ must not match the
 // รายชื่อ of a list request (lookbehind) nor ชื่ออะไร / ชื่อ สภ.
 const CUE_SRC = '(?:ค้นหา|ค้น|หาคน|หา|ใครชื่อ|คนชื่อ|ชื่อว่า|(?<!ราย)ชื่อ|นามสกุล)';
-// A name token never starts with a place cue, so "ค้นหานายสมชาย ใจดี
-// ตำบลโพนสูง" captures only the person and leaves the subdistrict for
-// the plan (regression: the live dry-run swallowed ตำบลโพนสูง).
-const TOKEN_SRC = '(?:(?!ตำบล|อำเภอ|เขต|จังหวัด|สถานี)[ก-๙]{1,30})';
+// A name token never starts with a place cue or domain vocabulary — the
+// person-type words must stay visible to the model (they are categories,
+// not PII), and ชื่อ is a stacked cue, never part of the value.
+const TOKEN_SRC = '(?:(?!ตำบล|อำเภอ|เขต|จังหวัด|สถานี|ชื่อ|เฉพาะ|ผู้เสพ|ผู้ค้า|ผู้ป่วย|คนไข้|จิตเวช|ผู้พ้นโทษ|บุคคล|เป้าหมาย|ทั้งหมด)[ก-๙]{1,30})';
 // A captured name span ends at a place cue / connector / end of utterance.
 const BOUNDARY_SRC = '(?=\\s*(?:ตำบล|ต\\.|อำเภอ|อ\\.|เขต|จังหวัด|จ\\.|สภ\\.?|สถานี|ใน|ที่|ตาม|กับ|และ|เมื่อ|ช่วง|เดือน|ปี|ล่าสุด|$))';
 const PLACEHOLDER_RE = /\[(?:PERSON|NATIONAL_ID|PHONE|EMAIL|NUMBER)_\d+\]/g;
@@ -58,10 +58,20 @@ function sanitizeForCloud(rawText, options = {}) {
   const addRef = (kind, value) => {
     counters[kind] += 1;
     const ref = `[${kind}_${counters[kind]}]`;
-    mapping[ref] = value.trim();
+    mapping[ref] = normalizeCapturedName(value.trim());
     out = out.replace(new RegExp(escapeRe(value.trim()), 'gu'), ref);
     return ref;
   };
+
+  // The interpreter prompt teaches "search carries the bare name, no title
+  // and no ชื่อ". Apply the same rule to the stored value so a restored
+  // plan matches what the local model would have produced.
+  function normalizeCapturedName(v) {
+    return v
+      .replace(/^(?:นาย|นางสาว|นาง|ด\.?ช\.?|ด\.?ญ\.?|เด็กชาย|เด็กหญิง|คุณ|ชื่อว่า|ชื่อ)\s*/u, '')
+      .replace(/^(?:เฉพาะ|บุคคล)\s*/u, '')
+      .trim() || v;
+  }
 
   // --- Regex layer. Long identifiers first so phone patterns cannot take
   // a substring out of them; phones before the generic long-number rule.

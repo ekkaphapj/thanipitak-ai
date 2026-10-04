@@ -52,7 +52,9 @@ async function callOnce(safeText, config, request) {
   const body = {
     model: config.model,
     temperature: 0,
-    max_tokens: 400,
+    // Thinking-tier models spend tokens on reasoning before the JSON;
+    // 400 truncated mid-plan in the live holdout (13 cut answers).
+    max_tokens: 2000,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: CLOUD_SYSTEM_PROMPT },

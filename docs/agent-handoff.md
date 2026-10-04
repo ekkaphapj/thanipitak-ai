@@ -1,5 +1,24 @@
 # Coding agent handoff — current as of 2026-10-04
 
+## Latest continuation — 2026-10-04 STT client-first design (no code yet)
+
+Owner reported the pilot Whisper STT is slow and Thai accuracy is weak, and
+asked for a design that prefers device-side processing with server fallback.
+`docs/stt-client-first-design.md` holds the full design. Key findings that
+shape it: `scripts/stt-server.py` defaults to `STT_DEVICE=cpu`/`int8` with
+`beam_size=8` while the pilot's RTX 3060 is reserved for Ollama (~7 GB) —
+CPU decode is the most likely dominant latency cost and Phase 0 must confirm
+it with a numbers-only `timing` block before changes; and browser
+`SpeechRecognition` routes audio to Google/Apple, which the v1 STT design
+explicitly rejected because commands contain real registry names, so mobile
+client-first is gated on an explicit owner decision. The plan: engine
+abstraction with server-driven policy + per-device calibration fallback
+(`frontend/sttEngines.js`), shared `correctTranscript` post-processing for
+every engine, a GPU/turbo-model server fast path behind a frozen WER
+bake-off, and a 30–60 synthetic-name recorded phrase corpus as referee.
+Nothing is implemented yet — three owner decisions are listed in §9 of the
+design (mobile Web Speech approval, pilot GPU sharing, corpus recording).
+
 ## Latest continuation — 2026-10-04 real-data session token refresh
 
 Owner asked to continue development from the backlog; the token refresh item

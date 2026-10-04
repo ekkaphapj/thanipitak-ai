@@ -34,11 +34,47 @@ credentials).
   `tests/fixtures/stt-corpus/README.md` with `manifest.example.json`;
   audio + real manifest are gitignored (owner records 30–60 synthetic-name
   phrases ×3 takes; never real registry persons).
-- **Still pending for Phase 1 completion**: flip the pilot STT unit to the
-  GPU template (needs sudo on the box), watch VRAM for a week, and run the
-  turbo-vs-medium model swap **only after** the owner records the frozen
-  corpus and turbo wins the bake-off (§7 gates). Browser users need
-  Ctrl+F5 for the new recording settings.
+- **Deployed 2026-10-04 (IPv6 SSH)**: pilot fast-forwarded `6e1e58e →
+  1fe3af8` (this also deployed the earlier token-refresh commit). The app
+  restarted via the verified `kill -9` npm MainPID procedure (systemd
+  `Restart=on-failure`, back in ~2 s; `/api/health` OK, local `ai.html`
+  200, public `https://ai.policeshield4.com/ai.html` 200). Live audit
+  confirmed the slow-STT root cause on the box: the STT process env was
+  `STT_DEVICE=cpu`, `STT_COMPUTE=int8`; a one-off load of the same model
+  with `cuda`/`int8_float16` succeeded on the RTX 3060, so the GPU flip is
+  de-risked. A synthetic 2 s tone through the new code returned
+  `timing {audio_ms:2000, ffmpeg_ms:55, decode_ms:151, device:cpu}` —
+  Phase 0 instrumentation is live.
+- **Important operational state — STT runs as a manual user process right
+  now (pid on the pilot, not systemd).** Root cause of the change: plain
+  `kill` (SIGTERM) does **not** trigger `Restart=on-failure` (systemd
+  counts SIGTERM as a clean stop; only signals like SIGKILL count as
+  failure). The unit went inactive; sudo needs the owner's password, so
+  the service was restored by launching
+  `nohup env STT_BIND=127.0.0.1 STT_PORT=8178 STT_MODEL=… STT_DEVICE=cpu
+  STT_COMPUTE=int8 .venv-stt/bin/python scripts/stt-server.py` from
+  `/home/ekkaphap/thanipitak-ai`, logging to
+  `/dev/shm/thanipitak-stt-manual.log`; `/health` OK. It does not survive
+  a reboot and the app depends on port 8178 answering. Owner action to
+  return STT to systemd **and** activate the GPU fast path together:
+  1. `pgrep -af stt-server` then kill that manual python PID;
+  2. compare `deploy/systemd/thanipitak-stt.service` (tracked, sets
+     `cuda`/`int8_float16`/`STT_BEAM=5`) with the installed unit and copy
+     it to `/etc/systemd/system/thanipitak-stt.service`;
+  3. `sudo systemctl daemon-reload && sudo systemctl restart thanipitak-stt`
+     then verify `curl -s http://127.0.0.1:8178/health` and that a real
+     transcription reports `device:cuda`.
+- **VRAM caveat found during the audit**: ComfyUI (owner's, pid at audit
+  time) holds ~5.0 GB of the 3060's 12 GB; Ollama's `qwen3:8b-q6` needs
+  ~6.5 GB when resident and whisper `int8_float16` ~1.2 GB — all three
+  together exceed 12 GB. The GPU flip should be paired with a decision
+  about ComfyUI (stop it during voice use, or keep STT on CPU). Do not
+  load 14B-class Ollama models on this GPU while STT is GPU-resident.
+- **Still pending for Phase 1 completion**: the systemd flip above, a week
+  of `[stt] ok …` journald lines to rank field latency, the owner-recorded
+  frozen corpus, and the turbo-vs-medium model swap only after turbo wins
+  the bake-off (§7 gates). Browser users need Ctrl+F5 for the new
+  recording settings.
 
 ## Latest continuation — 2026-10-04 STT client-first design (no code yet)
 

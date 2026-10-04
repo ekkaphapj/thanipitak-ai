@@ -62,6 +62,16 @@ test('guard: name capture stops at place cues and keeps the station for the plan
   assert.equal(out.mapping['[PERSON_1]'], 'นายแดง ใจดี');
 });
 
+test('guard: a Thai-script subdistrict is never swallowed into the name (live dry-run regression)', () => {
+  const out = sanitizeForCloud('ค้นหานายสมชาย ใจดี ตำบลโพนสูง');
+  assert.ok(out.safeText.includes('[PERSON_1]'), out.safeText);
+  assert.ok(out.safeText.includes('ตำบลโพนสูง'), out.safeText);
+  assert.equal(out.mapping['[PERSON_1]'], 'นายสมชาย ใจดี');
+  const cue = sanitizeForCloud('ค้นหาสมหญิง ตำบลโพนสูง');
+  assert.ok(cue.safeText.includes('ตำบลโพนสูง'));
+  assert.equal(cue.mapping['[PERSON_1]'], 'สมหญิง');
+});
+
 test('guard: assertCloudSafe fails closed on leaks and credential shapes', () => {
   assert.equal(assertCloudSafe('ค้นหาสมชาย ใจดี', { '[PERSON_1]': 'สมชาย ใจดี' }).reason, 'MAPPING_LEAK');
   assert.equal(assertCloudSafe('เลข 1234567890123', {}).reason, 'NATIONAL_ID');

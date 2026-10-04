@@ -23,6 +23,10 @@ const TITLE_SRC = '(?:นาย|นางสาว|นาง|ด\\.?ช\\.?|ด\
 // Cue words that introduce a bare spoken name. ชื่อ must not match the
 // รายชื่อ of a list request (lookbehind) nor ชื่ออะไร / ชื่อ สภ.
 const CUE_SRC = '(?:ค้นหา|ค้น|หาคน|หา|ใครชื่อ|คนชื่อ|ชื่อว่า|(?<!ราย)ชื่อ|นามสกุล)';
+// A name token never starts with a place cue, so "ค้นหานายสมชาย ใจดี
+// ตำบลโพนสูง" captures only the person and leaves the subdistrict for
+// the plan (regression: the live dry-run swallowed ตำบลโพนสูง).
+const TOKEN_SRC = '(?:(?!ตำบล|อำเภอ|เขต|จังหวัด|สถานี)[ก-๙]{1,30})';
 // A captured name span ends at a place cue / connector / end of utterance.
 const BOUNDARY_SRC = '(?=\\s*(?:ตำบล|ต\\.|อำเภอ|อ\\.|เขต|จังหวัด|จ\\.|สภ\\.?|สถานี|ใน|ที่|ตาม|กับ|และ|เมื่อ|ช่วง|เดือน|ปี|ล่าสุด|$))';
 const PLACEHOLDER_RE = /\[(?:PERSON|NATIONAL_ID|PHONE|EMAIL|NUMBER)_\d+\]/g;
@@ -67,12 +71,12 @@ function sanitizeForCloud(rawText, options = {}) {
   out = out.replace(/[\w.+-]+@[\w-]+\.[\w.]+/gu, (m) => addRef('EMAIL', m));
 
   // --- Title-prefixed names: นายแดง ใจดี (1–3 Thai tokens).
-  out = out.replace(new RegExp(`${TITLE_SRC}\\s*[ก-๙]{1,30}(?:\\s+[ก-๙]{1,30}){0,2}${BOUNDARY_SRC}`, 'gu'),
+  out = out.replace(new RegExp(`${TITLE_SRC}\\s*${TOKEN_SRC}(?:\\s+${TOKEN_SRC}){0,2}${BOUNDARY_SRC}`, 'gu'),
     (m) => addRef('PERSON', m));
 
   // --- Cue + name: ค้นหาสมชาย / ใครชื่อสมหญิง. Placeholder text inserted
   // by the digit/email rules is skipped automatically ([ is not [ก-๙]).
-  out = out.replace(new RegExp(`${CUE_SRC}(?!อะไร)(?!\\s*สภ)\\s*[ก-๙]{1,30}(?:\\s+[ก-๙]{1,30}){0,2}${BOUNDARY_SRC}`, 'gu'),
+  out = out.replace(new RegExp(`${CUE_SRC}(?!อะไร)(?!\\s*สภ)\\s*${TOKEN_SRC}(?:\\s+${TOKEN_SRC}){0,2}${BOUNDARY_SRC}`, 'gu'),
     (m) => addRef('PERSON', m.replace(new RegExp(`^${CUE_SRC}\\s*`, 'u'), '')));
 
   // --- Application context: a name the deterministic routing layer itself

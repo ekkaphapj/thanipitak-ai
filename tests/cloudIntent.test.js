@@ -70,6 +70,9 @@ test('guard: a Thai-script subdistrict is never swallowed into the name (live dr
   const cue = sanitizeForCloud('ค้นหาสมหญิง ตำบลโพนสูง');
   assert.ok(cue.safeText.includes('ตำบลโพนสูง'));
   assert.equal(cue.mapping['[PERSON_1]'], 'สมหญิง');
+  // The egress gate must accept the placeholder+place combination.
+  assert.deepEqual(assertCloudSafe(out.safeText, out.mapping), { ok: true });
+  assert.deepEqual(assertCloudSafe(cue.safeText, cue.mapping), { ok: true });
 });
 
 test('guard: assertCloudSafe fails closed on leaks and credential shapes', () => {

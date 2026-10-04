@@ -143,7 +143,10 @@ function assertCloudSafe(text, mapping = {}) {
   if (/(?:api[_-]?key|bearer|authorization)\s*[:=]/i.test(bare)) return { ok: false, reason: 'CREDENTIAL' };
   if (new RegExp(`${TITLE_SRC}\\s*[ก-๙]{2,}`, 'u').test(bare)) return { ok: false, reason: 'TITLE_NAME' };
   if (/รายชื่อ/.test(t)) return { ok: true };
-  if (new RegExp(`(?:ค้นหา|ใครชื่อ|คนชื่อ|ชื่อว่า|นามสกุล)\\s*[ก-๙]{2,}`, 'u').test(bare)) {
+  // A cue that still introduces Thai text after placeholder stripping is
+  // suspicious — unless that text is a place cue legitimately following
+  // the stripped placeholder (ค้นหา[PERSON_1] ตำบลโพนสูง).
+  if (new RegExp(`(?:ค้นหา|ใครชื่อ|คนชื่อ|ชื่อว่า|นามสกุล)\\s*(?!ตำบล|อำเภอ|เขต|จังหวัด|สถานี|สภ\\.?)[ก-๙]`, 'u').test(bare)) {
     return { ok: false, reason: 'UNCUED_NAME' };
   }
   return { ok: true };

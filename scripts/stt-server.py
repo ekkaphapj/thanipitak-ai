@@ -101,6 +101,26 @@ def wav_duration_seconds(path: str) -> float:
         return wav.getnframes() / float(rate)
 
 
+def diagnose_bad_audio(src, stderr_bytes):
+    # Field debugging without retaining audio: log container/codec metadata
+    # and the ffmpeg error line only — never the audio content itself.
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "format=format_name,duration,size", "-show_entries",
+             "stream=codec_name,channels,sample_rate", "-of", "default=nw=1", src],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        info = (probe.stdout or "").replace("\n", " ").strip()
+        err = (probe.stderr or "").strip()[:200]
+        print(f"[stt] bad-audio probe: {info or err}", flush=True)
+    except Exception as exc:  # pragma: no cover - diagnostics best effort
+        print(f"[stt] bad-audio probe failed: {exc}", flush=True)
+    tail = (stderr_bytes or b"").decode("utf-8", "replace").strip().splitlines()
+    if tail:
+        print(f"[stt] bad-audio ffmpeg: {tail[-1][:200]}", flush=True)
+
+
 def to_wav(src: str, dest: str) -> None:
     ffmpeg = os.environ.get("FFMPEG_PATH", "ffmpeg")
     result = subprocess.run(
@@ -122,6 +142,7 @@ def to_wav(src: str, dest: str) -> None:
         check=False,
     )
     if result.returncode != 0 or not Path(dest).exists():
+        diagnose_bad_audio(src, result.stderr)
         raise RuntimeError("STT_BAD_AUDIO")
 
 

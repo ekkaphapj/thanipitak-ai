@@ -219,8 +219,17 @@ async def transcribe(file: UploadFile = File(...), language: str = Form("th")):
             "quality": {"accepted": accepted},
             "timing": timing_block(audio_ms, ffmpeg_ms, decode_ms),
         }
-    except RuntimeError:
-        return JSONResponse(status_code=400, content={"code": "STT_BAD_AUDIO", "error": "cannot decode audio"})
+    except RuntimeError as exc:
+        # to_wav signals bad input with exactly this marker; ANY OTHER
+        # RuntimeError is a real engine failure (e.g. CUDA/CTranslate2
+        # during decode) and must surface as 503 with the true error in
+        # the log — never masquerade as an undecodable clip.
+        if str(exc) == "STT_BAD_AUDIO":
+            return JSONResponse(status_code=400, content={"code": "STT_BAD_AUDIO", "error": "cannot decode audio"})
+        import traceback
+        print(f"[stt] ENGINE ERROR: {exc!r}", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=503, content={"code": "STT_UNAVAILABLE", "error": "speech engine failed"})
     finally:
         for path in (src_path, wav_path):
             try:

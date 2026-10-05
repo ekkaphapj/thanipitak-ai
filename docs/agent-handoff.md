@@ -277,12 +277,19 @@ credentials).
   body carries `timing` for direct curl probes.
 - **Phase 1 flags (defaults unchanged until the pilot unit flips them)**:
   `STT_BEAM` env (1–8, default 8; tuned value 5 for GPU) in stt-server.py;
-  the browser records mono Opus at 24 kbps (`audioBitsPerSecond` +
-  `channelCount:1` constraints) to cut upload size; tracked
-  `deploy/systemd/thanipitak-stt.service` template now exists with
+  tracked `deploy/systemd/thanipitak-stt.service` template now exists with
   `STT_DEVICE=cuda`, `STT_COMPUTE=int8_float16`, `STT_BEAM=5` and a
   documented CPU fallback line. VRAM budget and the "no 14B while STT is
   GPU-resident" rule are written in the unit comments.
+  **The mono+24 kbps browser-recording experiment from this phase was
+  REVERTED 2026-10-05 after a field outage**: every clip recorded with
+  `channelCount:1` + `audioBitsPerSecond:24000` arrived near-empty (300
+  bytes) or ffmpeg-undecodable (`STT_BAD_AUDIO`, 8–9.6 KB) on field
+  browsers, while the server path stayed healthy (cuda decode ~66–204 ms;
+  a hand-made 32 kbps opus webm decodes fine). Recording now uses the
+  browser-default constraints that have worked since the first pilot. Do
+  not re-add recording bitrate/constraint tweaks without a real-mic field
+  test on the actual devices.
 - **Bake-off harness**: `src/stt/cer.js` (Thai normalize + char-level
   Levenshtein CER — Thai has no inter-word spaces, WER is meaningless),
   `src/stt/bakeoff.js` (manifest validation with pinned SHA-256 +

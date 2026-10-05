@@ -1,5 +1,70 @@
 # Coding agent handoff — current as of 2026-10-05
 
+## 2026-10-05 STT outage root cause — GPU decode missing CUDA libs (FIXED)
+
+Field report "แปลงเสียงไม่ได้ ไม่ยอมแปล" on every device. The chain of
+evidence: server/tunnel healthy at every size; a real-browser test from
+the agent's own session recorded and transcribed a 111 KB clip fine;
+user clips arrived at python (`[stt] req bytes=… ctype=audio/webm`) yet
+returned 400 "cannot decode audio" with **no** bad-audio diagnostics
+printing — so the response could not have come from `to_wav`. The old
+`except RuntimeError` was swallowing a *different* RuntimeError:
+**`Library libcublas.so.12 is not found or cannot be loaded`** — CTranslate2
+loads the model onto the GPU fine but needs cuBLAS/cuDNN at the first
+real matmul, and the host has no CUDA toolkit (Ollama's CUDA lives inside
+its Docker container). Silent/short clips passed because VAD strips them
+before any GPU compute — which made the failure look size/browser/device
+dependent (Firefox PC, Chrome Android, identical byte sizes across
+devices were red herrings; sizes matched because opus silence is
+near-deterministic).
+
+Fix (all live on the pilot): `nvidia-cublas-cu12` + `nvidia-cudnn-cu12`
+pip-installed into `.venv-stt`; systemd drop-in
+`/etc/systemd/system/thanipitak-stt.service.d/cuda-libs.conf` (and the
+tracked unit template) sets `LD_LIBRARY_PATH` to the venv nvidia lib
+dirs; engine RuntimeErrors now print the true traceback and return 503
+`STT_UNAVAILABLE` — only `to_wav`'s exact marker returns the bad-audio
+400, so an engine crash can never masquerade as an undecodable clip
+again. Verified with synthesized real speech end-to-end through the app:
+7.5 s clip → transcript in 722 ms on cuda. Diagnostic aids kept in place
+(numbers/metadata only): per-request `[stt] req bytes/ctype`,
+md5+head/tail fingerprints, upstream-400 snippet + browser UA on failure.
+
+## Latest continuation — 2026-10-05 newly installed Typhoon2 8B check
+
+Follow-up analysis: 132/150 match all four core enums but only 27/150 match
+every slot. Unexpected search appears on 109 rows, 96 executable proposals.
+No baseline output was truncated (max 49 tokens); no obvious Llama-template
+family mismatch found. A separate actual 8-case selected-failure prompt
+probe scored baseline 0/8, added omission/search/group rules 2/8, rules plus
+schema and full JSON examples 2/8. Improvements/regressions vary by case;
+this is not a fix or a replacement full-corpus score. Raw evidence:
+`output/local-typhoon2-8b-contract-probe-2026-10-05.json`; analysis is in
+`docs/local-model-benchmark-2026-10-05.md`. App code remains unchanged.
+
+Owner supplied screenshot tag `typhoon2-8b:latest`. Installed parent is
+llama3.1-typhoon2-8b-instruct.Q6_K.gguf, llama 8.0B Q6_K. Actual pilot
+Ollama, same frozen 150 cases and prior Local request/prompt/schema/scoring;
+context 8192, fully GPU-resident, no retries or source/config changes.
+
+- Exact **27/150 (18.00%)**, action 142/150 (94.67%), person type 144/150.
+  Count 4/32, list 0/28, group 13/60, search 10/20, exact-clarify 0/10,
+  clarify action 9/10. Zero parse/provider errors. Median 913 ms, p95
+  1111 ms; first call with context reload 12340 ms.
+- Main failure: invented non-empty search on 109 cases expecting no name
+  filter (`none`, `drug_user`, category/area wording). Current route treats
+  these as literal name filters, so this is a semantic compatibility issue,
+  not just a strict-grader cosmetic penalty. No query was executed.
+- Separate offline removal of literal none from optional string slots
+  affects 41 rows and yields 67/150 (44.67%); this diagnostic does not replace
+  the baseline or constitute an app fix. Other wrong filters remain.
+- Not suitable to replace current Qwen under unchanged settings. No app
+  deployment/push, registry access or protected service changes. Evidence:
+  `output/local-typhoon2-8b-holdout150-2026-10-05.json`,
+  `output/local-typhoon2-8b-none-diagnostic-2026-10-05.json`, runner
+  `output/run-local-typhoon2-8b-2026-10-05.js`, detailed analysis/digest
+  in `docs/local-model-benchmark-2026-10-05.md`.
+
 ## Latest continuation — 2026-10-05 Qwen3.5 / Typhoon candidate checks
 
 Owner requested three recommendations, then excluded `qwen2.5:7b`.

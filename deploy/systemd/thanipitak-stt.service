@@ -27,6 +27,12 @@ Environment=STT_DEVICE=cuda
 Environment=STT_COMPUTE=int8_float16
 Environment=STT_BEAM=5
 Environment=STT_IDLE_UNLOAD_MIN=10
+# GPU decode needs cuBLAS/cuDNN, which the host lacks (Ollama keeps its
+# CUDA inside Docker). Install into the venv once:
+#   .venv-stt/bin/pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
+# Without this path the model LOADS but every real-speech decode dies with
+# "libcublas.so.12 is not found" (2026-10-05 incident).
+Environment=LD_LIBRARY_PATH=/home/ekkaphap/thanipitak-ai/.venv-stt/lib/python3.14/site-packages/nvidia/cublas/lib:/home/ekkaphap/thanipitak-ai/.venv-stt/lib/python3.14/site-packages/nvidia/cudnn/lib
 ExecStart=/home/ekkaphap/thanipitak-ai/.venv-stt/bin/python /home/ekkaphap/thanipitak-ai/scripts/stt-server.py
 Restart=on-failure
 RestartSec=5

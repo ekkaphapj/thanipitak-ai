@@ -102,8 +102,19 @@ def wav_duration_seconds(path: str) -> float:
 
 
 def diagnose_bad_audio(src, stderr_bytes):
-    # Field debugging without retaining audio: log container/codec metadata
-    # and the ffmpeg error line only — never the audio content itself.
+    # Field debugging without retaining audio: log container/codec metadata,
+    # an MD5 (duplicate detector across devices), head/tail magic bytes, and
+    # the ffmpeg error line — never the audio content itself.
+    try:
+        with open(src, "rb") as fh:
+            data = fh.read()
+        import hashlib
+        md5 = hashlib.md5(data).hexdigest()
+        head = data[:8].hex()
+        tail = data[-16:].hex() if len(data) >= 16 else data.hex()
+        print(f"[stt] bad-audio md5={md5} size={len(data)} head={head} tail={tail}", flush=True)
+    except Exception as exc:  # pragma: no cover - diagnostics best effort
+        print(f"[stt] bad-audio hash failed: {exc}", flush=True)
     try:
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries",
@@ -116,9 +127,9 @@ def diagnose_bad_audio(src, stderr_bytes):
         print(f"[stt] bad-audio probe: {info or err}", flush=True)
     except Exception as exc:  # pragma: no cover - diagnostics best effort
         print(f"[stt] bad-audio probe failed: {exc}", flush=True)
-    tail = (stderr_bytes or b"").decode("utf-8", "replace").strip().splitlines()
-    if tail:
-        print(f"[stt] bad-audio ffmpeg: {tail[-1][:200]}", flush=True)
+    tail_line = (stderr_bytes or b"").decode("utf-8", "replace").strip().splitlines()
+    if tail_line:
+        print(f"[stt] bad-audio ffmpeg: {tail_line[-1][:200]}", flush=True)
 
 
 def to_wav(src: str, dest: str) -> None:

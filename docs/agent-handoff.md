@@ -1,5 +1,126 @@
 # Coding agent handoff — current as of 2026-10-05
 
+## Latest continuation — 2026-10-05 Qwen3.5 / Typhoon candidate checks
+
+Owner requested three recommendations, then excluded `qwen2.5:7b`.
+Only two models were evaluated on the same synthetic holdout-150 and
+production Local prompt/schema/validation/request settings as prior runs.
+Qwen2.5 download client was stopped; no Qwen2.5 inference was made. The
+runner resumed after 68 checkpointed Qwen3.5 cases without replacing rows.
+
+- `qwen3.5:9b`: **138/150 (92.00%)**, count 32/32, list 28/28, group 60/60,
+  search 15/20, exact-clarify 3/10, clarify action 9/10, zero errors.
+  Median 1162 ms, p95 1618 ms; first call with load 21406 ms.
+- `typhoon2.5-4b:latest`: **126/150 (84.00%)**, count 32/32, list 26/28,
+  group 53/60, search 12/20, exact-clarify 3/10, clarify action 8/10,
+  zero errors. Median 373 ms, p95 550 ms; first call 8510 ms.
+  A correct group-040 took 30360 ms, with 29517 ms Ollama load_duration;
+  this outlier is retained, its external cause unconfirmed. Qwen3.5 cold
+  start overlapped the canceled download. Shared-pilot latency is observed,
+  not an isolated load-speed experiment.
+- Both fully GPU-resident at context 8192. Installed Qwen3.5 defaults
+  include presence_penalty 1.5 (unchanged). Current Qwen3 8B Q6 remains
+  the practical default; Typhoon is faster but weaker on group/search and
+  unsupported requests. No live model/config, app code, deployment, push,
+  protected services or registry reads changed.
+- Full evidence and two-model resumable runner:
+  `output/local-candidates-holdout150-2026-10-05.json`,
+  `output/run-local-candidates-2026-10-05.js`. Analysis and model digests
+  are in `docs/local-model-benchmark-2026-10-05.md`.
+
+## Latest continuation — 2026-10-05 requested qwen3.8-heretic:9b check
+
+Owner supplied the exact tag in a screenshot. Actual pilot Ollama on the
+same frozen 150-case corpus and Local prompt/schema/validation/settings as
+the preceding Qwen/Gemma comparison: **136/150 (90.67%)**, count 30/32,
+list 28/28, group 60/60, search 15/20, exact-clarify 3/10, clarify action
+9/10, no errors. Median 1111 ms, p95 1396 ms; first call including load
+11981 ms. Fully on GPU, context 8192. The installed tag reports family
+qwen35, 9.0B, Q4_K_M; do not infer upstream provenance from the alias.
+
+Search errors include lost/wrong province or district slots and a count/list
+misclassification. Current Qwen remains stronger overall in this run
+(139/150, 864 ms). Both still misclassify the unsupported temporal case
+clarify-004. No app code, live model config, protected services, deployment
+or registry access changed. Original comparison evidence is preserved.
+See `docs/local-model-benchmark-2026-10-05.md` and full per-case
+`output/local-heretic-holdout150-2026-10-05.json`; separate opt-in runner
+`output/run-local-heretic-2026-10-05.js`.
+
+## Latest continuation — 2026-10-05 Local Qwen / Gemma holdout comparison
+
+Owner requested the same frozen synthetic 150 cases for the current pilot
+Local model `qwen3:8b-q6` and installed `gemma4:12b`. Actual Ollama 0.34.2
+on pilot RTX 3060 12 GB, sequential runs, production Local prompt/schema/
+validation, temperature 0, think false, output limit 260, 60-second timeout,
+5-minute keep-alive; benchmark sets context to 8192 for both. Both models
+fit fully on GPU. No authenticated data, Supabase, app deployment, push or
+live model configuration change; no protected service stopped.
+
+- **Both 139/150 (92.67%)** exact plans. Qwen: search 18/20, no errors,
+  median 864 ms, p95 1143 ms. Gemma: search 17/20, two JSON parse failures
+  from the 260-token cap (`done_reason:length`), median 2346 ms, p95 2639 ms.
+  Successful-call latency excludes errors; scores include all 150 cases.
+- First call including model load: Qwen 12190 ms, Gemma 20970 ms.
+  Warm medians are still 864/2346 ms. Clarify action correct 9/10 each;
+  both incorrectly choose list for the unsupported time-filter case
+  `clarify-004`. Exact-clarify scores also penalize inert type/place slots.
+- Gemma gains on list/group but loses on search; equal overall score and
+  2.72x higher median latency do not support switching the current service
+  to Gemma under the current parameters. Cloud uses a different prompt,
+  privacy preprocessing, output mode and timeout, despite identical fixtures
+  and scoring. The Local one-case lead over GLM is not a stable winner claim.
+- Evidence: `docs/local-model-benchmark-2026-10-05.md`, full checkpointed
+  `output/local-holdout150-2026-10-05.json`, opt-in runner
+  `output/run-local-holdout-2026-10-05.js`. Only output artifacts and docs
+  were added/updated for this continuation; application code was unchanged.
+
+## Latest continuation — 2026-10-05 Cloud Guard repair and cheap-model recheck
+
+Owner requested fixing name-only sanitization before a model change, then
+testing two inexpensive Cloud models. Workspace changes are on
+`phase-3.3-low-latency`; **not deployed or pushed**, and the live model/env
+remain unchanged. See `docs/cloud-guard-benchmark-2026-10-05.md` for method,
+failure analysis, prices and artifact paths.
+
+- `privacyGuard.js` replaces explicit name offsets only, preserving command
+  cues, titles, person types and every explicit area. Fixed lost ค้นหา cues,
+  whole-category/place captures in unspaced Thai, เสพติดชื่อ/title overlap,
+  polluted name mappings and mutation inside replacement callbacks. Same-
+  spelled explicit places remain usable. List wording no longer bypasses the
+  final gate; ambiguous quoted/Latin/malformed names fail closed. Detection
+  remains cue-based, not a general Thai named-entity recognizer; completely
+  uncued names remain a known limitation.
+- Full `npm test`: **556 tests / 27 suites / zero failures**. Automated network
+  calls are mocked, with no real credentials or registry. The focused Ubuntu
+  staging suite passed 21/21. All twenty frozen search cases have regression
+  assertions for exact name mappings and surrounding command/type/area text.
+- `npm run benchmark:cloud-intent` is opt-in and paid, accepts only the frozen
+  synthetic holdout, defaults to two low-cost models, checkpoints every case,
+  and separates exact plans, clarify actions, guard blocks, output/provider
+  errors, successful-call latency and reported cost. It never logs in or
+  connects to Supabase. API keys are environment-only and omitted from results.
+- Actual OpenRouter, frozen 150 cases per model, unchanged prompt/JSON mode/
+  validation, one interleaved run with 3500 ms pacing:
+  **GPT-5.4 Nano 122/150 (81.33%), search 18/20, median 1099 ms, 1 rejected
+  output; GLM-5.3 Flash 138/150 (92.00%), search 20/20, median 2336 ms,
+  6 timeouts.** Guard blocked zero cases. Clarify actions correct: Nano 9/10,
+  GLM 10/10; exact-clarify score is lower because inert type slots differ.
+  Nano misses all twelve generic all-person grouping questions; a separate
+  raw-response probe confirms it emits clarify itself rather than validation
+  rewriting a group action. GLM p95 is 7690 ms, so latency remains material.
+- All seven initially errored cases passed a targeted repeat; initial scores
+  are preserved. Main-run reported cost $0.097708, all diagnostic/repeat calls
+  included $0.101468; six initial GLM timeout costs were unavailable. The full
+  synthetic results and separate recheck/probe are in `output/cloud-guard-*`.
+  All 300 captured main-run inputs were verified against the final Guard.
+- The old score gap was partly a preprocessing defect: Cloud received less
+  information than Local. These new models are not paired before/after
+  baselines for the historical Mini/FlashX models, and one run does not prove
+  production accuracy or a statistically stable winner. No registry facts,
+  scope, authorization or audit behavior changed. No local Ollama benchmark
+  or authenticated registry read was performed in this continuation.
+
 ## Cloud model comparison — COMPLETE (2026-10-05)
 
 Frozen holdout-150, same prompt/schema/validation for every model, paced
@@ -119,6 +240,16 @@ mocked — no key, no registry, no live model).
   strengths. Deterministic routing in front of the model absorbs most
   traffic, and name searches mostly resolve before the model, so the
   cloud search weakness is narrower in production than in this bench.
+- **UX honesty fix (2026-10-05, after a field report "เรียก cloud ไม่ได้")**:
+  three distinct things looked like "still local" — test mode never showed
+  the switch (cloud is wired on the real route only), stale cached ai.js
+  (Ctrl+F5 needed), and deterministic questions that use no model at all.
+  Now: test-mode status reports `cloudMode:'real-only'` and the switch
+  shows disabled with an explanatory note; when cloud is selected but
+  rules answer directly, the answer carries a `deterministic` badge.
+  A question that genuinely needs the model (เช่น "เช็คให้หน่อย",
+  "ยอดรวมเป็นไงบ้าง") shows the cloud badge when Cloud AI is selected.
+  npm test 558/558.
 - **Known limitations**: Thai bare-name detection relies on cue words/titles
   + the deterministic `filters.query` classifier — a completely uncued bare
   name that also dodges every deterministic detector could reach the guard's

@@ -1,5 +1,16 @@
 # Coding agent handoff — current as of 2026-10-05
 
+## 2026-10-05 visit plan own-station default
+
+Field report: "ขอแผนการตรวจเยี่ยม (จังหวัดของตัวเอง)" forced the officer
+through the station picker. A province-only request that names the
+officer's OWN province — with no สภ. cue and no spoken station — now
+retries with the server-verified profile station and the answer states
+"ใช้ สภ. ที่บัญชีสังกัด: …" (same contract as ขอภาพรวม สภ.). A different
+province, a spoken-but-garbled station, or a stationless account keeps
+the province station picker. Tests in tests/realVisitPlan.test.js (mock
+RPC mirrors station_required). npm test 561/561.
+
 ## 2026-10-05 STT outage root cause — GPU decode missing CUDA libs (FIXED)
 
 Field report "แปลงเสียงไม่ได้ ไม่ยอมแปล" on every device. The chain of

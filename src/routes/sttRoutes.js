@@ -74,7 +74,10 @@ function createSttRoutes(options = {}) {
     } catch (err) {
       const http = err && err.http;
       if (http && http.status) {
-        console.error('[stt] transcribe failed code=' + http.code + ' bytes=' + body.length);
+        // First-4-bytes magic (container signature) is metadata, never
+        // audio content: EBML=1a45dfa3 (webm), mp4=....ftyp.
+        console.error('[stt] transcribe failed code=' + http.code + ' bytes=' + body.length
+          + ' head=' + body.subarray(0, 4).toString('hex'));
         return res.status(http.status).json({ error: http.error, code: http.code });
       }
       console.error('[stt] transcribe failed code=STT_UNAVAILABLE bytes=' + body.length);

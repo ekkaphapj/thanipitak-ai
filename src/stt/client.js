@@ -120,11 +120,18 @@ function parseUpstreamError(status, body) {
     json = null;
   }
   const code = json && json.code;
+  const mapped = (code, error) => {
+    const out = { status: 400, code, error };
+    // Diagnosis only: the snippet is the upstream JSON error text (or a
+    // short non-audio tail), never transcript or audio content.
+    out.upstream = { status, bodySnippet: String(body || '').slice(0, 120) };
+    return out;
+  };
   if (code === 'AUDIO_TOO_LONG' || status === 400 && /too long/i.test(body)) {
-    return { status: 400, code: 'AUDIO_TOO_LONG', error: 'เสียงยาวเกิน 45 วินาที กรุณาพูดใหม่ให้สั้นลง' };
+    return mapped('AUDIO_TOO_LONG', 'เสียงยาวเกิน 45 วินาที กรุณาพูดใหม่ให้สั้นลง');
   }
   if (code === 'STT_BAD_AUDIO' || status === 400) {
-    return { status: 400, code: 'STT_BAD_AUDIO', error: 'แปลงไฟล์เสียงไม่ได้ กรุณาพูดใหม่ หรือติดตั้ง ffmpeg' };
+    return mapped('STT_BAD_AUDIO', 'แปลงไฟล์เสียงไม่ได้ กรุณาพูดใหม่ หรือติดตั้ง ffmpeg');
   }
   return { status: 503, code: 'STT_UNAVAILABLE', error: 'ระบบแปลงเสียงในเครื่องยังไม่พร้อม กรุณาพิมพ์คำถามได้ตามปกติ' };
 }

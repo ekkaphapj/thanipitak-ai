@@ -75,9 +75,13 @@ function createSttRoutes(options = {}) {
       const http = err && err.http;
       if (http && http.status) {
         // First-4-bytes magic (container signature) is metadata, never
-        // audio content: EBML=1a45dfa3 (webm), mp4=....ftyp.
+        // audio content: EBML=1a45dfa3 (webm), mp4=....ftyp. The upstream
+        // snippet is the error JSON from the STT server, and the UA tells
+        // us which browser produced the clip.
         console.error('[stt] transcribe failed code=' + http.code + ' bytes=' + body.length
-          + ' head=' + body.subarray(0, 4).toString('hex'));
+          + ' head=' + body.subarray(0, 4).toString('hex')
+          + ' upstream=' + JSON.stringify(http.upstream || null)
+          + ' ua=' + String(req.headers['user-agent'] || '?').slice(0, 60));
         return res.status(http.status).json({ error: http.error, code: http.code });
       }
       console.error('[stt] transcribe failed code=STT_UNAVAILABLE bytes=' + body.length);

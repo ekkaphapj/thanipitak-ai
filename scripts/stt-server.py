@@ -172,6 +172,7 @@ async def transcribe(file: UploadFile = File(...), language: str = Form("th")):
     os.close(src_fd)
     try:
         data = await file.read()
+        print(f"[stt] req bytes={len(data)} ctype={file.content_type or '?'}", flush=True)
         with open(src_path, "wb") as handle:
             handle.write(data)
         t_ffmpeg = time.perf_counter()

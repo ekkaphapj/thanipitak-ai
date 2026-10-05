@@ -142,3 +142,4 @@ body{font-family:"Leelawadee UI","Noto Sans Thai","Segoe UI",Tahoma,sans-serif;l
 .ai-provider-switch button[aria-pressed=true] { background: #fff; color: #9f2028; box-shadow: 0 1px 5px #00000012; font-weight: 700; }
 .ai-provider-switch small { font-size: 10px; color: #777; margin-left: 4px; }
 .ai-provider-note { margin-top: 8px; font-size: 11px; line-height: 1.5; color: #777; }
+.ai-provider-switch button:disabled { opacity: .45; cursor: not-allowed; }

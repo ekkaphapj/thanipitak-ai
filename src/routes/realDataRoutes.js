@@ -1128,6 +1128,10 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   if(!ranking&&ordered)ranking=[routingMessage,ordered[1],alphaOrder?'alpha':explicitCountOrder||'alpha'];
   let plan=null;let ollamaCalls=0;
   let intentAiProvider='local';
+  // Advisory cloud selection from the client; the env gate and the guard
+  // still decide server-side. Hoisted so respond() can explain a
+  // rules-only answer when the officer expected cloud.
+  let wantsCloud=cloud.ok&&Boolean(req.body&&req.body.ai_provider==='cloud');
   const provinceResolution=canonicalProvince(req,provinceFromMessage(routingMessage));
   if(provinceResolution.error)return res.status(422).json({error:provinceResolution.error,code:'REAL_LOCATION_NOT_FOUND',dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   if(provinceResolution.choices){
@@ -1159,9 +1163,11 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const respond=(payload)=>{
    if(fuzzyNote&&!(payload.meta&&payload.meta.fuzzy))payload.meta={...(payload.meta||{}),fuzzy:fuzzyNote};
    // Which intent engine served this turn. Only set when the answer went
-   // through the cloud trial (cloud / local-fallback / local-guard), so
-   // the interface can tell the officer exactly what happened.
+   // through the cloud trial (cloud / local-fallback / local-guard), or
+   // when the officer selected cloud but deterministic rules answered
+   // without any model — the interface must never silently look "local".
    if(intentAiProvider!=='local')payload.meta={...(payload.meta||{}),aiProvider:intentAiProvider};
+   else if(wantsCloud)payload.meta={...(payload.meta||{}),aiProvider:'deterministic'};
    return res.json(payload);
   };
   const selectedTopic=selectedProvince?sanitizeTopic({...(incomingTopic||{}),province:selectedProvince}):incomingTopic;
@@ -1659,8 +1665,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    if((!ranking&&!summary&&!intent)||summary?.intent==='summary_choices'){
     // Cloud trial (OpenRouter): sanitize → assert → cloud parse → restore
     // local references. Every failure mode falls back to Local AI; the
-    // guard can only narrow what leaves the machine.
-    const wantsCloud=cloud.ok&&req.body&&req.body.ai_provider==='cloud';
+    // guard can only narrow what leaves the machine. wantsCloud was
+    // captured before the deterministic paths so respond() stays honest.
     if(wantsCloud){
      const guard=sanitizeForCloud(routingMessage);
      const safety=assertCloudSafe(guard.safeText,guard.mapping);

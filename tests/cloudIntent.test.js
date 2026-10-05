@@ -109,6 +109,66 @@ test('guard: restoreLocalReferences round-trips a plan and fails on unresolved r
   assert.equal(restoreLocalReferences({ ...plan, search: '[PERSON_9]' }, out.mapping), null);
 });
 
+test('guard: all frozen search cases retain their command, type and every area slot', () => {
+  const cases = require('./fixtures/real-intent-holdout150.json').cases.filter(c => c.bucket === 'search');
+  for (const c of cases) {
+    const out = sanitizeForCloud(c.message);
+    assert.equal(assertCloudSafe(out.safeText, out.mapping).ok, true, c.id);
+    for (const field of ['province', 'district', 'subdistrict', 'station']) {
+      if (c.expected[field]) assert.ok(out.safeText.includes(c.expected[field]), `${c.id}: lost ${field}`);
+    }
+    if (c.expected.search) {
+      assert.deepEqual(Object.values(out.mapping), [c.expected.search], c.id);
+      assert.ok(!out.safeText.includes(c.expected.search), `${c.id}: name leak`);
+      assert.equal(out.safeText.replace('[PERSON_1]', c.expected.search), c.message, `${c.id}: changed surrounding text`);
+    } else {
+      assert.equal(out.safeText, c.message, `${c.id}: hid a category or place`);
+      assert.deepEqual(out.mapping, {}, c.id);
+    }
+  }
+});
+
+test('guard: offsets preserve same-spelled places and repeated numeric identifiers', () => {
+  const name = sanitizeForCloud('ค้นหานายเมือง อำเภอเมือง');
+  assert.equal(name.safeText, 'ค้นหานาย[PERSON_1] อำเภอเมือง');
+  assert.deepEqual(name.mapping, { '[PERSON_1]': 'เมือง' });
+  assert.equal(assertCloudSafe(name.safeText, name.mapping).ok, true);
+  assert.equal(assertCloudSafe('ค้นหาเมือง อำเภอเมือง', name.mapping).ok, false);
+  const numbers = sanitizeForCloud('บัตร 1234567890123 และ 1234567890123 โทร 0812345678');
+  assert.equal(numbers.safeText, 'บัตร [NATIONAL_ID_1] และ [NATIONAL_ID_2] โทร [PHONE_1]');
+  assert.equal(assertCloudSafe(numbers.safeText, numbers.mapping).ok, true);
+});
+
+test('guard: title syllables inside domain/place words are preserved and short titles remain protected', () => {
+  for (const text of ['ค้นหาผู้ใช้ยาเสพติดในจังหวัดนครนายก', 'ขอรายชื่อผู้เสพจังหวัดนครนายก']) {
+    const out = sanitizeForCloud(text);
+    assert.equal(out.safeText, text);
+    assert.equal(assertCloudSafe(out.safeText, out.mapping).ok, true);
+  }
+  for (const text of ['ค้นหาดชสมชาย ตำบลโพนสูง', 'ค้นหาด.ญ.สมหญิง ตำบลโพนสูง', 'ค้นหามีชัย']) {
+    const out = sanitizeForCloud(text);
+    assert.ok(out.safeText.includes('[PERSON_1]'), text);
+    assert.equal(assertCloudSafe(out.safeText, out.mapping).ok, true);
+  }
+});
+
+test('guard: malformed names and list-shaped requests do not bypass the final gate', () => {
+  assert.equal(assertCloudSafe('ขอรายชื่อ ใครชื่อสมชาย').ok, false);
+  assert.equal(assertCloudSafe('ค้นหาชื่อสมชาย ใจดี อีกชื่อ คนที่สี่').ok, false);
+  const extra = sanitizeForCloud('ดูข้อมูลสมชาย', { knownNames: ['สมชาย'] });
+  assert.equal(extra.safeText, 'ดูข้อมูล[PERSON_1]');
+  assert.equal(assertCloudSafe(extra.safeText, extra.mapping).ok, true);
+  for (const text of ['ค้นหาชื่อ "สมชาย"', 'ค้นหา Somchai', 'ค้นหาชื่อ#สมชาย']) {
+    const out = sanitizeForCloud(text);
+    assert.equal(assertCloudSafe(out.safeText, out.mapping).ok, false, text);
+  }
+  const blockedField = sanitizeForCloud('ขอเลขบัตรประชาชนของสมชาย');
+  assert.equal(blockedField.safeText, 'ขอเลขบัตรประชาชนของ[PERSON_1]');
+  assert.equal(assertCloudSafe(blockedField.safeText, blockedField.mapping).ok, true);
+  const unknownPrefix = sanitizeForCloud('สอบถามนายสมชาย');
+  assert.equal(unknownPrefix.safeText, 'สอบถามนาย[PERSON_1]');
+});
+
 // ------------------------------------------------------------ openRouter ----
 
 function mockCloudRequest(contentByCall) {
@@ -266,4 +326,32 @@ test('route: status endpoint reports cloud availability and model, never the key
   const statusOff = await request(off.app).get('/ai/status');
   assert.equal(statusOff.body.cloudAvailable, false);
   assert.equal(statusOff.body.cloudModel, null);
+});
+
+test('route: a rules-only answer says so when cloud was selected (deterministic badge)', async () => {
+  // A province switch is a pure local conversation filter: no model, cloud
+  // or local, is consulted — and the badge must not look silently local.
+  const { app, cloudCalls, localCalls } = cloudRouteApp({
+    cloudPlan: { action: 'count', person_type: 'all', group: 'none', direction: 'desc' },
+  });
+  const res = await request(app).post('/ai/chat').send({ message: 'เปลี่ยนจังหวัดนครพนม', ai_provider: 'cloud' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.meta.aiProvider, 'deterministic');
+  assert.equal(cloudCalls.length, 0);
+  assert.equal(localCalls.length, 0);
+});
+
+test('test-mode status explains that cloud intent is real-only', async () => {
+  const { setup } = require('./helpers');
+  const { createApp } = require('../src/app');
+  const ctx = setup();
+  try {
+    const token = (await request(ctx.app).post('/api/auth/login').send({ username: 'station1_off', password: 'thanipitak123' })).body.token;
+    const res = await request(ctx.app).get('/api/ai/status').set('Authorization', `Bearer ${token}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.cloudAvailable, false);
+    assert.equal(res.body.cloudMode, 'real-only');
+  } finally {
+    ctx.cleanup();
+  }
 });

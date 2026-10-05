@@ -16,6 +16,7 @@
     // guard on every request; this flag can ask for cloud, never force it.
     aiProvider: localStorage.getItem(PROVIDER_KEY) === 'cloud' ? 'cloud' : 'local',
     cloudAiAvailable: false,
+    aiCloudMode: null,
     user: null,
     aiAvailable: null,
     aiModel: 'scb10x/llama3.1-typhoon2-8b-instruct:latest',
@@ -226,12 +227,22 @@
     const box = $('#ai-provider-switch');
     const note = $('#ai-provider-note');
     if (!box || !note) return;
-    // The switch only appears when the server reports a configured cloud
-    // provider; an unconfigured pilot keeps the familiar local-only UI.
-    box.classList.toggle('hidden', !state.cloudAiAvailable);
+    // Cloud needs the real-data interpreter; in test mode the switch is
+    // visible but disabled so officers see why instead of a missing control.
+    const realOnly = state.aiCloudMode === 'real-only';
+    const visible = state.cloudAiAvailable || realOnly;
+    box.classList.toggle('hidden', !visible);
+    $('#ai-provider-cloud').disabled = realOnly;
+    $('#ai-provider-local').disabled = false;
     $('#ai-provider-local').setAttribute('aria-pressed', String(state.aiProvider !== 'cloud'));
     $('#ai-provider-cloud').setAttribute('aria-pressed', String(state.aiProvider === 'cloud'));
-    note.classList.toggle('hidden', state.aiProvider !== 'cloud' || !state.cloudAiAvailable);
+    if (realOnly) {
+      note.textContent = 'Cloud AI ใช้ได้เฉพาะโหมดข้อมูลจริง (สลับไป “ข้อมูลจริง” ก่อน) — โหมดทดสอบใช้ Local AI';
+      note.classList.remove('hidden');
+    } else {
+      note.textContent = 'Cloud AI ใช้เฉพาะการวิเคราะห์คำสั่ง ข้อมูลบุคคลและข้อมูลลับจะไม่ถูกส่งออกจากระบบ';
+      note.classList.toggle('hidden', state.aiProvider !== 'cloud' || !state.cloudAiAvailable);
+    }
   }
 
   function setAiProvider(provider) {
@@ -246,6 +257,7 @@
       const json = await api('/api/ai/status');
       state.aiModel = json.model || state.aiModel;
       state.cloudAiAvailable = json.cloudAvailable === true;
+      state.aiCloudMode = json.cloudMode || null;
       renderAiStatus(json.available);
       renderAiProvider();
       renderUser();
@@ -2355,6 +2367,7 @@
             cloud: 'แปลงคำถามด้วย Cloud AI (OpenRouter) • ข้อมูลบุคคลไม่ถูกส่งออก',
             'local-fallback': 'Cloud AI ไม่พร้อมใช้งาน ระบบกำลังใช้ Local AI',
             'local-guard': 'พบข้อมูลส่วนบุคคลในคำถาม ใช้ Local AI เพื่อความปลอดภัย',
+            deterministic: 'คำสั่งนี้ตรงกับกฎของระบบ จึงตอบโดยตรงโดยไม่ต้องใช้ AI',
           }[json.meta.aiProvider];
           if (providerNote) {
             const note = document.createElement('div');

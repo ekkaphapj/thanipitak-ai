@@ -59,7 +59,9 @@ function createAIRoutes(db, authRequired, options = {}) {
 
   router.get('/status', authRequired, async (req, res) => {
     const { available } = await ollamaCheck();
-    return res.json({ available, model: activeOllamaModel(), routingMode: OLLAMA_ROUTING_MODE });
+    // Cloud intent parsing is wired on the real-data route only; say so
+    // explicitly so the interface can explain itself in test mode.
+    return res.json({ available, model: activeOllamaModel(), routingMode: OLLAMA_ROUTING_MODE, cloudAvailable: false, cloudMode: 'real-only' });
   });
 
   router.post('/chat/processing', authRequired, (req, res) => {

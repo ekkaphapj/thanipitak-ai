@@ -266,3 +266,58 @@ test('select-button follow-up on a visit plan adds recorded reasons without an o
   });
   assert.equal(both.body.answer.split('ต้องตรวจเยี่ยมเพราะ').length, 2);
 });
+
+test('visit plan with the officer own province and no spoken station defaults to the assigned station', async () => {
+  const rpc = [];
+  const app = makeApp(async (url, options) => {
+    assert.match(url, /\/rpc\/ai_visit_plan$/);
+    const body = JSON.parse(options.body);
+    rpc.push(body);
+    // Mirror the real RPC: a province-only request returns station_required.
+    return { ok: true, json: async () => (body.p_station_name ? plan() : { status: 'station_required' }) };
+  });
+  const res = await request(app).post('/ai/chat').send({ message: 'ขอแผนการตรวจเยี่ยม จังหวัดอุดรธานี' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.presentation.type, 'visit_plan');
+  assert.match(res.body.answer, /ใช้ สภ\. ที่บัญชีสังกัด: สภ\.กลางใหญ่/);
+  assert.match(res.body.answer, /แผนการตรวจเยี่ยม สภ\.กลางใหญ่/);
+  assert.equal(rpc.length, 2);
+  assert.equal(rpc[0].p_station_name, null);
+  assert.equal(rpc[1].p_station_name, 'กลางใหญ่');
+  assert.equal(rpc[1].p_province, 'อุดรธานี');
+});
+
+test('visit plan naming a different province still offers the station picker, not the own station', async () => {
+  const app = makeApp(async (url) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/stations')) {
+      return { ok: true, headers: new Headers({ 'content-range': '0-0/1' }), json: async () => [{ station_id: 71, station_name: 'สภ.ท่าอุเทน' }] };
+    }
+    if (u.pathname.endsWith('/ai_visit_plan')) {
+      return { ok: true, json: async () => ({ status: 'station_required' }) };
+    }
+    throw new Error(`unexpected rpc for another province: ${url}`);
+  });
+  const res = await request(app).post('/ai/chat').send({ message: 'ขอแผนการตรวจเยี่ยม จังหวัดนครพนม' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.presentation.type, 'place_choices');
+  assert.match(res.body.answer, /ไม่สามารถระบุ สภ\./);
+  assert.ok(!res.body.answer.includes('บัญชีสังกัด'));
+});
+
+test('a stationless account naming its province keeps the station picker', async () => {
+  const app = express(); app.use(express.json());
+  app.use(createRealDataRoutes((req, res, next) => {
+    req.realToken = 'verified-session';
+    req.user = { role: 'admin', stationId: null, stationName: null, province: 'นครพนม', aiScope: { level: 'province', read_only: true, provinces: ['นครพนม'] } };
+    next();
+  }, { url: 'https://example.test', key: 'anon', interpret: async () => { throw new Error('no model'); }, request: async (url) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/stations')) return { ok: true, headers: new Headers({ 'content-range': '0-0/1' }), json: async () => [{ station_id: 71, station_name: 'สภ.ท่าอุเทน' }] };
+    if (u.pathname.endsWith('/ai_visit_plan')) return { ok: true, json: async () => ({ status: 'station_required' }) };
+    throw new Error(`unexpected read ${url}`);
+  } }));
+  const res = await request(app).post('/ai/chat').send({ message: 'ขอแผนการตรวจเยี่ยม จังหวัดนครพนม' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.presentation.type, 'place_choices');
+});

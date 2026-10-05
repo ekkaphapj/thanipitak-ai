@@ -1219,9 +1219,23 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    return {type:'place_choices',field:'station',choiceLabel:'ตัวเลือก สภ.',replaceText:originalMessage,originalMessage,
     choices:names.map((row,index)=>({index:index+1,name:row.name,replaceText:originalMessage,replaceWith:command(row.name),display:stationDisplay(row.name),filters:{station:row.name}}))};
   }
-  const planResultResponse=async(result,fuzzyStation)=>{
+  const planResultResponse=async(result,fuzzyStation,ownDefaultNote)=>{
    if(result.status!=='ok'){
     const askProvince=explicitProvince||null;
+    // “ขอแผนการตรวจเยี่ยม จังหวัด(ของตัวเอง)” โดยไม่มีชื่อ สภ. และไม่มีคำว่า
+    // สภ. ในคำสั่งเลย = แผนของสถานีที่บัญชีสังกัด (pattern เดียวกับ “ขอภาพรวม
+    // สภ.”) — สถานีมาจาก profile ที่ server ยืนยันเท่านั้น บัญชีไร้สังกัด
+    // หรือระบุจังหวัดอื่นยังได้ตัวเลือกให้เลือกเหมือนเดิม
+    if(result.status==='station_required'&&!stationCue&&!visitPlanIntent?.station
+     &&req.user.stationId&&req.user.stationName&&(!askProvince||askProvince===req.user.province)){
+     try{
+      // Spoken commands carry the bare station name; strip the registry
+      // prefix so the retry is identical to a named-station command.
+      const ownBare=String(req.user.stationName).replace(/^(?:สภ\.|ภ\.จว\.)\s*/u,'');
+      const own=await readVisitPlan(req,{station:ownBare,province:req.user.province||askProvince});
+      if(own.status==='ok')return planResultResponse(own,null,`ใช้ สภ. ที่บัญชีสังกัด: ${stationDisplay(req.user.stationName)}`);
+     }catch(_){/* fall through to the choice list */}
+    }
     if(askProvince&&['station_not_found','station_ambiguous','station_required'].includes(result.status)){
      let catalogue=null;
      try{catalogue=await stationCatalogue(req,askProvince);}catch(_){catalogue=null;}
@@ -1249,7 +1263,7 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
    const typeLabel={psychiatric:'ผู้ป่วยจิตเวช',drug_user:'ผู้เสพ',released:'บุคคลพ้นโทษ'};
    const counts=['psychiatric','drug_user','released'].map(type=>`${typeLabel[type]}: เสี่ยงสูง ${result.counts[type].high} • เฝ้าระวัง ${result.counts[type].watch} • สีแดง ${result.counts[type].red} • สีส้ม ${result.counts[type].orange} • ยังไม่เคยเยี่ยม ${result.counts[type].never_visited}`).join('\n');
    const title=`แผนการตรวจเยี่ยม ${result.station.station_name} • ภ.จว.${result.station.province}`;
-   const answer=`${title}\n${counts}\nต้องไปตรวจเยี่ยมตามลำดับ ${result.totalDue} คน (แสดงหน้า ${result.page})`;
+   const answer=`${ownDefaultNote?ownDefaultNote+'\n':''}${title}\n${counts}\nต้องไปตรวจเยี่ยมตามลำดับ ${result.totalDue} คน (แสดงหน้า ${result.page})`;
    const topic=sanitizeTopic({report_kind:'visit_plan',station:result.station.station_name,province:result.station.province,page:result.page});
    return respond({answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai_visit_plan'}],presentation:{type:'visit_plan',...result},conversation:{topic},meta:{...(fuzzyStation?{fuzzy:fuzzyStation}:{}),fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
   };

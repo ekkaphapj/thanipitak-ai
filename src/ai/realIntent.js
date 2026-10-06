@@ -8,7 +8,7 @@ const schema = {
   properties: {
     action: { type: 'string', enum: ['count', 'list', 'group', 'clarify'] },
     person_type: { type: 'string', enum: ['all', 'psychiatric', 'drug_user', 'dealer', 'released'] },
-    group: { type: 'string', enum: ['none', 'ตำบล', 'อำเภอ', 'จังหวัด'] },
+    group: { type: 'string', enum: ['none', 'ตำบล', 'อำเภอ', 'จังหวัด', 'สภ.'] },
     direction: { type: 'string', enum: ['asc', 'desc'] },
     province: { type: 'string' },
     district: { type: 'string' },

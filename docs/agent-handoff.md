@@ -1,4 +1,41 @@
-# Coding agent handoff — current as of 2026-10-05
+# Coding agent handoff — current as of 2026-10-06
+
+## 2026-10-06 “สภ.ไหนมีผู้เสพเยอะที่สุด” — station ranking answer
+
+Field report (screenshots): the spoken question was answered with the
+whole-province total via `supabase_area_count` (“จังหวัด… มีทั้งหมด 1412 คน”,
+Local AI ~19.7 s) instead of ranking stations. Root cause: the deterministic
+station-ranking path only fires on a surviving สภ./สถานี cue + direction
+word, and the model fallback had **no station option in the `group` enum**
+(ตำบล|อำเภอ|จังหวัด|none), so a garbled transcript fell to group-by-province.
+Fixes on `phase-3.3-low-latency` (not deployed/pushed at the time of this
+note):
+
+- `realIntent.js` group enum + `domainCatalog.js` prompt now include `สภ.`
+  (few-shot: สภ.ไหนมีผู้เสพเยอะที่สุด => group สภ. desc). Cloud prompt derives
+  automatically. Live loopback check with actual Ollama `qwen3:8b`:
+  “สถานีตำรวจแห่งใดมีผู้เสพมากที่สุด”→group สภ. desc; “สภ.ไหนมีผู้ป่วยจิตเวชน้อยที่สุด”
+  →group สภ. asc; bare “ที่ไหน…” (no unit) → ตำบล, no longer a province total.
+- `realDataRoutes.js`: a model-proposed (or fastPath `group_persons`) station
+  grouping executes the existing audited `ai-summary/target_person_summary`
+  ranking (`stationRanking()`), never a people scan — the 1645 map gained
+  `station:'สภ.'` (previously a fastPath station grouping fell through to a
+  generic people list), and the ranking block branches `สภ.` to the audited
+  read with `topN` as limit. `missedSpokenArea` treats group สภ. as an output
+  dimension, not a station filter.
+- `stationRanking()` answers now name the leader in the text itself
+  (“สภ.ข มีผู้เสพมากที่สุด 9 คน”); ties list every leader from the full
+  sorted list (a limited view never names a non-leader). Alphabetic sorts
+  add no lead line.
+- `correctTranscript.js` repairs unspaced garbled question cues
+  สอบพอไหน/สอบพอที่ไหน/สอพอไหน/สอพอที่ไหน/สภอไหน/สภอที่ไหน → สภ.ไหน/สภ.ที่ไหน
+  (`repairStationCue` needs a space after the cue, so it missed these).
+- Tests: new `tests/realStationGroupIntent.test.js` (6 cases: schema
+  accept/coerce, deterministic spoken phrasing, model-proposed station group
+  via audited tool with no `supabase_area_count`, tie naming, STT repairs +
+  negatives, spoken limit). Full `npm test`: **567 tests, 27 suites,
+  0 failures**. No Supabase, registry, or credentials in tests; the live
+  model check was loopback-only.
 
 ## 2026-10-05 visit plan own-station default
 

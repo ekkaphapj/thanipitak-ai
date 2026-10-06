@@ -25,9 +25,10 @@ const INTERPRETER_SYSTEM_PROMPT = `คุณแปลคำถามภาษา
 - station = ชื่อ สภ. จาก stations.station_name เฉพาะเมื่อผู้ใช้ระบุชื่อสถานี
 - search = ชื่อหรือนามสกุลที่ต้องการค้น ไม่ใช้เลขบัตรประชาชน
 
-การแยกยอด group: ตำบล | อำเภอ | จังหวัด | none
+การแยกยอด group: ตำบล | อำเภอ | จังหวัด | สภ. | none
 direction: desc = มากไปน้อย/เยอะก่อน, asc = น้อยไปมาก
 ถ้าถามว่าที่ไหนมากที่สุดให้ group ตามหน่วยนั้น direction desc
+ถ้าถามถึง สภ./สถานีตำรวจ ไหนเยอะหรือน้อยที่สุด หรือขอยอดราย สภ. ให้ group สภ.
 ถ้าขอแจกแจง/เรียงตามพื้นที่ให้ group ตามหน่วยนั้น
 
 ต้อง action=clarify เมื่อคำถามเกี่ยวกับสิ่งที่ยังไม่เปิดให้ AI อ่านจากทะเบียนจริง:
@@ -47,6 +48,7 @@ direction: desc = มากไปน้อย/เยอะก่อน, asc = �
 มีผู้เสพในอำเภอเมืองกี่คน => action count, person_type drug_user, group none, direction desc, district เมือง
 ขอรายชื่อผู้ค้า => action list, person_type dealer, group none, direction desc
 ตำบลไหนมีผู้ป่วยน้อยที่สุด => action group, person_type psychiatric, group ตำบล, direction asc
+สภ.ไหนมีผู้เสพเยอะที่สุด => action group, person_type drug_user, group สภ., direction desc
 ช่วยดูยอดแยกตามหมู่บ้าน => action clarify, person_type all, group none, direction desc
 ใครเสี่ยงสูง => action clarify, person_type all, group none, direction desc
 ค้นหาสมชาย => action list, person_type all, group none, direction desc, search สมชาย

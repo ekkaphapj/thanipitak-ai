@@ -338,7 +338,7 @@ function likelyUsesLocalAi(message, topic, hasSelectedPerson) {
 
 function missedSpokenArea(message,plan){
  const spoken=extractLookupFilters(message).filters||{};
- const groupField=plan?.action==='group'?{ตำบล:'subdistrict',อำเภอ:'district',จังหวัด:'province'}[plan.group]:null;
+ const groupField=plan?.action==='group'?{ตำบล:'subdistrict',อำเภอ:'district',จังหวัด:'province','สภ.':'station'}[plan.group]:null;
  for(const [field,label] of [['province','จังหวัด'],['district','อำเภอ'],['subdistrict','ตำบล'],['station','สภ.']]){
   if(field===groupField)continue;
   const expected=spoken[field];
@@ -951,7 +951,17 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   const directionLabel=request.direction==='asc'?'น้อยไปมาก':'มากไปน้อย';
   const amountLabel=request.limit===null?`แสดงทั้งหมด ${rows.length} สภ.`:`${rows.length} อันดับแรก`;
   const sortLabel=request.sortBy==='name'?'ตามตัวอักษร':`${label}${directionLabel}`;
-  const answer=`จัดอันดับ สภ. • ${summary.presentation.scopeLabel}\nเรียง${sortLabel} • ${amountLabel}`;
+  // A spoken “สภ.ไหนมีผู้เสพเยอะที่สุด” must hear the winner in the answer
+  // text itself, not only in the rendered rows. Leaders come from the full
+  // sorted list so a limited view never names a non-leader.
+  let leadLine='';
+  if(request.direction&&request.sortBy!=='name'&&sorted.length){
+   const extreme=request.direction==='asc'?Math.min(...sorted.map(row=>row[field])):Math.max(...sorted.map(row=>row[field]));
+   const leaders=sorted.filter(row=>row[field]===extreme);
+   const who=leaders.length<=3?leaders.map(row=>row.stationName).join(' และ '):`${leaders.length} สภ.`;
+   leadLine=`\n${who} มี${label}${request.direction==='asc'?'น้อยที่สุด':'มากที่สุด'} ${extreme} คน`;
+  }
+  const answer=`จัดอันดับ สภ. • ${summary.presentation.scopeLabel}\nเรียง${sortLabel} • ${amountLabel}${leadLine}`;
   return {answer,presentation:{type:'station_ranking',scopeLabel:summary.presentation.scopeLabel,rows,personType:request.personType,direction:request.direction,sortBy:request.sortBy||null,limit:request.limit}};
  }
  router.post('/ai/chat/processing',(req,res)=>{
@@ -1632,8 +1642,8 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
   // The same incomplete search asks back immediately on the test path. Do not
   // send it to the model, and do not replace the conversation topic.
   if(intent?.intent==='search_incomplete')return respond({answer:SEARCH_INCOMPLETE_ANSWER,grounded:false,dataSource:'real',conversation:{topic:incomingTopic},meta:{fastPath:true,ollamaCalls:0,responseTimeMs:Date.now()-start}});
-  if(intent?.intent==='group_persons' && {subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด'}[intent.groupBy]){
-   if(!ranking)ranking=[message,{subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด'}[intent.groupBy],alphaOrder?'alpha':explicitCountOrder||'alpha'];
+  if(intent?.intent==='group_persons' && {subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด',station:'สภ.'}[intent.groupBy]){
+   if(!ranking)ranking=[message,{subdistrict:'ตำบล',district:'อำเภอ',province:'จังหวัด',station:'สภ.'}[intent.groupBy],alphaOrder?'alpha':explicitCountOrder||'alpha'];
    showAll=intent.showAll||showAll;
   }
   // Non-registry questions must never enter the registry interpreter.  In
@@ -1734,6 +1744,16 @@ function createRealDataRoutes(authenticate,{url=require('../realConfig').url,key
     for(const key of ['person_type','province','district','subdistrict','station'])if(!filters[key]&&filled[key])filters[key]=filled[key];
    }
    if(ranking){
+    // A station grouping runs on the audited ai-summary aggregate — the same
+    // caller-bound read the deterministic station-ranking path uses — never
+    // on a people scan the route would have to group itself.
+    if(ranking[1]==='สภ.'){
+     try{
+      const stationDirection=(plan?.direction||intent?.direction||'desc')==='asc'?'asc':'desc';
+      const result=await stationRanking(req,selectedProvince,{direction:stationDirection,personType:filters.person_type||null,limit:topN,sortBy:null});
+      return respond({answer:result.answer,grounded:true,dataSource:'real',toolsUsed:[{name:'ai-summary/target_person_summary'}],presentation:result.presentation,conversation,meta:{fastPath:!ollamaCalls,ollamaCalls,responseTimeMs:Date.now()-start}});
+     }catch(e){return sendFailure(e);}
+    }
     const result=await search(req,filters,1,true);
     if(result.fuzzy)fuzzyNote=result.fuzzy;
     const column={ตำบล:'tambon',อำเภอ:'amphoe',จังหวัด:'province'}[ranking[1]];

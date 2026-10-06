@@ -46,6 +46,14 @@ const EXACT = [
   ['สอพอท', 'สภ.'],
   ['สายพอท', 'สภ.'],
   ['สถานีพอท', 'สภ.'],
+  // Question forms attach directly to the garbled cue with no space, so
+  // repairStationCue (which needs a spaced name slot) cannot catch them.
+  ['สอบพอที่ไหน', 'สภ.ที่ไหน'],
+  ['สอบพอไหน', 'สภ.ไหน'],
+  ['สอพอที่ไหน', 'สภ.ที่ไหน'],
+  ['สอพอไหน', 'สภ.ไหน'],
+  ['สภอที่ไหน', 'สภ.ที่ไหน'],
+  ['สภอไหน', 'สภ.ไหน'],
   // บุคคล — dropped consonant after the ค cluster.
   ['บุลคล', 'บุคคล'],
   ['บุคคัล', 'บุคคล'],

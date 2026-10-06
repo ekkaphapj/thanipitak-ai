@@ -8,8 +8,8 @@ Local AI ~19.7 s) instead of ranking stations. Root cause: the deterministic
 station-ranking path only fires on a surviving สภ./สถานี cue + direction
 word, and the model fallback had **no station option in the `group` enum**
 (ตำบล|อำเภอ|จังหวัด|none), so a garbled transcript fell to group-by-province.
-Fixes on `phase-3.3-low-latency` (not deployed/pushed at the time of this
-note):
+Fixes on `phase-3.3-low-latency` (pushed as `e820caf`, deployed — see the
+deploy note at the end of this section):
 
 - `realIntent.js` group enum + `domainCatalog.js` prompt now include `สภ.`
   (few-shot: สภ.ไหนมีผู้เสพเยอะที่สุด => group สภ. desc). Cloud prompt derives
@@ -36,6 +36,19 @@ note):
   negatives, spoken limit). Full `npm test`: **567 tests, 27 suites,
   0 failures**. No Supabase, registry, or credentials in tests; the live
   model check was loopback-only.
+- **Deployed 2026-10-06 (IPv6 LAN SSH).** Pushed `e820caf`; the pilot
+  `ake-server` fast-forwarded `69af1fe → e820caf` and `thanipitak-ai` was
+  restarted via the verified `kill -9` MainPID path. Verified: local
+  `/api/health` 200, `ai.html` 200, STT `/health` ok (cuda), new enum
+  fingerprint in `src/ai/realIntent.js`, public
+  `https://ai.policeshield4.com/ai.html` 200. No frontend change — no
+  Ctrl+F5 needed. Access note: the Cloudflare Access SSH token had expired
+  and no pilot SSH was found on IPv4 LAN scans (the only port-22 host,
+  192.168.1.124, is another device — it still offers password auth). The
+  working route was the pilot's EUI-64 global IPv6 on the Wi-Fi segment:
+  `ssh ekkaphap@2405:9800:ba90:4bc8:d6d6:dfff:fe57:982e` (MAC
+  d4-d6-df-57-98-2e; prefix may rotate with the ISP — re-list neighbors
+  with `netsh interface ipv6 show neighbors` and probe port 22 if stale).
 
 ## 2026-10-05 visit plan own-station default
 

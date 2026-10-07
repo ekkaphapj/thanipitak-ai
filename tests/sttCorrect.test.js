@@ -45,3 +45,7 @@ test('visit-plan station cue repairs only with a station name before the provinc
   assert.equal(correctTranscript('พบศพในพื้นที่ สวนสาธารณะ'), 'พบศพในพื้นที่ สวนสาธารณะ');
   assert.equal(correctTranscript('แผนเยี่ยมชมสถานที่เกิดเหตุพบศพ ในจังหวัดอุดรธานี'), 'แผนเยี่ยมชมสถานที่เกิดเหตุพบศพ ในจังหวัดอุดรธานี');
 });
+test('ตรวจเยือม repairs to ตรวจเยี่ยม only inside the visit phrase', () => {
+  assert.equal(correctTranscript('สรุปการตรวจเยือมเดือนนี้'), 'สรุปการตรวจเยี่ยมเดือนนี้');
+  assert.equal(correctTranscript('ไปเยือมกรุงเทพ'), 'ไปเยือมกรุงเทพ');
+});

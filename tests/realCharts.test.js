@@ -187,3 +187,17 @@ test('processing hints never claim local model work for chart guides/commands', 
     assert.equal(out.body.willUseLocalAi, false);
   }
 });
+test('field report: misheard chart word still draws the chart instead of answering a visit total', async t => {
+  const { app } = harness(t);
+  const mangled = await request(app).post('/ai/chat').send({ message: 'สร้างก๊าบการตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด' });
+  assert.equal(mangled.status, 200);
+  assert.equal(mangled.body.presentation.type, 'chart');
+  assert.equal(mangled.body.presentation.unit, 'ครั้ง');
+  assert.equal(mangled.body.conversation.topic.chart_kind, 'visits');
+  assert.equal(mangled.body.meta.ollamaCalls, 0);
+  // The สถิติ-prefixed phrasing is the same chart, not the summary card.
+  const stats = await request(app).post('/ai/chat').send({ message: 'สร้างกราฟสถิติการตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด' });
+  assert.equal(stats.status, 200);
+  assert.equal(stats.body.presentation.type, 'chart');
+  assert.notEqual(stats.body.presentation.type, 'visit_summary');
+});

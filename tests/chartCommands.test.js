@@ -90,3 +90,30 @@ test('chart counts reject missing, negative, inconsistent or invented totals; vi
   const chart = visitsChart({ areaLabel: 'ทดสอบ', from: '2026-09-01', to: '2026-09-28', total: 2, periodPartial: true, months: [{ label: 'กันยายน 2569', total: 999, byType: [{ count: 2 }] }] }, 'เดือนนี้');
   assert.deepEqual(chart.values, [2]); assert.equal(chart.unit, 'ครั้ง'); assert.ok(chart.note);
 });
+test('field report: misheard กราฟ as ก๊าบ/คราบ/กาบ still routes to the chart, not the visit total', () => {
+  // “สร้างกราฟการตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด” lost its chart word to
+  // Whisper and fell to the visit-summary totals. The repair runs inside
+  // correctTranscript, so test the composed pipeline the route actually uses.
+  for (const mangled of ['สร้างก๊าบการตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด', 'สร้างคราบการตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด', 'ขอกาบการตรวจเยี่ยมรายเดือน สภ.ของฉัน 3 เดือนย้อนหลัง']) {
+    const intent = commands.detect(correctTranscript(mangled));
+    assert.equal(intent.kind, 'visits', mangled);
+  }
+  // กาบ keeps its meaning outside a chart command head + chart tail.
+  assert.equal(correctTranscript('ขอกาบหอยสักสามชิ้น'), 'ขอกาบหอยสักสามชิ้น');
+  assert.equal(commands.detect(correctTranscript('สร้างก๊าบเรือไม้ไผ่')), null);
+});
+test('visits chart grammar accepts สถิติ/ผล/ยอด/จำนวน prefixes, spaced การตรวจ เยี่ยม and ตรวจเยือม', () => {
+  for (const message of [
+    'สร้างกราฟสถิติการตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด',
+    'สร้างกราฟผลการตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด',
+    'สร้างกราฟยอดการตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด',
+    'สร้างกราฟการตรวจ เยี่ยมรายเดือนของจังหวัดร้อยเอ็ด',
+    'สร้างกราฟการตรวจเยือมรายเดือนของจังหวัดร้อยเอ็ด',
+  ]) {
+    const intent = commands.detect(correctTranscript(message));
+    assert.equal(intent.kind, 'visits', message);
+    if (intent.province) assert.equal(intent.province, 'ร้อยเอ็ด');
+  }
+  // เยือม as an ordinary verb is never rewritten.
+  assert.equal(correctTranscript('ไปเยือมบ้านเกิด'), 'ไปเยือมบ้านเกิด');
+});

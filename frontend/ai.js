@@ -2393,7 +2393,17 @@
         if (json.presentation && json.presentation.type === 'summary_choices') renderSummaryChoices(wrap, json.presentation);
         if (json.presentation && json.presentation.type === 'chart_help') renderChartHelp(wrap, json.presentation, json.answer);
         if (json.presentation && json.presentation.type === 'chart') {
-          window.ThaniCharts.render(hostForPresentation(wrap), json.presentation);
+          // A stale cached charts.js must never swallow the chart silently:
+          // the officer would see only the “รวม N ครั้ง” text line and think
+          // the chart feature answered a total instead of drawing.
+          if (window.ThaniCharts && typeof window.ThaniCharts.render === 'function') {
+            window.ThaniCharts.render(hostForPresentation(wrap), json.presentation);
+          } else {
+            const staleNote = document.createElement('p');
+            staleNote.className = 'chart-render-missing';
+            staleNote.textContent = 'เบราว์เซอร์ยังใช้ไฟล์แสดงกราฟเวอร์ชันเก่า จึงวาดกราฟไม่ได้ กรุณากด Ctrl+F5 แล้วสั่งสร้างกราฟอีกครั้ง';
+            hostForPresentation(wrap).appendChild(staleNote);
+          }
           // A verified chart topic means "สร้าง PDF ต่อ" must export THIS
           // chart; the server re-reads and re-verifies every number. The
           // request carries only which aggregate and its narrowing filters.

@@ -10,6 +10,10 @@
   function repair(text) {
     return String(text || '')
       .replace(new RegExp(`((?:สร้าง|ขอ|แสดง|ทำ)\\s*)(?:กาฟ|ก๊าฟ|คราฟ|กร๊าฟ|กราป|กราฟฟ์|กราฟ์)(?=${CHART_TAIL})`, 'gu'), '$1กราฟ')
+      // Field report: “สร้างกราฟการตรวจเยี่ยม…” heard as สร้างก๊าบ/คราบ/
+      // กาบ — without the กราฟ token the command fell to the visit summary
+      // path and answered a total instead of drawing the chart.
+      .replace(new RegExp(`((?:สร้าง|ขอ|แสดง|ทำ)\\s*)(?:ก๊าบ|คราบ|กาบ|ก๊าพ|คราพ|กาพ)(?=${CHART_TAIL})`, 'gu'), '$1กราฟ')
       .replace(new RegExp(`((?:สร้าง|ขอ|แสดง|ทำ)\\s*)(?:แผนธูป|แผนธุป|แผนทูม|แผนตูม|แผนภูม|แผนปูม|แผนบูม|แผนดูป|แผนทุบ|แผนภูมิ์)(?=${CHART_TAIL})`, 'gu'), '$1แผนภูมิ')
       .replace(new RegExp(`((?:สร้าง|ขอ|แสดง|ทำ)\\s*)(?:ชาร์ท|ชาร์ต|ชาต์|ชาร์ด|ชาร์|ชาท|ชาด)(?=${CHART_TAIL})`, 'gu'), '$1แผนภูมิ')
       .replace(/((?:สร้าง|แสดง|ทำ)\s*)กราบ(?=\s|$|ยังไง|ทำยังไง|ใช้ยังไง|อะไร|บุคคล|การตรวจ)/gu, '$1กราฟ')
@@ -34,7 +38,7 @@
     if (/^บุคคลเป้าหมาย\s*ราย\s*สภ\.?\s*(?:ของ\s*)?จังหวัดอื่น$/u.test(clean)) return { kind: 'people', own: false, otherProvince: true };
     let m = clean.match(/^บุคคลเป้าหมาย\s*ราย\s*สภ\.?\s*(?:ของ\s*)?จังหวัด\s*([ก-๙]+)$/u);
     if (m) return { kind: 'people', own: false, province: m[1] };
-    m = clean.match(/^การตรวจเยี่ยม\s*รายเดือน\s*(?:ของ\s*)?(สภ\.?\s*ของ(?:ฉัน|ผม|เรา)|จังหวัด\s*[ก-๙]+)(?:\s+(.+))?$/u);
+    m = clean.match(/^(?:สถิติ|ยอด|จำนวน|ผล)?\s*การตรวจ\s*เยี่ยม\s*รายเดือน\s*(?:ของ\s*)?(สภ\.?\s*ของ(?:ฉัน|ผม|เรา)|จังหวัด\s*[ก-๙]+)(?:\s+(.+))?$/u);
     if (m) return { kind: 'visits', own: /^สภ/u.test(m[1]), province: m[1].match(/จังหวัด\s*([ก-๙]+)/u)?.[1] || null, period: m[2] || null };
     return { kind: 'help', unknown: true };
   }

@@ -1,5 +1,22 @@
 # Coding agent handoff — current as of 2026-10-06
 
+## 2026-10-06 กราฟ/แผนภูมิ/ชาร์ท are one chart command (owner request)
+
+Owner rule: “สร้างแผนภูมิ/ชาร์ท การตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด” must be
+the exact same chart as “สร้างกราฟ…”, including near-sound spellings.
+Implemented in `38818bc`: `chartCommands.repair` now covers the extended
+misheard families for every command head (ชาร์ต์/ชารต/ชาต/ฉาร์ท,
+กรัฟ/กลาฟ/กาลฟ, แผนพูม/แผนภุมิ) and adds **headless** rewrites guarded by a
+registry chart tail only (บุคคล|การตรวจ|ผู้ป่วย|รายเดือน|สภ\.) — so
+“ชาร์ทการตรวจเยี่ยม…” without สร้าง still charts, while ชาที่/ชาติ/กราฟิก/
+ชาร์ทยอดขาย/ขอกาบหอย and visit-plan wording (แผนการตรวจเยี่ยม) are never
+touched. Regression pins 20+ synonyms × {สร้าง, ขอ, headless} → the same
+visits intent, the shared people grammar, and all negatives; full `npm test`
+**572/572**; an end-to-end mocked-Supabase check confirmed identical chart
+presentations for กราฟ/แผนภูมิ/ชาร์ท/ชาร์ต. **Deployed 2026-10-06** via the
+pilot IPv6 route (`38818bc`, kill -9 restart, health 200, ai.html serves
+`chartCommands.js?v=20261006-2`, public URL 200).
+
 ## 2026-10-06 misheard chart word answered totals instead of drawing (FIXED)
 
 Field report: speaking “สร้างกราฟการตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด” showed

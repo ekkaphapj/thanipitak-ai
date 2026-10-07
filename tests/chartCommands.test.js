@@ -117,3 +117,23 @@ test('visits chart grammar accepts สถิติ/ผล/ยอด/จำนว
   // เยือม as an ordinary verb is never rewritten.
   assert.equal(correctTranscript('ไปเยือมบ้านเกิด'), 'ไปเยือมบ้านเกิด');
 });
+test('กราฟ/แผนภูมิ/ชาร์ท and near-sound variants are one and the same chart command', () => {
+  const tail = 'การตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด';
+  const synonyms = ['กราฟ', 'แผนภูมิ', 'ชาร์ท', 'ชาร์ต', 'ชาร์ต์', 'ชาต', 'ชาต์', 'ชาร์ด', 'ชาร์', 'ชารต', 'ชาท', 'ชาด', 'ฉาร์ท', 'กรัฟ', 'กลาฟ', 'กาลฟ', 'ก๊าบ', 'คราบ', 'กาบ', 'แผนธูป', 'แผนพูม', 'chart', 'graph'];
+  for (const word of synonyms) for (const head of ['สร้าง', 'ขอ', '']) {
+    const intent = commands.detect(correctTranscript(head + word + tail));
+    assert.equal(intent && intent.kind, 'visits', `${head || '(headless)'} ${word}`);
+    assert.equal(intent.province, 'ร้อยเอ็ด', `${head || '(headless)'} ${word}`);
+  }
+  // The people chart grammar is shared by every synonym too.
+  for (const word of ['กราฟ', 'แผนภูมิ', 'ชาร์ท', 'ชาร์ต', 'ชาต']) {
+    const intent = commands.detect(correctTranscript(`สร้าง${word}บุคคลเป้าหมายราย สภ. จังหวัดร้อยเอ็ด`));
+    assert.equal(intent && intent.kind, 'people', word);
+  }
+  // Headless rewrites only fire on a registry chart tail.
+  for (const untouched of ['ชาร์ทยอดขายประจำเดือน', 'สร้างชาที่หวาน', 'สร้างชาติใหม่ในใจ', 'กราฟิกสวยดี']) {
+    assert.equal(commands.detect(correctTranscript(untouched)), null, untouched);
+  }
+  // A visit-plan request is never turned into a chart by these repairs.
+  assert.equal(commands.detect(correctTranscript('ขอแผนการตรวจเยี่ยม สภ.ท่าอุเทน จังหวัดนครพนม')), null);
+});

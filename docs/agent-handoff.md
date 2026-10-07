@@ -1,5 +1,33 @@
 # Coding agent handoff — current as of 2026-10-06
 
+## 2026-10-06 misheard chart word answered totals instead of drawing (FIXED)
+
+Field report: speaking “สร้างกราฟการตรวจเยี่ยมรายเดือนของจังหวัดร้อยเอ็ด” showed
+the total visit count instead of a chart. Reproduced root cause: with the
+exact transcript the chart path works (verified end-to-end with mocked
+Supabase), but when Whisper drops the กราฟ token (สร้างก๊าบ/คราบ/กาบ…)
+`chartCommands.detect` returns null and `detectVisitStatsIntent` answers
+the totals — the wording the officer saw. Fixes in `112511d`:
+
+- `chartCommands.repair` now rewrites ก๊าบ/คราบ/กาบ/ก๊าพ/คราพ/กาพ → กราฟ
+  only after a chart command head with a chart tail; กาบ elsewhere (ขอกาบหอย)
+  and non-chart tails (สร้างก๊าบเรือ) are untouched.
+- The visits chart grammar accepts สถิติ/ผล/ยอด/จำนวน prefixes, a spaced
+  การตรวจ เยี่ยม, and the ตรวจเยือม mishear (exact repair in
+  correctTranscript: ตรวจเยือม → ตรวจเยี่ยม; ไปเยือม stays).
+- Frontend honesty: a chart presentation with no `window.ThaniCharts`
+  renderer (stale cached scripts) now shows a Ctrl+F5 notice instead of
+  silently leaving only the “รวม N ครั้ง” text line. Script versions in
+  ai.html bumped (ai.js/chartCommands.js/ai-refresh.css → 20261006-1) so a
+  normal reload fetches the new files without a hard refresh.
+- Tests: regressions in chartCommands/sttCorrect/realCharts (mangled cue
+  route test pins presentation.type 'chart', not visit_summary); full
+  `npm test` **571/571**. **Deployed 2026-10-06** over the pilot IPv6 SSH
+  route (`112511d`, kill -9 restart; /api/health 200, ai.html serves the
+  20261006-1 refs, STT ok, public URL 200). Browsers still holding a
+  pre-20261006 cache now get the notice instead of a silent text-only
+  chart; a plain reload picks up the new scripts via the bumped query.
+
 ## 2026-10-06 “สภ.ไหนมีผู้เสพเยอะที่สุด” — station ranking answer
 
 Field report (screenshots): the spoken question was answered with the

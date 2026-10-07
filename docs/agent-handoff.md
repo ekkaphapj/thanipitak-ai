@@ -1,4 +1,32 @@
-# Coding agent handoff — current as of 2026-10-06
+# Coding agent handoff — current as of 2026-10-07
+
+## 2026-10-07 second public hostname: thanipitak-ai.policeshield4.com
+
+Owner asked for `https://thanipitak-ai.policeshield.com` — that domain
+(spelled without the 4) is **not theirs**: its nameservers are
+domainmarket's (parked for sale), so it can never route through this
+account. The owner confirmed the target is
+**`https://thanipitak-ai.policeshield4.com`** instead.
+
+- Added via the Cloudflare API with an owner-issued scoped token (Account
+  Cloudflare Tunnel:Edit + Zone DNS:Edit on policeshield4.com only; token
+  used in-memory only, never in files/commits/logs — owner deletes it after).
+  The tunnel stays dashboard/remote-managed; nothing changed on the pilot
+  box and cloudflared was never restarted.
+- Live ingress after the change (GET verified before PUT; every prior rule
+  preserved byte-for-byte): `server.`→127.0.0.1:3210, `ai.`→3100,
+  **`thanipitak-ai.`→3100 (new)**, `files.`→3923 (httpHostHeader override),
+  `ssh.`→ssh://127.0.0.1:22, `image.`→8190, `draw.`→8188, catch-all 404.
+  Note `server.`/`image.`/`draw.` predate this change and were not in the
+  handoff before.
+- DNS: proxied CNAME `thanipitak-ai` →
+  `77fac5b3-dc81-4bf4-aa11-b7d4a9e11c2c.cfargotunnel.com` (zone
+  `6bc0244d7bf0e6479755958734b1dfa0`, record id `988b92987b87d665971c3d716fb4aea0`).
+- Verified: `https://thanipitak-ai.policeshield4.com/ai.html` 200, `/`
+  redirects to `/ai.html`, and the old `https://ai.policeshield4.com/ai.html`
+  still 200 (both hostnames stay live during the transition; retire `ai.`
+  only on an explicit owner request). App code needs no change — everything
+  is same-origin relative URLs; only bookmarks must be updated.
 
 ## 2026-10-06 กราฟ/แผนภูมิ/ชาร์ท are one chart command (owner request)
 

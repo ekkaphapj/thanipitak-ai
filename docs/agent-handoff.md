@@ -1,4 +1,61 @@
-# Coding agent handoff — current as of 2026-10-07
+# Coding agent handoff — current as of 2026-10-08
+
+## 2026-10-08 session close-out and next-agent quick start
+
+Everything below in the 2026-10-06/07 sections shipped in this working
+stretch. Repo state at close: branch **`phase-3.3-low-latency`**, all work
+committed and pushed through `8e1f515` (GitHub `ekkaphapj/thanipitak-ai`).
+Full `npm test` on the final tree: **572 tests / 27 suites / 0 failures**
+(network mocked; no real credentials).
+
+**Where the pilot is right now**
+
+- Pilot box `ake-server`, checkout `/home/ekkaphap/thanipitak-ai`, service
+  `thanipitak-ai` (systemd, `Restart=on-failure`), STT `thanipitak-stt`
+  (cuda), cloudflared untouched.
+- **Pilot runs `64b920e`** — the repo is ahead by the cloud-guard commit
+  `8e1f515` (privacyGuard repairs + opt-in benchmark harness). That commit
+  is test-validated but **deliberately NOT deployed**; deploy it with the
+  usual pull+restart when the owner asks. Nothing else is pending deploy.
+- Public URLs (both live): `https://ai.policeshield4.com/ai.html` (legacy)
+  and `https://thanipitak-ai.policeshield4.com/ai.html` (new, preferred).
+  `policeshield.com` without the 4 is a parked for-sale domain, not ours —
+  never use it.
+- SSH route that works from the deploy workstation: the pilot's EUI-64
+  global IPv6 `ssh ekkaphap@2405:9800:ba90:4bc8:d6d6:dfff:fe57:982e`
+  (key auth; if stale, `netsh interface ipv6 show neighbors` + port-22
+  probe — IPv4 LAN scans do not find it and the Cloudflare Access token
+  expires). Restart procedure: `git pull --ff-only`, then `kill -9
+  $(systemctl show thanipitak-ai -p MainPID --value)` and let systemd
+  restart it; verify `/api/health`, `ai.html`, STT `/health`, public URL.
+
+**AI models the assistant actually uses (live-checked 2026-10-08)**
+
+`OLLAMA_MODEL=qwen3:8b-q6` (chat/interpreter/RAG chat; the only model
+loaded in VRAM), `RAG_EMBEDDING_MODEL=qwen3-embedding:0.6b`, STT
+`Vinxscribe/biodatlab-whisper-th-medium-faster` (in `.venv-stt`, not
+Ollama), cloud fallback `openai/gpt-5.4-mini` via OpenRouter (control
+plane only; env `CLOUD_AI_ENABLED=true`). Installed-but-unused Ollama
+models total ~57 GB: qwen3-14b-uncensored, ministral3-14b-heresy,
+glm-4-9b-chat-1m Q6_K, gemma4:12b, typhoon2-8b, qwen3.8-heretic:9b,
+qwen2.5:7b, qwen3-vl:4b, typhoon2.5-4b. **Owner reviewed the list and
+chose to keep everything for now — do not delete without a new explicit
+request.** Deletion, when asked: loopback `DELETE /api/delete` over SSH or
+`sudo docker exec ollama ollama rm <name>`; never touch the STT venv model
+or the ComfyUI/qwen-draw stack (service rules in AGENTS.md).
+
+**Rules that stay binding** — AGENTS.md and the older sections below
+(security boundaries, no fixture fallback, audit every real read, exact-map
+STT repairs only, never stop cloudflared/comfyui/qwen-draw, push only
+`phase-3.3-low-latency`, never merge `main` implicitly). Untracked
+user-owned artifacts (`docs/qwen3-*` benchmarks, `tmp_*.js`, `output/`,
+`.zcodeignore`) stay out of commits unless the owner asks.
+
+**Sensible next steps** (not started): deploy `8e1f515` to the pilot on
+request; retire the legacy `ai.policeshield4.com` hostname only on an
+explicit owner decision; the older “Next / still limited” list in the
+historical section still applies (count reconciliation with the main UI,
+in-flight source-switch abort token, `/api/ai/status` honesty).
 
 ## 2026-10-07 second public hostname: thanipitak-ai.policeshield4.com
 

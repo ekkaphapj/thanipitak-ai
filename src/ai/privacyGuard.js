@@ -14,21 +14,16 @@
 //      exact outbound string. Default deny: anything it cannot prove safe
 //      blocks the request and the route falls back to Local AI.
 //
-// Detection combines regex, known field classification and application
-// context (the deterministic `filters.query` name extraction).
+// Detection uses explicit name/title cues and classified domain/area words.
+// Ambiguous name-shaped values are refused by the final gate.
 
 const THAI_DIGITS = '๐๑๒๓๔๕๖๗๘๙';
 
-const TITLE_SRC = '(?:นาย|นางสาว|นาง|ด\\.?ช\\.?|ด\\.?ญ\\.?|เด็กชาย|เด็กหญิง)';
-// Cue words that introduce a bare spoken name. ชื่อ must not match the
-// รายชื่อ of a list request (lookbehind) nor ชื่ออะไร / ชื่อ สภ.
-const CUE_SRC = '(?:ค้นหา|ค้น|หาคน|หา|ใครชื่อ|คนชื่อ|ชื่อว่า|(?<!ราย)ชื่อ|นามสกุล)';
-// A name token never starts with a place cue or domain vocabulary — the
-// person-type words must stay visible to the model (they are categories,
-// not PII), and ชื่อ is a stacked cue, never part of the value.
-const TOKEN_SRC = '(?:(?!ตำบล|อำเภอ|เขต|จังหวัด|สถานี|ชื่อ|เฉพาะ|ผู้เสพ|ผู้ค้า|ผู้ป่วย|คนไข้|จิตเวช|ผู้พ้นโทษ|บุคคล|เป้าหมาย|ทั้งหมด)[ก-๙]{1,30})';
-// A captured name span ends at a place cue / connector / end of utterance.
-const BOUNDARY_SRC = '(?=\\s*(?:ตำบล|ต\\.|อำเภอ|อ\\.|เขต|จังหวัด|จ\\.|สภ\\.?|สถานี|ใน|ที่|ตาม|กับ|และ|เมื่อ|ช่วง|เดือน|ปี|ล่าสุด|$))';
+const TITLE_SRC = '(?:นางสาว|นาย|นาง|เด็กชาย|เด็กหญิง|ด\\.?ช\\.?|ด\\.?ญ\\.?|คุณ)';
+const DOMAIN_START = /^(?:ผู้ป่วย|ผู้เสพ|ผู้ค้า|ผู้พ้นโทษ|ผู้ใช้ยา|ผู้จำหน่าย|คนไข้|คนเสพ|คนขายยา|คนใช้ยา|คนชื่อ|จิตเวช|ยาเสพติด|พ่อค้ายา|บุคคล|เป้าหมาย|รายชื่อ|เฉพาะ|ทั้งหมด|เลข|บัตร|โทร|อีเมล|ข้อมูล|คดี|ประวัติ|(?:ใน|ที่|ตาม)(?=\s|ตำบล|อำเภอ|จังหวัด|สภ)|ตำบล|อำเภอ|เขต|จังหวัด|สถานี|สภ\.?|[ตอจ]\.|ชื่ออะไร|อะไร|ไหน|ใคร|กี่)/u;
+// Stop inside unspaced Thai only at explicit field cues or a connector
+// introducing a field. A generic greedy Thai token used to swallow them.
+const NAME_BOUNDARY = /(?:ใน|ที่|ของ)?(?:ตำบล|อำเภอ|เขต|จังหวัด|สถานี|สภ\.?|[ตอจ]\.)|(?:\s+)(?:ใน|ที่|ตาม|กับ|และ|เมื่อ|ช่วง|เดือน|ปี|ล่าสุด)(?=\s|$)|ให้หน่อย|ให้ที|ครับ|ค่ะ|\s*[,;!?\n]/u;
 const PLACEHOLDER_RE = /\[(?:PERSON|NATIONAL_ID|PHONE|EMAIL|NUMBER)_\d+\]/g;
 
 function toArabicDigits(s) {
@@ -39,14 +34,51 @@ function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function contextNameCandidates(text) {
-  try {
-    const { extractLookupFilters } = require('./fastPath');
-    const q = extractLookupFilters(String(text)).filters?.query;
-    return q ? [q] : [];
-  } catch {
-    return [];
+function nameAfter(text, offset) {
+  const tail = text.slice(offset);
+  const whitespace = tail.match(/^\s*/u)[0].length;
+  const start = offset + whitespace;
+  const rest = text.slice(start);
+  if (!rest || rest.startsWith('[') || DOMAIN_START.test(rest)) return null;
+  const boundary = rest.search(NAME_BOUNDARY);
+  const value = (boundary < 0 ? rest : rest.slice(0, boundary)).trimEnd();
+  // Ambiguous or longer spans are left for the final gate to refuse.
+  if (!/^[ก-๙]{1,30}(?:\s+[ก-๙]{1,30}){0,2}$/u.test(value)) return null;
+  return { start, end: start + value.length, value };
+}
+
+function nameSpans(text) {
+  const spans = [];
+  // Preserve titles and cues. Never use overlapping alternatives inside a
+  // cue-plus-name regex: backtracking from ค้นหา to ค้น consumed หา as a name.
+  const markers = [
+    new RegExp(TITLE_SRC, 'gu'),
+    /(?<!ราย)(?:ใครชื่อ|คนชื่อ|ชื่อว่า|ชื่อ|นามสกุล)/gu,
+    /(?:^|(?<=\s)|(?<=ช่วย)|(?<=ขอ))(?:ค้นหา|ค้น|หา)/gu,
+    /(?<=เลขบัตรประชาชน|หมายเลขโทรศัพท์|เบอร์โทรศัพท์)ของ/gu,
+  ];
+  for (const marker of markers) {
+    for (const match of text.matchAll(marker)) {
+      if (marker === markers[0] && internalTitle(text, match.index, match[0])) continue;
+      // คุณ in an ordinary product/help question is not a person-name cue.
+      if (match[0] === 'คุณ' && /^(?:คือ|เป็น|ช่วย|ทำ|มี|ใช้)/u.test(text.slice(match.index + match[0].length))) continue;
+      let offset = match.index + match[0].length;
+      // A search command may be followed by stacked name cues and a title.
+      // Keep that entire prefix visible, hiding just the name value.
+      const prefix = text.slice(offset).match(new RegExp(`^\\s*(?:(?:ชื่อว่า|ชื่อ)\\s*)?(?:${TITLE_SRC}\\s*)?`, 'u'))[0];
+      offset += prefix.length;
+      const span = nameAfter(text, offset);
+      if (span && !spans.some(s => span.start < s.end && s.start < span.end)) spans.push(span);
+    }
   }
+  return spans.sort((a, b) => a.start - b.start);
+}
+
+function internalTitle(text, index, title) {
+  const before = text.slice(0, index);
+  if (/(?:ตำบล|อำเภอ|เขต|จังหวัด|สถานี|สภ\.?|[ตอจ]\.)\s*[ก-๙]*$/u.test(before)) return true;
+  // ดช in เสพติดชื่อ is a word-internal overlap, not a child title.
+  return /^ด/.test(title) && /เสพติ$/u.test(before);
 }
 
 function sanitizeForCloud(rawText, options = {}) {
@@ -58,20 +90,9 @@ function sanitizeForCloud(rawText, options = {}) {
   const addRef = (kind, value) => {
     counters[kind] += 1;
     const ref = `[${kind}_${counters[kind]}]`;
-    mapping[ref] = normalizeCapturedName(value.trim());
-    out = out.replace(new RegExp(escapeRe(value.trim()), 'gu'), ref);
+    mapping[ref] = value.trim();
     return ref;
   };
-
-  // The interpreter prompt teaches "search carries the bare name, no title
-  // and no ชื่อ". Apply the same rule to the stored value so a restored
-  // plan matches what the local model would have produced.
-  function normalizeCapturedName(v) {
-    return v
-      .replace(/^(?:นาย|นางสาว|นาง|ด\.?ช\.?|ด\.?ญ\.?|เด็กชาย|เด็กหญิง|คุณ|ชื่อว่า|ชื่อ)\s*/u, '')
-      .replace(/^(?:เฉพาะ|บุคคล)\s*/u, '')
-      .trim() || v;
-  }
 
   // --- Regex layer. Long identifiers first so phone patterns cannot take
   // a substring out of them; phones before the generic long-number rule.
@@ -80,25 +101,20 @@ function sanitizeForCloud(rawText, options = {}) {
   out = out.replace(/\b\d{8,12}\b/gu, (m) => addRef('NUMBER', m));
   out = out.replace(/[\w.+-]+@[\w-]+\.[\w.]+/gu, (m) => addRef('EMAIL', m));
 
-  // --- Title-prefixed names: นายแดง ใจดี (1–3 Thai tokens).
-  out = out.replace(new RegExp(`${TITLE_SRC}\\s*${TOKEN_SRC}(?:\\s+${TOKEN_SRC}){0,2}${BOUNDARY_SRC}`, 'gu'),
-    (m) => addRef('PERSON', m));
-
-  // --- Cue + name: ค้นหาสมชาย / ใครชื่อสมหญิง. Placeholder text inserted
-  // by the digit/email rules is skipped automatically ([ is not [ก-๙]).
-  out = out.replace(new RegExp(`${CUE_SRC}(?!อะไร)(?!\\s*สภ)\\s*${TOKEN_SRC}(?:\\s+${TOKEN_SRC}){0,2}${BOUNDARY_SRC}`, 'gu'),
-    (m) => addRef('PERSON', m.replace(new RegExp(`^${CUE_SRC}\\s*`, 'u'), '')));
-
-  // --- Application context: a name the deterministic routing layer itself
-  // classifies as filters.query (belt and braces for uncued spellings).
-  for (const candidate of contextNameCandidates(text)) {
-    if (candidate && out.includes(candidate)) addRef('PERSON', candidate);
+  // Replace only offsets classified as names, from left to right. Substring
+  // replacement could also hide a same-spelled place or part of a category.
+  let cursor = 0;
+  let replaced = '';
+  for (const span of nameSpans(out)) {
+    replaced += out.slice(cursor, span.start) + addRef('PERSON', span.value);
+    cursor = span.end;
   }
+  out = replaced + out.slice(cursor);
 
   // Extra values the caller declares sensitive by definition (e.g. the
   // selected person display name).
   for (const extra of options.knownNames || []) {
-    if (extra && out.includes(extra)) addRef('PERSON', extra);
+    if (extra && out.includes(extra)) out = out.replace(new RegExp(escapeRe(extra), 'gu'), () => addRef('PERSON', extra));
   }
 
   return { safeText: out, mapping };
@@ -141,7 +157,10 @@ function restoreLocalReferences(value, mapping) {
 function assertCloudSafe(text, mapping = {}) {
   const t = toArabicDigits(String(text || ''));
   for (const real of Object.values(mapping)) {
-    if (real && t.includes(real)) return { ok: false, reason: 'MAPPING_LEAK' };
+    // A name can also be a place (นายเมือง อำเภอเมือง). Only that explicit
+    // place occurrence may remain; another occurrence still blocks egress.
+    const withoutPlaces = real ? t.replace(new RegExp(`(?:ตำบล|อำเภอ|เขต|จังหวัด|สถานี|สภ\\.?|[ตอจ]\\.)\\s*${escapeRe(real)}(?=$|\\s|ตำบล|อำเภอ|จังหวัด|สภ)`, 'gu'), '') : t;
+    if (real && withoutPlaces.includes(real)) return { ok: false, reason: 'MAPPING_LEAK' };
   }
   // Strip placeholders, then nothing sensitive-shaped may remain.
   const bare = t.replace(PLACEHOLDER_RE, ' ');
@@ -151,13 +170,21 @@ function assertCloudSafe(text, mapping = {}) {
   if (/[\w.+-]+@[\w-]+\.[\w.]+/.test(bare)) return { ok: false, reason: 'EMAIL' };
   if (/eyJ[A-Za-z0-9_-]{10,}/.test(bare)) return { ok: false, reason: 'JWT' };
   if (/(?:api[_-]?key|bearer|authorization)\s*[:=]/i.test(bare)) return { ok: false, reason: 'CREDENTIAL' };
-  if (new RegExp(`${TITLE_SRC}\\s*[ก-๙]{2,}`, 'u').test(bare)) return { ok: false, reason: 'TITLE_NAME' };
-  if (/รายชื่อ/.test(t)) return { ok: true };
-  // A cue that still introduces Thai text after placeholder stripping is
-  // suspicious — unless that text is a place cue legitimately following
-  // the stripped placeholder (ค้นหา[PERSON_1] ตำบลโพนสูง).
-  if (new RegExp(`(?:ค้นหา|ใครชื่อ|คนชื่อ|ชื่อว่า|นามสกุล)\\s*(?!ตำบล|อำเภอ|เขต|จังหวัด|สถานี|สภ\\.?)[ก-๙]`, 'u').test(bare)) {
-    return { ok: false, reason: 'UNCUED_NAME' };
+  // Check the exact outbound text, retaining placeholders as boundaries.
+  // Stripping one would make a preserved title appear to introduce a place.
+  if (nameSpans(t).length) return { ok: false, reason: new RegExp(TITLE_SRC, 'u').test(t) ? 'TITLE_NAME' : 'UNCUED_NAME' };
+  // Malformed/overlong values must not evade nameSpans' conservative parser.
+  const markers = new RegExp(`(?:${TITLE_SRC}|(?<!ราย)ชื่อ(?:ว่า)?|นามสกุล|ค้นหา|ค้น|หา)\\s*`, 'gu');
+  for (const match of t.matchAll(markers)) {
+    const title = match[0].trim();
+    if (new RegExp(`^${TITLE_SRC}$`, 'u').test(title)) {
+      if (internalTitle(t, match.index, title)) continue;
+      if (title === 'คุณ' && /^(?:คือ|เป็น|ช่วย|ทำ|มี|ใช้)/u.test(t.slice(match.index + match[0].length))) continue;
+    } else if (match.index > 0 && /[ก-๙]/u.test(t[match.index - 1])
+      && !/(?:ค้นหา|หา|ดู|ชื่อ|ชื่อว่า|ของ|และ|กับ|คือ|บุคคล|ผู้ใช้ยาเสพติด)$/u.test(t.slice(0, match.index))) continue;
+    const rest = t.slice(match.index + match[0].length);
+    if (!rest || rest.startsWith('[') || DOMAIN_START.test(rest) || new RegExp(`^${TITLE_SRC}|^ชื่อ`, 'u').test(rest)) continue;
+    if (/[ก-๙A-Za-z]/u.test(rest)) return { ok: false, reason: 'UNCUED_NAME' };
   }
   return { ok: true };
 }

@@ -89,12 +89,30 @@ test("the primary system's Thai spelling of the officer type is admitted",async(
   assert.ok(!res.logs.some(l=>l.includes('[real-auth]')));
 });
 
-test('the Thai spelling of External stays rejected with its stage code',async()=>{
-  const app=buildApp({password:OK_PASSWORD,users:{ok:true,status:200,json:async()=>[{user_id:8,username:'4648',name:'Example',user_type:'บุคคลภายนอก',station_id:2}]}});
-  const res=await captureLogs(()=>request(app).post('/login').send({username:'4648',password:'test-pin'}));
-  assert.equal(res.status,403);
-  assert.deepEqual(Object.keys(res.body),['error']);
-  assert.ok(res.logs.some(l=>l.includes('stage=user_type:บุคคลภายนอก')));
+test("the primary system's '+' type variants are admitted as their base class",async()=>{
+  const cases=[
+    {user_type:'super admin+',role:'admin',roleLabel:'ผู้ดูแลระบบหลัก'},
+    {user_type:'SuperAdmin+',role:'admin',roleLabel:'ผู้ดูแลระบบหลัก'},
+    {user_type:'admin+',role:'admin',roleLabel:'ผู้ดูแลระบบ'},
+    {user_type:'ผู้ใช้ทั่วไป+',role:'officer',roleLabel:'เจ้าหน้าที่'},
+    {user_type:'ผู้ดูแลระบบ+',role:'admin',roleLabel:'ผู้ดูแลระบบ'},
+  ];
+  for (const c of cases) {
+    const app=buildApp({password:OK_PASSWORD,users:{ok:true,status:200,json:async()=>[{user_id:8,username:'4648',name:'Example',user_type:c.user_type,station_id:2}]}});
+    const res=await request(app).post('/login').send({username:'4648',password:'test-pin'});
+    assert.equal(res.status,200,c.user_type);
+    assert.equal(res.body.user.role,c.role,c.user_type);
+    assert.equal(res.body.user.roleLabel,c.roleLabel,c.user_type);
+  }
+});
+
+test('external-unit spellings and unknown types fail closed with their stage code',async()=>{
+  for (const user_type of ['หน่วยนอก','External','บุคคลภายนอก','Guest','']) {
+    const app=buildApp({password:OK_PASSWORD,users:{ok:true,status:200,json:async()=>[{user_id:8,username:'4648',name:'Example',user_type,station_id:2}]}});
+    const res=await request(app).post('/login').send({username:'4648',password:'test-pin'});
+    assert.equal(res.status,403,user_type||'(empty)');
+    assert.deepEqual(Object.keys(res.body),['error'],user_type||'(empty)');
+  }
 });
 
 test('refresh 403 logs the failing profile stage after a valid grant',async()=>{

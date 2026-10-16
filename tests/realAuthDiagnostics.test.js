@@ -80,6 +80,23 @@ test('a successful login still returns the full session and logs no rejection',a
   assert.ok(!res.logs.some(l=>l.includes('[real-auth]')));
 });
 
+test("the primary system's Thai spelling of the officer type is admitted",async()=>{
+  const app=buildApp({password:OK_PASSWORD,users:{ok:true,status:200,json:async()=>[{user_id:8,username:'4648',name:'Example',user_type:'ผู้ใช้ทั่วไป',station_id:2}]}});
+  const res=await captureLogs(()=>request(app).post('/login').send({username:'4648',password:'test-pin'}));
+  assert.equal(res.status,200);
+  assert.equal(res.body.user.role,'officer');
+  assert.equal(res.body.user.roleLabel,'เจ้าหน้าที่');
+  assert.ok(!res.logs.some(l=>l.includes('[real-auth]')));
+});
+
+test('the Thai spelling of External stays rejected with its stage code',async()=>{
+  const app=buildApp({password:OK_PASSWORD,users:{ok:true,status:200,json:async()=>[{user_id:8,username:'4648',name:'Example',user_type:'บุคคลภายนอก',station_id:2}]}});
+  const res=await captureLogs(()=>request(app).post('/login').send({username:'4648',password:'test-pin'}));
+  assert.equal(res.status,403);
+  assert.deepEqual(Object.keys(res.body),['error']);
+  assert.ok(res.logs.some(l=>l.includes('stage=user_type:บุคคลภายนอก')));
+});
+
 test('refresh 403 logs the failing profile stage after a valid grant',async()=>{
   const app=buildApp({refresh:{ok:true,json:async()=>({access_token:'new-token',refresh_token:'rt-2',expires_in:3600})},users:{ok:true,status:200,json:async()=>[]}});
   const res=await captureLogs(()=>request(app).post('/refresh').send({refreshToken:'rt-1'}));

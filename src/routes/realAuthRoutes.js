@@ -27,6 +27,12 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
     const clean = value.trim().replace(/[^A-Za-z0-9ก-๙_.\- ]/g, '').slice(0, 40);
     return clean || 'other';
   }
+  // The primary system's users.user_type CHECK constraint allows both English
+  // and Thai spellings; its ManageUsers equivalence treats 'ผู้ใช้ทั่วไป' as
+  // the regular officer type ('User') and its station-read RLS grants those
+  // rows the same station scope. Admit the Thai spelling with officer role.
+  // External accounts ('External'/'บุคคลภายนอก') stay rejected.
+  const ADMITTED_USER_TYPES = ['User', 'ผู้ใช้ทั่วไป', 'Admin', 'SuperAdmin', 'ผู้ดูแลระบบ'];
   async function profile(token) {
     const headers = { apikey: key, Authorization: `Bearer ${token}` };
     const auth = await request(`${url}/auth/v1/user`, { headers, signal: AbortSignal.timeout(10000) });
@@ -40,7 +46,7 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
     const p = rows[0];
     // The primary profile is the authorization source.  Do not admit an
     // External account merely because it can present a valid Supabase token.
-    if (!['User', 'Admin', 'SuperAdmin', 'ผู้ดูแลระบบ'].includes(p.user_type)) return rejection('user_type', safeRoleLabel(p.user_type));
+    if (!ADMITTED_USER_TYPES.includes(p.user_type)) return rejection('user_type', safeRoleLabel(p.user_type));
     const { parseStationId } = require('../services/stationScope');
     const stationId = parseStationId(p.station_id);
     let station = null;
@@ -57,7 +63,7 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
     const aiScope = await aiTools.accessScope(token);
     return { id: p.user_id, username: p.username, name: p.name, stationId,
       stationName: station?.station_name || null, division: station?.division || null, province: station?.province || null,
-      roleLabel: { Admin: 'ผู้ดูแลระบบ', SuperAdmin: 'ผู้ดูแลระบบหลัก', User: 'เจ้าหน้าที่', 'ผู้ดูแลระบบ': 'ผู้ดูแลระบบ' }[p.user_type] || 'ผู้ใช้งาน',
+      roleLabel: { Admin: 'ผู้ดูแลระบบ', SuperAdmin: 'ผู้ดูแลระบบหลัก', User: 'เจ้าหน้าที่', 'ผู้ใช้ทั่วไป': 'เจ้าหน้าที่', 'ผู้ดูแลระบบ': 'ผู้ดูแลระบบ' }[p.user_type] || 'ผู้ใช้งาน',
       role: ['Admin', 'SuperAdmin', 'ผู้ดูแลระบบ'].includes(p.user_type) ? 'admin' : 'officer',
       aiScope, dataSource: 'real' };
   }

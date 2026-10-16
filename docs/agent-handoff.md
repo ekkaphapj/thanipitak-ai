@@ -1,4 +1,60 @@
-# Coding agent handoff — current as of 2026-10-08
+# Coding agent handoff — current as of 2026-10-16
+
+## 2026-10-16 real login fixed: user_type '+' variants (field report)
+
+Field report: officer badge **4648** could not log in on ฐานข้อมูลจริง
+with the correct PIN, error `ไม่พบบัญชีผู้ใช้ที่มีสิทธิ์ในระบบจริง`. Evidence
+chain: the Supabase password grant had succeeded (a wrong PIN returns the
+distinct 401 message), so the failure was inside `profile()` with no way
+to tell which stage rejected the account. Pilot/STT/Supabase were all
+healthy and the login logic was unchanged since officers 2367/2397/90
+last logged in successfully (audit `real_read_audit_logs`, Sep 29–Oct 2).
+The owner confirmed the cause: the primary system's user_type vocabulary
+now includes **'+' variants** (`ผู้ใช้ทั่วไป+`, `admin+`, `super admin+`;
+4648 is `super admin+`) plus หน่วยนอก — none of which appear in either
+local `udonpolice-datacenter` checkout, so exact-string allowlists drift.
+
+Changes on `phase-3.3-low-latency` (all pushed):
+
+- `98073a9` — stage-coded rejection diagnostics: `profile()` returns an
+  internal marker (`auth_user_http:<code>`, `users_http:<code>`,
+  `users_rows:<n>`, `user_type:<label>`) and login/refresh/me/authenticate
+  log one `[real-auth] rejected route=… stage=…` journald line. The marker
+  is never serialized into any HTTP response and carries no credentials
+  or personal data (fixed stage words, HTTP codes, row counts, role
+  labels).
+- `0f197c9` (supersedes `c1ae69d`) — `classifyUserType()` replaces the
+  allowlist: normalized (case/whitespace/zero-width-insensitive) tokens
+  classify superadmin/admin/officer across English + Thai spellings and
+  '+' variants; external spellings (หน่วยนอก/External/บุคคลภายนอก) reject;
+  unknown values fail closed. Role/roleLabel mapping preserved. The login
+  gate is not the data-plane authority — every read stays RLS-bound to
+  the caller's JWT through the audited routes.
+- Tests: `tests/realAuthDiagnostics.test.js` pins all owner-listed types,
+  '+' variants, external/unknown fail-closed, marker-never-leaks and the
+  unchanged officer-facing error. Full `npm test`: **585 tests, 27
+  suites, 0 failures** (mocked Supabase; no real credentials).
+
+**Deployed to the pilot 2026-10-16** via the documented pull+kill -9
+path: pilot fast-forwarded **`64b920e` → `0f197c9`**. This also shipped
+the previously-pending cloud-guard commit `8e1f515` (owner chose the
+fastest fix path after being told it rides along; it is covered by the
+same 585-test suite and does not touch the login path). Verified:
+`/api/health` 200, `ai.html` 200, STT `/health` ok (cuda), public
+`https://thanipitak-ai.policeshield4.com/ai.html` 200. Owner confirmed
+4648 logs in again. Server-side only — no Ctrl+F5 needed.
+
+Operational observations:
+
+- **`ai.policeshield4.com` no longer serves this app** (changed at the
+  tunnel level outside this session — not by this agent): `/ai.html`
+  returns 404 and the root serves a different "ระบบเอไอธานีพิทักษ์"
+  frontend. The working public URL is
+  `https://thanipitak-ai.policeshield4.com/ai.html`; do not send
+  officers to the legacy hostname.
+- The failed login morning also produced a fixture `login_failed` audit
+  row (08:07:58Z) from a test-mode attempt with badge 4648 before the
+  real-mode attempt — expected sequence, not a routing bug.
 
 ## 2026-10-08 session close-out and next-agent quick start
 

@@ -8,19 +8,39 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
     if (!url || !key) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่าการเชื่อมต่อฐานข้อมูลจริง', code: 'REAL_AUTH_NOT_CONFIGURED' });
     next();
   });
+  // Stage-coded rejection reasons for journald diagnostics. The marker is
+  // never serialized into an HTTP response and carries no credential or
+  // personal data: fixed stage words, HTTP status codes, row counts and the
+  // row's role label (a system enum, the same class of value the audit log
+  // already records).
+  function rejection(stage, detail) {
+    return { rejected: detail === undefined ? stage : `${stage}:${detail}` };
+  }
+  function rejected(user) {
+    return user && user.rejected ? user.rejected : null;
+  }
+  function logRejection(route, reason) {
+    console.log(`[real-auth] rejected route=${route} stage=${reason}`);
+  }
+  function safeRoleLabel(value) {
+    if (typeof value !== 'string' || !value.trim()) return 'empty';
+    const clean = value.trim().replace(/[^A-Za-z0-9ก-๙_.\- ]/g, '').slice(0, 40);
+    return clean || 'other';
+  }
   async function profile(token) {
     const headers = { apikey: key, Authorization: `Bearer ${token}` };
     const auth = await request(`${url}/auth/v1/user`, { headers, signal: AbortSignal.timeout(10000) });
-    if (!auth.ok) return null;
+    if (!auth.ok) return rejection('auth_user_http', auth.status);
     const identity = await auth.json();
     const result = await request(`${url}/rest/v1/users?select=user_id,username,name,station_id,user_type&auth_id=eq.${encodeURIComponent(identity.id)}`, { headers, signal: AbortSignal.timeout(10000) });
-    if (!result.ok) return null;
+    if (!result.ok) return rejection('users_http', result.status);
     const rows = await result.json();
-    if (!Array.isArray(rows) || rows.length !== 1) return null;
+    if (!Array.isArray(rows)) return rejection('users_rows', 'invalid');
+    if (rows.length !== 1) return rejection('users_rows', rows.length);
     const p = rows[0];
     // The primary profile is the authorization source.  Do not admit an
     // External account merely because it can present a valid Supabase token.
-    if (!['User', 'Admin', 'SuperAdmin', 'ผู้ดูแลระบบ'].includes(p.user_type)) return null;
+    if (!['User', 'Admin', 'SuperAdmin', 'ผู้ดูแลระบบ'].includes(p.user_type)) return rejection('user_type', safeRoleLabel(p.user_type));
     const { parseStationId } = require('../services/stationScope');
     const stationId = parseStationId(p.station_id);
     let station = null;
@@ -58,7 +78,9 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
       if (!result.ok) return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านฐานข้อมูลจริงไม่ถูกต้อง' });
       const session = await result.json();
       const user = await profile(session.access_token);
-      if (!user) return res.status(403).json({ error: 'ไม่พบบัญชีผู้ใช้ที่มีสิทธิ์ในระบบจริง' });
+      const reason = rejected(user);
+      if (reason) logRejection('login', reason);
+      if (!user || reason) return res.status(403).json({ error: 'ไม่พบบัญชีผู้ใช้ที่มีสิทธิ์ในระบบจริง' });
       return res.json(sessionPayload(session, user));
     } catch { return res.status(502).json({ error: 'ติดต่อระบบเข้าสู่ฐานข้อมูลจริงไม่ได้ กรุณาลองใหม่' }); }
   });
@@ -76,7 +98,9 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
       // Re-verify the whole profile after the refresh grant. A disabled or
       // demoted account fails closed here; the new token is never issued to it.
       const user = await profile(session.access_token);
-      if (!user) return res.status(403).json({ error: 'ไม่พบบัญชีผู้ใช้ที่มีสิทธิ์ในระบบจริง' });
+      const reason = rejected(user);
+      if (reason) logRejection('refresh', reason);
+      if (!user || reason) return res.status(403).json({ error: 'ไม่พบบัญชีผู้ใช้ที่มีสิทธิ์ในระบบจริง' });
       return res.json(sessionPayload(session, user));
     } catch { return res.status(502).json({ error: 'ติดต่อระบบเข้าสู่ฐานข้อมูลจริงไม่ได้ กรุณาลองใหม่' }); }
   });
@@ -84,7 +108,9 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
     try {
       const token = (req.get('Authorization') || '').replace(/^Bearer /, '');
       const user = token && await profile(token);
-      if (!user) return res.status(401).json({ error: 'กรุณาเข้าสู่ฐานข้อมูลจริงใหม่' });
+      const reason = rejected(user);
+      if (reason) logRejection('me', reason);
+      if (!user || reason) return res.status(401).json({ error: 'กรุณาเข้าสู่ฐานข้อมูลจริงใหม่' });
       return res.json({ user });
     } catch { return res.status(502).json({ error: 'ติดต่อฐานข้อมูลจริงไม่ได้' }); }
   });
@@ -92,7 +118,9 @@ function createRealAuthRoutes({ url = require('../realConfig').url, key = requir
     try {
       const token = (req.get('Authorization') || '').replace(/^Bearer /, '');
       const user = token && await profile(token);
-      if (!user) return res.status(401).json({error:'กรุณาเข้าสู่ระบบจริงใหม่'});
+      const reason = rejected(user);
+      if (reason) logRejection('authenticate', reason);
+      if (!user || reason) return res.status(401).json({error:'กรุณาเข้าสู่ระบบจริงใหม่'});
       req.user=user; req.realToken=token; next();
     } catch {res.status(502).json({error:'ตรวจสอบสิทธิ์ระบบจริงไม่ได้'});}
   };

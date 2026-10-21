@@ -140,6 +140,21 @@ function jobPayload(job) {
   };
 }
 
+function runGitSync(deps, done) {
+  // ดึงโค้ดใหม่จาก GitHub เข้าโฟลเดอร์โปรเจกต์ (codex ใน sandbox ห้ามใช้เน็ต
+  // จึงต้องให้ตัวเซิร์ฟเวอร์ pull แทน — ใช้หลังที่ codex คลาวด์ push งานมา)
+  const spawnFn = deps.spawn || spawn;
+  const projectDir = deps.projectDir || CODEX_PROJECT_DIR;
+  const proc = spawnFn('git', ['-C', projectDir, 'pull', '--ff-only', '--autostash'],
+    { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* gone */ } }, 120_000);
+  proc.stdout.on('data', (c) => { out += c.toString('utf8'); });
+  proc.stderr.on('data', (c) => { out += c.toString('utf8'); });
+  proc.on('error', (err) => { clearTimeout(timer); done(1, String(err.message || err)); });
+  proc.on('close', (rc) => { clearTimeout(timer); done(rc, out); });
+}
+
 function createCodexRoutes(options = {}) {
   const router = express.Router();
   const deps = {
@@ -192,6 +207,19 @@ function createCodexRoutes(options = {}) {
     state.job = job;
     runCodexJob(job, deps);
     res.json({ id: job.id });
+  });
+
+  router.post('/sync', gate, (req, res) => {
+    if (state.job && state.job.status === 'running') {
+      return res.status(409).json({ error: 'มีงาน codex กำลังทำอยู่ รอให้จบก่อนค่อยดึงโค้ด', code: 'BUSY' });
+    }
+    if (!fs.existsSync(deps.projectDir || CODEX_PROJECT_DIR)) {
+      return res.status(503).json({ error: `ไม่พบโฟลเดอร์โปรเจกต์ ${deps.projectDir || CODEX_PROJECT_DIR}`, code: 'NO_PROJECT' });
+    }
+    runGitSync(deps, (rc, output) => {
+      const trimmed = String(output).trim().slice(-2000);
+      res.json({ ok: rc === 0, code: rc === 0 ? 'SYNCED' : 'SYNC_FAILED', output: trimmed });
+    });
   });
 
   router.post('/reset', gate, (req, res) => {

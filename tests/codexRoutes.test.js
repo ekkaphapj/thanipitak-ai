@@ -179,4 +179,34 @@ describe('codex routes', () => {
       finished: null, threadId: null, usage: null, error: null, truncated: false };
     await request(app).post('/api/codex/reset').set(key).expect(409);
   });
+
+  test('sync runs git pull --ff-only --autostash and reports output', async () => {
+    const spawns = [];
+    const spawnFn = (cmd, args, opts) => {
+      assert.strictEqual(cmd, 'git');
+      assert.ok(args.includes('pull'));
+      assert.ok(args.includes('--ff-only'));
+      assert.strictEqual(opts.stdio[0], 'ignore');
+      const proc = new EventEmitter();
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.kill = () => {};
+      spawns.push(args);
+      setImmediate(() => {
+        proc.stdout.emit('data', Buffer.from('Already up to date.\n'));
+        proc.emit('close', 0);
+      });
+      return proc;
+    };
+    const app = makeApp('secret-key', spawnFn);
+    const res = await request(app).post('/api/codex/sync')
+      .set('X-Codex-Key', 'secret-key');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.match(res.body.output, /Already up to date/);
+    await request(app).post('/api/codex/sync').set('X-Codex-Key', 'nope').expect(401);
+    _state.job = { id: 'run', status: 'running', prompt: 'x', events: [], started: 1,
+      finished: null, threadId: null, usage: null, error: null, truncated: false };
+    await request(app).post('/api/codex/sync').set('X-Codex-Key', 'secret-key').expect(409);
+  });
 });

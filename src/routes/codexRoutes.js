@@ -69,7 +69,10 @@ function runCodexJob(job, deps) {
   const argv = codexArgs(job.prompt, state.threadId, deps);
   let proc;
   try {
-    proc = spawnFn(argv[0], argv.slice(1), { cwd: projectDir });
+    // stdin ต้อง ignore: codex exec รออ่าน stdin จนได้ EOF ถ้าปล่อยเป็น pipe จะค้างตลอดกาล
+    proc = spawnFn(argv[0], argv.slice(1), {
+      cwd: projectDir, stdio: ['ignore', 'pipe', 'pipe'],
+    });
   } catch (err) {
     job.status = 'error';
     job.error = `เปิด codex ไม่ได้: ${err.message}`;

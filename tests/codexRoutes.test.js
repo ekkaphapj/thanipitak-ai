@@ -9,6 +9,9 @@ const {
 
 function fakeSpawn(script) {
   return (cmd, args, opts) => {
+    // stdin ต้องถูกปิด ไม่งั้น codex exec รออ่าน stdin ค้าง (พบจาก e2e จริง)
+    assert.ok(opts && opts.stdio && opts.stdio[0] === 'ignore',
+      'spawn must ignore stdin (codex exec waits for stdin EOF)');
     const proc = new EventEmitter();
     proc.stdout = new EventEmitter();
     proc.stderr = new EventEmitter();

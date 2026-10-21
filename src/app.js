@@ -61,6 +61,10 @@ function createApp(db, options = {}) {
     res.json({ status: 'ok', service: 'thanipitak-ai-sandbox' });
   });
 
+  // Codex tasking อยู่ก่อนด่าน X-Data-Source: ใช้ด่านรหัสของตัวเอง (CODEX_PASSCODE)
+  app.use('/api/codex', require('./routes/codexRoutes')
+    .createCodexRoutes((options && options.codex) || {}));
+
   app.use('/api/auth', createAuthRoutes(db, audit));
   app.use('/api/persons', createPersonRoutes(db, audit, authRequired));
   app.use('/api/statistics', createStatisticRoutes(db, audit, authRequired));

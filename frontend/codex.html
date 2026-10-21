@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>🤖 Codex — ธานีพิทักษ์</title>
+<link rel="stylesheet" href="ai.css">
+<link rel="icon" href="thanipitak-logo.png">
+<style>
+:root{--bg:#101013;--panel:#17171b;--line:#2c2c31;--txt:#e9e6df;--dim:#a09a92;
+--red:#c2312a;--red-dark:#8f1a18;--green:#3f7d4e}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--txt);font-family:'Leelawadee UI','Segoe UI',system-ui,sans-serif;
+min-height:100dvh;display:flex;flex-direction:column}
+header.codex-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+header.codex-head img{width:34px;height:34px;object-fit:contain}
+header.codex-head h1{font-size:17px;font-weight:600}
+header.codex-head .sub{font-size:11.5px;color:var(--dim)}
+header.codex-head .grow{flex:1}
+.chip-btn{border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:8px;
+padding:7px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+.chip-btn:hover{border-color:var(--red);color:var(--txt)}
+#codex-layout{flex:1;display:flex;flex-direction:column;min-height:0;padding:12px 14px;max-width:860px;width:100%;margin:0 auto}
+#codex-log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:6px 2px;min-height:200px;scroll-behavior:smooth}
+.msg{max-width:88%;padding:11px 14px;border-radius:14px;font-size:14.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.user{align-self:flex-end;border:1px solid #a8453d;background:linear-gradient(120deg,var(--red-dark),var(--red));color:#fff;border-bottom-right-radius:4px}
+.msg.assistant{align-self:flex-start;border:1px solid #4a4446;background:#232226;color:#eae7e7;border-bottom-left-radius:4px}
+.msg.assistant.error{border-color:#a8453d;color:#ffb3ad}
+.msg.mini{font-size:12.5px;opacity:.92;color:#c9c4bd}
+.msg details summary{cursor:pointer;font-size:12px;color:var(--dim)}
+.msg pre{margin-top:5px;padding:9px 10px;border-radius:8px;background:#141416;border:1px solid #3c383a;overflow-x:auto;font-size:12.5px;white-space:pre-wrap}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--dim);text-align:center;font-size:14px;padding:26px 10px}
+.empty .big{font-size:44px}
+#codex-status{font-size:12.5px;color:var(--dim);min-height:18px;padding:6px 2px}
+#codex-form{display:flex;gap:8px;padding:10px 0 4px}
+#codex-input{flex:1;resize:none;border:1px solid var(--line);border-radius:12px;background:var(--panel);
+color:var(--txt);padding:11px 13px;font-size:15px;font-family:inherit;min-height:46px;max-height:150px}
+#codex-input:focus{outline:none;border-color:var(--red)}
+#codex-send{border:none;border-radius:12px;background:linear-gradient(120deg,var(--red-dark),var(--red));color:#fff;
+padding:0 18px;font-size:15px;cursor:pointer;font-family:inherit}
+#codex-send:disabled{opacity:.45;cursor:default}
+#gate{flex:1;display:flex;align-items:center;justify-content:center;padding:20px}
+#gate .box{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 22px;text-align:center}
+#gate img{width:56px;height:56px;object-fit:contain;margin-bottom:8px}
+#gate h2{font-size:17px;margin-bottom:4px}
+#gate p{font-size:13px;color:var(--dim);margin-bottom:16px}
+#gate input{width:100%;border:1px solid var(--line);border-radius:10px;background:var(--bg);
+color:var(--txt);padding:12px;font-size:15px;text-align:center;letter-spacing:1px;font-family:inherit}
+#gate input:focus{outline:none;border-color:var(--red)}
+#gate button{width:100%;margin-top:12px;border:none;border-radius:10px;padding:12px;font-size:15px;
+background:linear-gradient(120deg,var(--red-dark),var(--red));color:#fff;cursor:pointer;font-family:inherit}
+#gate .err{color:#ff9d96;font-size:13px;margin-top:10px;min-height:17px}
+.hidden{display:none!important}
+@media(max-width:600px){#codex-layout{padding:10px}}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="box">
+    <img src="thanipitak-logo.png" alt="ตราธานีพิทักษ์">
+    <h2>🤖 สั่งงาน Codex</h2>
+    <p>ใส่รหัส Codex เพื่อเริ่มใช้งาน<br>(แยกจากรหัสผ่านระบบอื่น — ขอจากผู้ดูแลเซิร์ฟเวอร์)</p>
+    <form id="gate-form">
+      <input id="gate-key" type="password" inputmode="text" autocomplete="off" placeholder="รหัส Codex" required>
+      <button type="submit">เข้าใช้งาน</button>
+      <div class="err" id="gate-err"></div>
+    </form>
+  </div>
+</div>
+
+<div id="codex-layout" class="hidden">
+  <header class="codex-head">
+    <img src="thanipitak-logo.png" alt="ตราธานีพิทักษ์">
+    <div>
+      <h1>🤖 Codex — แก้โค้ดธานีพิทักษ์</h1>
+      <div class="sub" id="codex-meta">…</div>
+    </div>
+    <div class="grow"></div>
+    <button class="chip-btn" id="codex-reset" type="button">🧹 เริ่มเซสชันใหม่</button>
+  </header>
+  <div id="codex-log">
+    <div class="empty" id="codex-empty">
+      <div class="big">🤖</div>
+      <b>สั่งงาน Codex แก้โค้ดระบบธานีพิทักษ์</b>
+      <span>พิมพ์งานแล้วกดส่ง — งานรันบนเซิร์ฟเวอร์<br>ปิดจอได้ กลับมาดูผลทีหลังได้</span>
+    </div>
+  </div>
+  <div id="codex-status"></div>
+  <form id="codex-form">
+    <textarea id="codex-input" rows="1" maxlength="4000" placeholder="เช่น อ่าน .agents/HANDOFF.md แล้วสรุปการเปลี่ยนแปลงล่าสุด…"></textarea>
+    <button id="codex-send" type="submit">ส่ง ➤</button>
+  </form>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+let key=sessionStorage.getItem("codexKey")||"";
+let jobId=null,rendered=0,pollTimer=null;
+
+async function api(path,opts){
+  const res=await fetch("/api/codex"+path,Object.assign({cache:"no-store"},opts,{
+    headers:Object.assign({"X-Codex-Key":key,"Content-Type":"application/json"},(opts&&opts.headers)||{})}));
+  const body=await res.json().catch(()=>({}));
+  if(!res.ok)throw Object.assign(new Error(body.error||res.statusText),{code:body.code,status:res.status});
+  return body;
+}
+function enter(ok){
+  $("gate").classList.toggle("hidden",ok);
+  $("codex-layout").classList.toggle("hidden",!ok);
+  if(ok&&!pollTimer){poll();pollTimer=setInterval(poll,3000)}
+}
+$("gate-form").addEventListener("submit",async e=>{
+  e.preventDefault();
+  key=$("gate-key").value.trim();
+  $("gate-err").textContent="";
+  try{await api("/status");sessionStorage.setItem("codexKey",key);enter(true)}
+  catch(err){$("gate-err").textContent=err.status===503?"ยังไม่เปิดใช้งานบนเซิร์ฟเวอร์":err.message}
+});
+if(key){api("/status").then(()=>enter(true)).catch(()=>sessionStorage.removeItem("codexKey"))}
+
+function bubble(role,cls){
+  const empty=$("codex-empty");if(empty)empty.remove();
+  const div=document.createElement("div");
+  div.className="msg "+role+(cls?" "+cls:"");
+  $("codex-log").appendChild(div);
+  $("codex-log").scrollTop=$("codex-log").scrollHeight;
+  return div;
+}
+function activity(text){
+  const div=bubble("assistant","mini");
+  div.textContent=text;
+  return div;
+}
+function renderEvent(evt){
+  const item=evt.item;
+  if(evt.type==="turn.started")return;
+  if(evt.type==="turn.completed"){
+    const u=evt.usage||{};
+    activity("✅ เสร็จ (โทเคน "+((u.input_tokens||u.cached_input_tokens||0))+"→"+(u.output_tokens||0)+")");return}
+  if(evt.type==="error"){bubble("assistant","error").textContent="⚠️ "+(evt.message||"codex error");return}
+  if(evt.type!=="item.completed"||!item)return;
+  if(item.type==="agent_message"){bubble("assistant").textContent=item.text||"(ไม่มีข้อความ)"}
+  else if(item.type==="command_execution"){
+    const div=activity("$ "+(item.command||"")+"  → exit "+(item.exit_code==null?"?":item.exit_code));
+    if(item.aggregated_output){
+      const d=document.createElement("details");
+      d.innerHTML="<summary>ผลลัพธ์</summary>";
+      const pre=document.createElement("pre");pre.textContent=item.aggregated_output;
+      d.appendChild(pre);div.appendChild(d);
+    }
+  }else if(item.type==="file_change"){
+    const files=(item.changes||[]).map(c=>c.path).filter(Boolean);
+    if(files.length)activity("📝 แก้ไฟล์: "+files.join(", "));
+  }else if(item.type==="error"){
+    bubble("assistant","error").textContent="⚠️ "+(item.message||"error");
+  }
+}
+function setStatus(t){$("codex-status").textContent=t||""}
+async function poll(){
+  let d;
+  try{d=await api("/status")}catch(err){
+    if(err.status===401){sessionStorage.removeItem("codexKey");location.reload()}
+    return;
+  }
+  $("codex-meta").textContent=(d.session_active?"สนทนาต่อเนื่อง":"เซสชันใหม่")+" · "+String(d.project_dir||"").split("/").pop();
+  const job=d.job;
+  const input=$("codex-input"),send=$("codex-send");
+  if(!job){input.disabled=false;send.disabled=false;setStatus("");return}
+  if(job.id!==jobId||job.events.length<rendered){
+    jobId=job.id;rendered=0;
+    $("codex-log").replaceChildren();
+    bubble("user").textContent=job.prompt;
+  }
+  for(const evt of job.events.slice(rendered))renderEvent(evt);
+  rendered=job.events.length;
+  const busy=job.status==="running";
+  input.disabled=busy;send.disabled=busy;
+  if(busy)setStatus("⚙️ กำลังทำงาน… (ปิดหน้านี้ได้ งานรันต่อบนเซิร์ฟเวอร์)");
+  else if(job.status==="error")setStatus("⚠️ "+(job.error||"ผิดพลาด"));
+  else setStatus("✅ เสร็จแล้ว — พิมพ์งานต่อได้ (สนทนาต่อเนื่อง)");
+}
+$("codex-form").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const input=$("codex-input"),prompt=input.value.trim();
+  if(!prompt||input.disabled)return;
+  input.value="";input.style.height="auto";
+  try{await api("/send",{method:"POST",body:JSON.stringify({prompt})});poll()}
+  catch(err){setStatus("⚠️ "+err.message)}
+});
+$("codex-input").addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("codex-form").requestSubmit()}
+});
+$("codex-input").addEventListener("input",e=>{
+  e.target.style.height="auto";e.target.style.height=Math.min(e.target.scrollHeight,150)+"px";
+});
+$("codex-reset").addEventListener("click",async()=>{
+  if(!confirm("เริ่มเซสชันใหม่? บทสนทนาเดิมจะไม่ถูกนำไปใช้ต่อ"))return;
+  try{
+    await api("/reset",{method:"POST"});
+    jobId=null;$("codex-log").replaceChildren();
+    $("codex-log").innerHTML='<div class="empty" id="codex-empty"><div class="big">🤖</div><b>เริ่มเซสชันใหม่แล้ว</b><span>พิมพ์งานแรกได้เลย</span></div>';
+    poll();
+  }catch(err){setStatus("⚠️ "+err.message)}
+});
+})();
+</script>
+</body>
+</html>
